@@ -1,0 +1,5 @@
+<Solution>
+  <Folder Name="/Source/">
+    <Project Path="Source/Net7ClientManager/Net7ClientManager.csproj" />
+  </Folder>
+</Solution>

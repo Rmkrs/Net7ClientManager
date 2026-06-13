@@ -1,0 +1,44 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: "10.x"
+
+    - name: Restore dependencies
+      run: dotnet restore Net7ClientManager.slnx
+
+    - name: Publish self-contained Windows x64
+      run: >
+        dotnet publish Source/Net7ClientManager/Net7ClientManager.csproj
+        --configuration Release
+        --runtime win-x64
+        --self-contained true
+        --output publish
+        -p:PublishSingleFile=false
+
+    - name: Zip published app
+      run: Compress-Archive -Path publish/* -DestinationPath Net7ClientManager-${{ github.ref_name }}-win-x64.zip
+      shell: pwsh
+
+    - name: Create GitHub release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: Net7ClientManager-${{ github.ref_name }}-win-x64.zip
+        generate_release_notes: true

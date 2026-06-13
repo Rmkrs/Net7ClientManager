@@ -61,11 +61,20 @@ public sealed partial class MainForm
             Location = new Point(x: 442, y: 33),
         };
 
+        this.startClientButton = new Button
+        {
+            Text = "Start Client",
+            Width = 90,
+            Height = 24,
+            Location = new Point(x: 520, y: 33),
+        };
+
         this.profileComboBox.SelectedIndexChanged += this.ProfileComboBox_OnSelectedIndexChanged;
         this.addProfileButton.Click += this.AddProfileButton_OnClick;
         this.renameProfileButton.Click += this.RenameProfileButton_OnClick;
         this.duplicateProfileButton.Click += this.DuplicateProfileButton_OnClick;
         this.deleteProfileButton.Click += this.DeleteProfileButton_OnClick;
+        this.startClientButton.Click += this.StartClientButton_OnClick;
 
         panel.Controls.Add(titleLabel);
         panel.Controls.Add(this.profileComboBox);
@@ -73,6 +82,7 @@ public sealed partial class MainForm
         panel.Controls.Add(this.renameProfileButton);
         panel.Controls.Add(this.duplicateProfileButton);
         panel.Controls.Add(this.deleteProfileButton);
+        panel.Controls.Add(this.startClientButton);
 
         return panel;
     }

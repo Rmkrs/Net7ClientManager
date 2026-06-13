@@ -16,6 +16,12 @@ public static partial class NativeMethods
     private const uint SwpNoActivate = 0x0010;
     private const uint SwpFrameChanged = 0x0020;
 
+    private const int WmKeyDown = 0x0100;
+    private const int WmKeyUp = 0x0101;
+    private const int VkEscape = 0x1B;
+
+    private const int BmClick = 0x00F5;
+
     private delegate bool EnumWindowsProc(IntPtr windowHandle, IntPtr parameter);
 
     public static IReadOnlyList<IntPtr> GetVisibleProcessWindows(int processId)
@@ -280,6 +286,34 @@ public static partial class NativeMethods
         IntPtr wParam,
         IntPtr lParam);
 
+    [LibraryImport("user32.dll", EntryPoint = "SetForegroundWindow")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool SetForegroundWindow(IntPtr windowHandle);
+
+    [LibraryImport("user32.dll", EntryPoint = "SetFocus")]
+    private static partial IntPtr SetFocus(IntPtr windowHandle);
+
+    [LibraryImport("user32.dll", EntryPoint = "PostMessageW", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool PostMessage(
+        IntPtr windowHandle,
+        int message,
+        IntPtr wParam,
+        IntPtr lParam);
+
+    [LibraryImport("user32.dll", EntryPoint = "FindWindowExW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    private static partial IntPtr FindWindowEx(
+        IntPtr parentWindowHandle,
+        IntPtr childAfterWindowHandle,
+        string? className,
+        string? windowTitle);
+
+    [LibraryImport("user32.dll", EntryPoint = "GetWindowTextLengthW", SetLastError = true)]
+    private static partial int GetWindowTextLength(IntPtr windowHandle);
+
+    [LibraryImport("user32.dll", EntryPoint = "GetWindowTextW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    private static partial int GetWindowText(IntPtr windowHandle, Span<char> text, int maxCount);
+
     public static void SendMoveWindowMessage(IntPtr windowHandle)
     {
         _ = SendMessage(
@@ -287,5 +321,143 @@ public static partial class NativeMethods
             WM_NCLBUTTONDOWN,
             new IntPtr(HTCAPTION),
             IntPtr.Zero);
+    }
+
+    public static void FocusWindow(IntPtr windowHandle)
+    {
+        if (windowHandle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        _ = SetForegroundWindow(windowHandle);
+        _ = SetFocus(windowHandle);
+    }
+
+    public static void SendEscape(IntPtr windowHandle)
+    {
+        if (windowHandle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        _ = PostMessage(windowHandle, WmKeyDown, new IntPtr(VkEscape), IntPtr.Zero);
+        _ = PostMessage(windowHandle, WmKeyUp, new IntPtr(VkEscape), IntPtr.Zero);
+    }
+
+    public static bool IsLauncherPlayButtonDisplayed(IntPtr windowHandle)
+    {
+        return FindLauncherPlayButton(windowHandle) != IntPtr.Zero;
+    }
+
+    public static bool ClickLauncherPlayButton(IntPtr windowHandle)
+    {
+        var buttonHandle = FindLauncherPlayButton(windowHandle);
+
+        if (buttonHandle == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        FocusWindow(windowHandle);
+        _ = SendMessage(buttonHandle, BmClick, IntPtr.Zero, IntPtr.Zero);
+
+        return true;
+    }
+
+    public static bool IsTosWindowDisplayed(int processId)
+    {
+        var windowHandle = FindProcessWindowWithTitleContains(processId, "Earth & Beyond");
+
+        if (windowHandle == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        return FindTosAgreeButton(windowHandle) != IntPtr.Zero;
+    }
+
+    public static bool AcceptTos(int processId)
+    {
+        var windowHandle = FindProcessWindowWithTitleContains(processId, "Earth & Beyond");
+
+        if (windowHandle == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        var buttonHandle = FindTosAgreeButton(windowHandle);
+
+        if (buttonHandle == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        FocusWindow(windowHandle);
+        _ = SendMessage(buttonHandle, BmClick, IntPtr.Zero, IntPtr.Zero);
+
+        return true;
+    }
+
+    private static IntPtr FindLauncherPlayButton(IntPtr windowHandle)
+    {
+        return FindWindowEx(
+            windowHandle,
+            IntPtr.Zero,
+            "WindowsForms10.BUTTON.app.0.2004eee",
+            "&Play");
+    }
+
+    private static IntPtr FindTosAgreeButton(IntPtr windowHandle)
+    {
+        return FindWindowEx(
+            windowHandle,
+            IntPtr.Zero,
+            "Button",
+            "I Agree");
+    }
+
+    private static IntPtr FindProcessWindowWithTitleContains(int processId, string titleText)
+    {
+        IntPtr result = IntPtr.Zero;
+
+        _ = EnumWindows((windowHandle, _) =>
+        {
+            var threadId = GetWindowThreadProcessId(windowHandle, out var windowProcessId);
+
+            if (threadId == 0 || windowProcessId != processId || !IsWindowVisible(windowHandle))
+            {
+                return true;
+            }
+
+            var title = GetWindowTextValue(windowHandle);
+
+            if (!title.Contains(titleText, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            result = windowHandle;
+            return false;
+        }, IntPtr.Zero);
+
+        return result;
+    }
+
+    private static string GetWindowTextValue(IntPtr windowHandle)
+    {
+        var length = GetWindowTextLength(windowHandle);
+
+        if (length <= 0)
+        {
+            return string.Empty;
+        }
+
+        Span<char> buffer = stackalloc char[length + 1];
+        var copied = GetWindowText(windowHandle, buffer, buffer.Length);
+
+        return copied <= 0
+            ? string.Empty
+            : new string(buffer[..copied]);
     }
 }

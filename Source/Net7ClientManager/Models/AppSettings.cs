@@ -8,6 +8,8 @@ public sealed class AppSettings
 
     public bool AutoAssignNewClients { get; init; } = true;
 
+    public string? PathToNet7Launcher { get; set; }
+
     public Guid? CurrentProfileId { get; set; }
 
     public List<LayoutProfile> Profiles { get; init; } = [];

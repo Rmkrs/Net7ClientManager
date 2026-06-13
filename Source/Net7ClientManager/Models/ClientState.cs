@@ -4,6 +4,14 @@ public enum ClientState
 {
     WaitingForGameWindow,
     Docked,
+
+    WaitingForTos,
+    AcceptingTos,
+
+    WaitingForSizzle,
+    WaitingForLogin,
+    LoginNameFilled,
+
     Closing,
     Stopped,
 }

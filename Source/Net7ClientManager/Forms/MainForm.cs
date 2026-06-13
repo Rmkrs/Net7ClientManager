@@ -19,6 +19,9 @@ public sealed partial class MainForm : Form
 
     private TextBox slotNameTextBox = null!;
     private TextBox accountNameTextBox = null!;
+    private Label passwordStatusLabel = null!;
+    private Button setPasswordButton = null!;
+    private Button clearPasswordButton = null!;
     private ComboBox resolutionComboBox = null!;
     private CheckBox autoLoginCheckBox = null!;
     private Label inputRiskWarningLabel = null!;
@@ -28,6 +31,8 @@ public sealed partial class MainForm : Form
 
     private Button saveSlotButton = null!;
     private FlowLayoutPanel runningClientsFlowPanel = null!;
+
+    private Button startClientButton = null!;
 
     private bool isUpdatingEditor;
     private bool isRefreshingProfileComboBox;
@@ -66,7 +71,7 @@ public sealed partial class MainForm : Form
         this.refreshTimer.Tick += this.RefreshTimer_OnTick;
         this.refreshTimer.Start();
 
-        this.LoadSelectedSlotIntoEditor(slot: null);
+        this.SelectDefaultSlot();
         this.RefreshAll();
     }
 
@@ -92,7 +97,26 @@ public sealed partial class MainForm : Form
         this.leftNumeric.ValueChanged -= this.LeftNumeric_OnValueChanged;
         this.saveSlotButton.Click -= this.SaveSlotButton_OnClick;
 
+        this.startClientButton.Click -= this.StartClientButton_OnClick;
+
+        this.setPasswordButton.Click -= this.SetPasswordButton_OnClick;
+        this.clearPasswordButton.Click -= this.ClearPasswordButton_OnClick;
+
         base.OnFormClosed(e);
+    }
+
+    private void SelectDefaultSlot()
+    {
+        var firstSlot = this.clientManager.CurrentProfile.Slots.FirstOrDefault();
+
+        this.layoutDesignerControl.SelectSlot(firstSlot);
+        this.LoadSelectedSlotIntoEditor(firstSlot);
+    }
+
+    private void StartClientButton_OnClick(object? sender, EventArgs e)
+    {
+        this.clientManager.StartClientFromLauncher(this);
+        this.RefreshAll();
     }
 
     private void RefreshTimer_OnTick(object? sender, EventArgs e)

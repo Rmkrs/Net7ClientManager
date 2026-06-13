@@ -237,6 +237,11 @@ public sealed partial class MainForm
         {
             ClientState.WaitingForGameWindow => "Waiting for window",
             ClientState.Docked => "Docked",
+            ClientState.WaitingForTos => "Waiting for TOS",
+            ClientState.AcceptingTos => "Accepting TOS",
+            ClientState.WaitingForSizzle => "Waiting for sizzle",
+            ClientState.WaitingForLogin => "Waiting for login",
+            ClientState.LoginNameFilled => "Login filled",
             ClientState.Closing => "Closing",
             ClientState.Stopped => "Stopped",
             _ => state.ToString(),

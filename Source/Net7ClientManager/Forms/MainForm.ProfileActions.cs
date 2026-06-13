@@ -56,7 +56,7 @@ public sealed partial class MainForm
         }
 
         this.clientManager.SwitchProfile(selectedProfile.ProfileId);
-        this.layoutDesignerControl.SelectSlot(slot: null);
+        this.SelectDefaultSlot();
         this.RefreshAll();
     }
 

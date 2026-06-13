@@ -1,9 +1,12 @@
+// ReSharper disable StringLiteralTypo
+// ReSharper disable LocalizableElement
 namespace Net7ClientManager.Core;
 
 using System.Diagnostics;
 using Net7ClientManager.Forms;
 using Net7ClientManager.Models;
 using Net7ClientManager.Services;
+using Net7ClientManager.Win32;
 
 public sealed class ClientManager : IDisposable
 {
@@ -15,6 +18,11 @@ public sealed class ClientManager : IDisposable
     private readonly System.Windows.Forms.Timer clientWindowTimer;
     private readonly SettingsStore settingsStore = new();
     private readonly AppSettings settings;
+    private static readonly TimeSpan loginFillDelayAfterSizzleInterrupt = TimeSpan.FromSeconds(3);
+    private LauncherAutomationSession? launcherSession;
+    private DateTimeOffset? expectManagerStartedClientUntil;
+    private static readonly TimeSpan managerStartedClientDetectionWindow = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan sizzleEscapeInterval = TimeSpan.FromMilliseconds(500);
 
     public ClientManager()
     {
@@ -72,13 +80,11 @@ public sealed class ClientManager : IDisposable
         this.SaveSettings();
     }
 
-    public LayoutProfile CreateProfile(string name)
+    public void CreateProfile(string name)
     {
-        var profile = this.settings.CreateProfile(name);
+        this.settings.CreateProfile(name);
         this.ReconcileClientAssignments();
         this.SaveSettings();
-
-        return profile;
     }
 
     public void SwitchProfile(Guid profileId)
@@ -131,6 +137,7 @@ public sealed class ClientManager : IDisposable
                 {
                     Name = slot.Name,
                     AccountName = slot.AccountName,
+                    ProtectedPassword = slot.ProtectedPassword,
                     Bounds = new WindowBounds
                     {
                         Left = slot.Bounds.Left,
@@ -139,6 +146,7 @@ public sealed class ClientManager : IDisposable
                         Height = slot.Bounds.Height,
                     },
                     AutoLogin = slot.AutoLogin,
+                    ResolutionPresetName = slot.ResolutionPresetName,
                 })],
         };
 
@@ -195,6 +203,39 @@ public sealed class ClientManager : IDisposable
             preset => string.Equals(preset.Name, this.settings.DefaultSlotResolutionPresetName, StringComparison.Ordinal))
         ?? this.settings.SlotResolutionPresets[0];
 
+    public void StartClientFromLauncher(IWin32Window owner)
+    {
+        var launcherPath = this.ResolveLauncherPath(owner);
+
+        if (launcherPath == null)
+        {
+            return;
+        }
+
+        var folder = Path.GetDirectoryName(launcherPath);
+
+        if (string.IsNullOrWhiteSpace(folder))
+        {
+            return;
+        }
+
+        var process = new Process
+        {
+            StartInfo = new ProcessStartInfo(launcherPath)
+            {
+                WorkingDirectory = folder,
+                UseShellExecute = true,
+                LoadUserProfile = true,
+            },
+        };
+
+        process.Start();
+
+        this.launcherSession = new LauncherAutomationSession
+        {
+            ProcessId = process.Id,
+        };
+    }
     private void ClientProcessStarted(int processId)
     {
         Process process;
@@ -210,10 +251,28 @@ public sealed class ClientManager : IDisposable
 
         var client = new ClientInstance(processId, process);
 
+        if (this.IsExpectedManagerStartedClient())
+        {
+            client.StartedByManager = true;
+            client.StartedByManagerAt = DateTimeOffset.UtcNow;
+            client.State = ClientState.WaitingForTos;
+            client.AutomationStatus = "Waiting for TOS";
+
+            this.expectManagerStartedClientUntil = null;
+
+            this.launcherSession?.State = LauncherAutomationState.ClientDetected;
+        }
+
         lock (this.lockObject)
         {
             this.clients[processId] = client;
         }
+    }
+
+    private bool IsExpectedManagerStartedClient()
+    {
+        return this.expectManagerStartedClientUntil != null
+               && DateTimeOffset.UtcNow <= this.expectManagerStartedClientUntil.Value;
     }
 
     private void ClientProcessStopped(int processId)
@@ -233,23 +292,49 @@ public sealed class ClientManager : IDisposable
 
     private void ClientWindowTimer_OnTick(object? sender, EventArgs e)
     {
+        this.TickLauncherAutomation();
+
         foreach (var client in this.Clients)
         {
-            if (client.State != ClientState.WaitingForGameWindow)
+            switch (client.State)
             {
-                continue;
+                case ClientState.WaitingForGameWindow:
+                    this.TryDockWaitingClient(client);
+                    break;
+
+                case ClientState.WaitingForTos:
+                case ClientState.AcceptingTos:
+                    this.TickStartedClientAutomation(client);
+                    break;
+
+                case ClientState.Docked:
+                    this.StartAutomationIfEnabled(client);
+                    break;
+
+                case ClientState.WaitingForSizzle:
+                case ClientState.WaitingForLogin:
+                    this.TickClientAutomation(client);
+                    break;
+                case ClientState.LoginNameFilled:
+                case ClientState.Closing:
+                case ClientState.Stopped:
+                default:
+                    break;
             }
-
-            var gameWindowHandle = this.clientWindowFinder.FindGameWindow(client.ProcessId);
-
-            if (gameWindowHandle is not { } resolvedGameWindowHandle)
-            {
-                continue;
-            }
-
-            client.GameWindowHandle = resolvedGameWindowHandle;
-            this.DockClient(client);
         }
+    }
+
+    private void TryDockWaitingClient(ClientInstance client)
+    {
+        var gameWindowHandle = this.clientWindowFinder.FindGameWindow(client.ProcessId);
+
+        if (gameWindowHandle is not { } resolvedGameWindowHandle)
+        {
+            return;
+        }
+
+        client.GameWindowHandle = resolvedGameWindowHandle;
+        this.DockClient(client);
     }
 
     private void DockClient(ClientInstance client)
@@ -262,6 +347,12 @@ public sealed class ClientManager : IDisposable
         var hostForm = new ClientHostForm(client, this.clientDockingService, this.CloseClient);
         client.HostForm = hostForm;
         client.State = ClientState.Docked;
+        client.DockedAt = DateTimeOffset.UtcNow;
+        client.SizzleInterruptedAt = null;
+        client.SizzleFilePath = null;
+        client.SizzleSeen = false;
+        client.LastSizzleEscapeSentAt = null;
+        client.LoginNameFilled = false;
 
         this.AutoAssignSlotsIfEnabled();
 
@@ -273,6 +364,197 @@ public sealed class ClientManager : IDisposable
         }
 
         hostForm.Show();
+
+        this.StartAutomationIfEnabled(client);
+    }
+
+    private void StartAutomationIfEnabled(ClientInstance client)
+    {
+        if (client.State != ClientState.Docked)
+        {
+            client.AutomationStatus = $"Not docked: {client.State}";
+
+            return;
+        }
+
+        var slot = this.GetAssignedSlot(client);
+
+        if (slot == null)
+        {
+            client.AutomationStatus = "No assigned slot";
+            return;
+        }
+
+        if (!slot.AutoLogin)
+        {
+            client.AutomationStatus = "Auto login off";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(slot.AccountName))
+        {
+            client.AutomationStatus = "No account name";
+            return;
+        }
+
+        client.DockedAt ??= DateTimeOffset.UtcNow;
+        client.SizzleInterruptedAt = null;
+        client.SizzleFilePath = null;
+        client.SizzleSeen = false;
+        client.LastSizzleEscapeSentAt = null;
+        client.LoginNameFilled = false;
+        client.AutomationStatus = "Waiting for sizzle";
+        client.State = ClientState.WaitingForSizzle;
+    }
+
+    private void TickClientAutomation(ClientInstance client)
+    {
+        if (client.GameWindowHandle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        if (client.Process.HasExited)
+        {
+            return;
+        }
+
+        var slot = this.GetAssignedSlot(client);
+
+        if (slot is not { AutoLogin: true }
+            || string.IsNullOrWhiteSpace(slot.AccountName))
+        {
+            client.State = ClientState.Docked;
+            return;
+        }
+
+        switch (client.State)
+        {
+            case ClientState.WaitingForSizzle:
+                this.WaitForSizzle(client);
+                return;
+
+            case ClientState.WaitingForLogin:
+                this.TryFillLoginName(client, slot);
+                return;
+
+            case ClientState.WaitingForGameWindow:
+            case ClientState.Docked:
+            case ClientState.WaitingForTos:
+            case ClientState.AcceptingTos:
+            case ClientState.LoginNameFilled:
+            case ClientState.Closing:
+            case ClientState.Stopped:
+            default:
+                return;
+        }
+    }
+
+    private void WaitForSizzle(ClientInstance client)
+    {
+        client.SizzleFilePath ??= TryResolveSizzleFilePath(client);
+
+        if (client.SizzleFilePath == null)
+        {
+            client.AutomationStatus = "Cannot find EB_Sizzle.bik";
+            return;
+        }
+
+        var canReadSizzle = CanReadExclusive(client.SizzleFilePath);
+
+        if (!canReadSizzle)
+        {
+            client.SizzleSeen = true;
+            client.AutomationStatus = "Skipping intro";
+
+            if (client.LastSizzleEscapeSentAt == null
+                || DateTimeOffset.UtcNow - client.LastSizzleEscapeSentAt.Value >= sizzleEscapeInterval)
+            {
+                NativeMethods.FocusWindow(client.GameWindowHandle);
+                NativeMethods.SendEscape(client.GameWindowHandle);
+
+                client.LastSizzleEscapeSentAt = DateTimeOffset.UtcNow;
+            }
+
+            return;
+        }
+
+        if (!client.SizzleSeen)
+        {
+            client.AutomationStatus = "Waiting for intro";
+            return;
+        }
+
+        client.AutomationStatus = "Intro skipped";
+        client.SizzleInterruptedAt = DateTimeOffset.UtcNow;
+        client.State = ClientState.WaitingForLogin;
+    }
+
+    private void TryFillLoginName(ClientInstance client, ClientSlot slot)
+    {
+        if (client.LoginNameFilled)
+        {
+            return;
+        }
+
+        if (client.SizzleInterruptedAt == null)
+        {
+            return;
+        }
+
+        if (DateTimeOffset.UtcNow - client.SizzleInterruptedAt.Value < loginFillDelayAfterSizzleInterrupt)
+        {
+            client.AutomationStatus = "Waiting for login";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(slot.AccountName))
+        {
+            client.AutomationStatus = "Missing account name";
+            return;
+        }
+
+        var password = PasswordProtector.Unprotect(slot.ProtectedPassword);
+
+        if (string.IsNullOrWhiteSpace(password))
+        {
+            client.AutomationStatus = "Missing password";
+            return;
+        }
+
+        NativeMethods.FocusWindow(client.GameWindowHandle);
+
+        SendKeys.SendWait("{TAB}");
+        SendKeys.SendWait("{TAB}");
+
+        SendKeys.SendWait("^a");
+        SendKeys.SendWait(EscapeSendKeysText(slot.AccountName));
+
+        SendKeys.SendWait("{TAB}");
+
+        SendKeys.SendWait("^a");
+        SendKeys.SendWait(EscapeSendKeysText(password));
+
+        SendKeys.SendWait("{ENTER}");
+
+        client.LoginNameFilled = true;
+        client.PasswordFilled = true;
+        client.LoginSubmitted = true;
+        client.AutomationStatus = "Login submitted";
+        client.State = ClientState.LoginNameFilled;
+    }
+
+    private static string EscapeSendKeysText(string value)
+    {
+        return value
+            .Replace("{", "{{}", StringComparison.Ordinal)
+            .Replace("}", "{}}", StringComparison.Ordinal)
+            .Replace("+", "{+}", StringComparison.Ordinal)
+            .Replace("^", "{^}", StringComparison.Ordinal)
+            .Replace("%", "{%}", StringComparison.Ordinal)
+            .Replace("~", "{~}", StringComparison.Ordinal)
+            .Replace("(", "{(}", StringComparison.Ordinal)
+            .Replace(")", "{)}", StringComparison.Ordinal);
     }
 
     private void CloseClient(ClientInstance client, CloseReason reason)
@@ -380,5 +662,227 @@ public sealed class ClientManager : IDisposable
                 client.HostForm?.ApplySlot(nextSlot);
             }
         }
+    }
+
+    private string? ResolveLauncherPath(IWin32Window owner)
+    {
+        if (IsValidLauncherPath(this.settings.PathToNet7Launcher))
+        {
+            return this.settings.PathToNet7Launcher;
+        }
+
+        using var dialog = new OpenFileDialog();
+        dialog.Title = "Select LaunchNet7.exe";
+        dialog.FileName = "LaunchNet7.exe";
+        dialog.Filter = "Net7 Launcher|LaunchNet7.exe|Executable files|*.exe|All files|*.*";
+        dialog.CheckFileExists = true;
+
+        if (dialog.ShowDialog(owner) != DialogResult.OK)
+        {
+            return null;
+        }
+
+        if (!IsValidLauncherPath(dialog.FileName))
+        {
+            return null;
+        }
+
+        this.settings.PathToNet7Launcher = dialog.FileName;
+        this.SaveSettings();
+
+        return dialog.FileName;
+    }
+
+    private static bool IsValidLauncherPath(string? path)
+    {
+        return !string.IsNullOrWhiteSpace(path)
+               && File.Exists(path)
+               && string.Equals(
+                   Path.GetFileName(path),
+                   "LaunchNet7.exe",
+                   StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void TickLauncherAutomation()
+    {
+        if (this.launcherSession == null || this.launcherSession.State == LauncherAutomationState.Stopped)
+        {
+            return;
+        }
+
+        Process launcherProcess;
+
+        try
+        {
+            launcherProcess = Process.GetProcessById(this.launcherSession.ProcessId);
+        }
+        catch (ArgumentException)
+        {
+            this.launcherSession.State = LauncherAutomationState.Stopped;
+            this.launcherSession = null;
+            return;
+        }
+
+        if (launcherProcess.HasExited)
+        {
+            this.launcherSession.State = LauncherAutomationState.Stopped;
+            this.launcherSession = null;
+            return;
+        }
+
+        switch (this.launcherSession.State)
+        {
+            case LauncherAutomationState.WaitingForPlayButton:
+                if (!NativeMethods.IsLauncherPlayButtonDisplayed(launcherProcess.MainWindowHandle))
+                {
+                    return;
+                }
+
+                this.launcherSession.State = LauncherAutomationState.ClickedPlayButton;
+                return;
+
+            case LauncherAutomationState.ClickedPlayButton:
+                if (!NativeMethods.ClickLauncherPlayButton(launcherProcess.MainWindowHandle))
+                {
+                    return;
+                }
+
+                this.expectManagerStartedClientUntil = DateTimeOffset.UtcNow + managerStartedClientDetectionWindow;
+                this.launcherSession.State = LauncherAutomationState.WaitingForClientProcess;
+                return;
+            case LauncherAutomationState.WaitingForClientProcess:
+            case LauncherAutomationState.ClientDetected:
+            case LauncherAutomationState.Stopped:
+            default:
+                return;
+        }
+    }
+
+    private void TickStartedClientAutomation(ClientInstance client)
+    {
+        if (!client.StartedByManager)
+        {
+            client.State = ClientState.WaitingForGameWindow;
+            return;
+        }
+
+        switch (client.State)
+        {
+            case ClientState.WaitingForTos:
+                if (!NativeMethods.IsTosWindowDisplayed(client.ProcessId))
+                {
+                    return;
+                }
+
+                client.State = ClientState.AcceptingTos;
+                client.AutomationStatus = "Accepting TOS";
+                return;
+
+            case ClientState.AcceptingTos:
+                if (!NativeMethods.AcceptTos(client.ProcessId))
+                {
+                    return;
+                }
+
+                client.AutomationStatus = "Waiting for window";
+                client.State = ClientState.WaitingForGameWindow;
+                return;
+            case ClientState.WaitingForGameWindow:
+            case ClientState.Docked:
+            case ClientState.WaitingForSizzle:
+            case ClientState.WaitingForLogin:
+            case ClientState.LoginNameFilled:
+            case ClientState.Closing:
+            case ClientState.Stopped:
+            default:
+                return;
+        }
+    }
+
+    private static string? TryResolveSizzleFilePath(ClientInstance client)
+    {
+        string? clientExecutablePath;
+
+        try
+        {
+            client.Process.Refresh();
+            clientExecutablePath = client.Process.MainModule?.FileName;
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(clientExecutablePath))
+        {
+            return null;
+        }
+
+        var releaseDirectory = Path.GetDirectoryName(clientExecutablePath);
+
+        if (string.IsNullOrWhiteSpace(releaseDirectory))
+        {
+            return null;
+        }
+
+        var gameRoot = Directory.GetParent(releaseDirectory)?.FullName;
+
+        if (string.IsNullOrWhiteSpace(gameRoot))
+        {
+            return null;
+        }
+
+        var sizzleFilePath = Path.Combine(
+            gameRoot,
+            "Data",
+            "client",
+            "mixfiles",
+            "EB_Sizzle.bik");
+
+        return File.Exists(sizzleFilePath)
+            ? sizzleFilePath
+            : null;
+    }
+
+    private static bool CanReadExclusive(string filePath)
+    {
+        try
+        {
+            using var stream = File.Open(
+                filePath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.None);
+
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private sealed class LauncherAutomationSession
+    {
+        public required int ProcessId { get; init; }
+
+        public LauncherAutomationState State { get; set; } = LauncherAutomationState.WaitingForPlayButton;
+    }
+
+    private enum LauncherAutomationState
+    {
+        WaitingForPlayButton,
+        ClickedPlayButton,
+        WaitingForClientProcess,
+        ClientDetected,
+        Stopped,
     }
 }

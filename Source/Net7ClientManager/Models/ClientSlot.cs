@@ -8,6 +8,8 @@ public sealed class ClientSlot
 
     public string? AccountName { get; set; }
 
+    public string? ProtectedPassword { get; set; }
+
     public WindowBounds Bounds { get; set; } = new();
 
     public bool AutoLogin { get; set; }

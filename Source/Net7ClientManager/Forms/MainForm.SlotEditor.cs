@@ -2,6 +2,7 @@
 namespace Net7ClientManager.Forms;
 
 using Net7ClientManager.Models;
+using Net7ClientManager.Services;
 
 public sealed partial class MainForm
 {
@@ -51,14 +52,14 @@ public sealed partial class MainForm
 
         table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, width: 80));
         table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, width: 50));
-        table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, width: 90));
+        table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, width: 110));
         table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, width: 50));
 
         table.RowStyles.Add(new RowStyle(SizeType.Absolute, height: 32));
         table.RowStyles.Add(new RowStyle(SizeType.Absolute, height: 32));
         table.RowStyles.Add(new RowStyle(SizeType.Absolute, height: 32));
         table.RowStyles.Add(new RowStyle(SizeType.Absolute, height: 34));
-        table.RowStyles.Add(new RowStyle(SizeType.Absolute, height: 44));
+        table.RowStyles.Add(new RowStyle(SizeType.Absolute, height: 34));
 
         this.slotNameTextBox = new TextBox
         {
@@ -69,6 +70,32 @@ public sealed partial class MainForm
         {
             Dock = DockStyle.Fill,
         };
+
+        this.passwordStatusLabel = new Label
+        {
+            Dock = DockStyle.Fill,
+            TextAlign = ContentAlignment.MiddleLeft,
+            ForeColor = Color.FromArgb(red: 90, green: 96, blue: 106),
+        };
+
+        this.setPasswordButton = new Button
+        {
+            Text = "Set...",
+            Width = 65,
+            Height = 28,
+            Anchor = AnchorStyles.Left | AnchorStyles.Top,
+        };
+
+        this.clearPasswordButton = new Button
+        {
+            Text = "Clear",
+            Width = 65,
+            Height = 28,
+            Anchor = AnchorStyles.Left | AnchorStyles.Top,
+        };
+
+        this.setPasswordButton.Click += this.SetPasswordButton_OnClick;
+        this.clearPasswordButton.Click += this.ClearPasswordButton_OnClick;
 
         this.autoLoginCheckBox = new CheckBox
         {
@@ -101,7 +128,7 @@ public sealed partial class MainForm
             Text = "Remove Slot",
             Width = 100,
             Height = 28,
-            Anchor = AnchorStyles.Left | AnchorStyles.Top,
+            Anchor = AnchorStyles.Right | AnchorStyles.Top,
         };
 
         this.saveSlotButton = new Button
@@ -129,30 +156,36 @@ public sealed partial class MainForm
         this.AddEditorLabel(table, "X", column: 2, row: 1);
         table.Controls.Add(this.leftNumeric, column: 3, row: 1);
 
-        this.AddEditorLabel(table, "Auto login", column: 0, row: 2);
-        table.Controls.Add(this.autoLoginCheckBox, column: 1, row: 2);
+        this.AddEditorLabel(table, "Password", column: 0, row: 2);
+
+        var passwordPanel = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty,
+        };
+
+        passwordPanel.Controls.Add(this.passwordStatusLabel);
+        passwordPanel.Controls.Add(this.setPasswordButton);
+        passwordPanel.Controls.Add(this.clearPasswordButton);
+
+        this.passwordStatusLabel.Width = 80;
+
+        table.Controls.Add(passwordPanel, column: 1, row: 2);
 
         this.AddEditorLabel(table, "Y", column: 2, row: 2);
         table.Controls.Add(this.topNumeric, column: 3, row: 2);
 
-        table.Controls.Add(this.inputRiskWarningLabel, column: 0, row: 3);
+        this.AddEditorLabel(table, "Auto login", column: 0, row: 3);
+        table.Controls.Add(this.autoLoginCheckBox, column: 1, row: 3);
+
+        table.Controls.Add(this.removeSlotButton, column: 2, row: 3);
+        table.Controls.Add(this.saveSlotButton, column: 3, row: 3);
+
+        table.Controls.Add(this.inputRiskWarningLabel, column: 0, row: 4);
         table.SetColumnSpan(this.inputRiskWarningLabel, value: 4);
-
-        var actionPanel = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 2,
-            RowCount = 1,
-        };
-
-        actionPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, width: 50));
-        actionPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, width: 50));
-
-        actionPanel.Controls.Add(this.removeSlotButton, column: 0, row: 0);
-        actionPanel.Controls.Add(this.saveSlotButton, column: 1, row: 0);
-
-        table.Controls.Add(actionPanel, column: 0, row: 4);
-        table.SetColumnSpan(actionPanel, value: 4);
 
         groupBox.Controls.Add(table);
 
@@ -218,6 +251,9 @@ public sealed partial class MainForm
 
             this.slotNameTextBox.Enabled = hasSlot;
             this.accountNameTextBox.Enabled = hasSlot;
+            this.passwordStatusLabel.Enabled = hasSlot;
+            this.setPasswordButton.Enabled = hasSlot;
+            this.clearPasswordButton.Enabled = hasSlot && !string.IsNullOrWhiteSpace(slot?.ProtectedPassword);
             this.resolutionComboBox.Enabled = hasSlot;
             this.autoLoginCheckBox.Enabled = hasSlot;
             this.leftNumeric.Enabled = hasSlot;
@@ -229,6 +265,8 @@ public sealed partial class MainForm
             {
                 this.slotNameTextBox.Text = string.Empty;
                 this.accountNameTextBox.Text = string.Empty;
+                this.passwordStatusLabel.Text = "Not set";
+                this.clearPasswordButton.Enabled = false;
                 this.autoLoginCheckBox.Checked = false;
                 this.leftNumeric.Value = 0;
                 this.topNumeric.Value = 0;
@@ -240,6 +278,9 @@ public sealed partial class MainForm
 
             this.slotNameTextBox.Text = slot.Name;
             this.accountNameTextBox.Text = slot.AccountName ?? string.Empty;
+            var hasPassword = !string.IsNullOrWhiteSpace(slot.ProtectedPassword);
+            this.passwordStatusLabel.Text = hasPassword ? "Set" : "Not set";
+            this.clearPasswordButton.Enabled = hasPassword;
             this.autoLoginCheckBox.Checked = slot.AutoLogin;
             this.leftNumeric.Value = slot.Bounds.Left;
             this.topNumeric.Value = slot.Bounds.Top;
@@ -320,6 +361,43 @@ public sealed partial class MainForm
         assignedClient?.HostForm?.ApplySlot(slot);
 
         this.layoutDesignerControl.Invalidate();
+    }
+
+    private void SetPasswordButton_OnClick(object? sender, EventArgs e)
+    {
+        var slot = this.layoutDesignerControl.SelectedSlot;
+
+        if (slot == null)
+        {
+            return;
+        }
+
+        using var dialog = new PasswordPromptForm();
+
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+        {
+            return;
+        }
+
+        slot.ProtectedPassword = PasswordProtector.Protect(dialog.Password);
+
+        this.clientManager.SaveSettings();
+        this.LoadSelectedSlotIntoEditor(slot);
+    }
+
+    private void ClearPasswordButton_OnClick(object? sender, EventArgs e)
+    {
+        var slot = this.layoutDesignerControl.SelectedSlot;
+
+        if (slot == null)
+        {
+            return;
+        }
+
+        slot.ProtectedPassword = null;
+
+        this.clientManager.SaveSettings();
+        this.LoadSelectedSlotIntoEditor(slot);
     }
 
     private void LeftNumeric_OnValueChanged(object? sender, EventArgs e)

@@ -2,7 +2,6 @@
 namespace Net7ClientManager.Forms;
 
 using Net7ClientManager.Models;
-using Net7ClientManager.Services;
 
 public sealed partial class MainForm
 {
@@ -66,37 +65,27 @@ public sealed partial class MainForm
             Dock = DockStyle.Fill,
         };
 
-        this.accountNameTextBox = new TextBox
+        this.accountComboBox = new ComboBox
         {
             Dock = DockStyle.Fill,
+            DropDownStyle = ComboBoxStyle.DropDownList,
         };
 
-        this.passwordStatusLabel = new Label
+        this.characterComboBox = new ComboBox
         {
             Dock = DockStyle.Fill,
-            TextAlign = ContentAlignment.MiddleLeft,
-            ForeColor = Color.FromArgb(red: 90, green: 96, blue: 106),
+            DropDownStyle = ComboBoxStyle.DropDownList,
         };
 
-        this.setPasswordButton = new Button
+        this.autoEnterGameCheckBox = new CheckBox
         {
-            Text = "Set...",
-            Width = 65,
-            Height = 28,
-            Anchor = AnchorStyles.Left | AnchorStyles.Top,
+            AutoSize = true,
+            Dock = DockStyle.Left,
+            Text = string.Empty,
         };
 
-        this.clearPasswordButton = new Button
-        {
-            Text = "Clear",
-            Width = 65,
-            Height = 28,
-            Anchor = AnchorStyles.Left | AnchorStyles.Top,
-        };
-
-        this.setPasswordButton.Click += this.SetPasswordButton_OnClick;
-        this.clearPasswordButton.Click += this.ClearPasswordButton_OnClick;
-
+        this.accountComboBox.SelectedIndexChanged += this.AccountComboBox_SelectedIndexChanged;
+        this.characterComboBox.SelectedIndexChanged += this.CharacterComboBox_SelectedIndexChanged;
         this.autoLoginCheckBox = new CheckBox
         {
             AutoSize = true,
@@ -131,18 +120,24 @@ public sealed partial class MainForm
             Anchor = AnchorStyles.Right | AnchorStyles.Top,
         };
 
-        this.saveSlotButton = new Button
+        var autoSaveLabel = new Label
         {
-            Text = "Save Slot",
-            Width = 90,
-            Height = 28,
-            Anchor = AnchorStyles.Right | AnchorStyles.Top,
+            Text = "Changes are saved automatically",
+            AutoSize = false,
+            Dock = DockStyle.Fill,
+            ForeColor = Color.FromArgb(red: 90, green: 96, blue: 106),
+            TextAlign = ContentAlignment.MiddleRight,
         };
 
+        this.accountComboBox.SelectedIndexChanged += this.AccountComboBox_SelectedIndexChanged;
+        this.characterComboBox.SelectedIndexChanged += this.CharacterComboBox_SelectedIndexChanged;
+
+        this.slotNameTextBox.Leave += this.SlotEditorValueChanged;
+        this.autoLoginCheckBox.CheckedChanged += this.SlotEditorValueChanged;
+        this.autoEnterGameCheckBox.CheckedChanged += this.SlotEditorValueChanged;
         this.resolutionComboBox.SelectedIndexChanged += this.ResolutionComboBox_OnSelectedIndexChanged;
         this.leftNumeric.ValueChanged += this.LeftNumeric_OnValueChanged;
-        this.removeSlotButton.Click += this.RemoveSlotButton_OnClick;
-        this.saveSlotButton.Click += this.SaveSlotButton_OnClick;
+        this.topNumeric.ValueChanged += this.TopNumeric_OnValueChanged;
 
         this.AddEditorLabel(table, "Name", column: 0, row: 0);
         table.Controls.Add(this.slotNameTextBox, column: 1, row: 0);
@@ -151,29 +146,13 @@ public sealed partial class MainForm
         table.Controls.Add(this.resolutionComboBox, column: 3, row: 0);
 
         this.AddEditorLabel(table, "Account", column: 0, row: 1);
-        table.Controls.Add(this.accountNameTextBox, column: 1, row: 1);
+        table.Controls.Add(this.accountComboBox, column: 1, row: 1);
 
         this.AddEditorLabel(table, "X", column: 2, row: 1);
         table.Controls.Add(this.leftNumeric, column: 3, row: 1);
 
-        this.AddEditorLabel(table, "Password", column: 0, row: 2);
-
-        var passwordPanel = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false,
-            Margin = Padding.Empty,
-            Padding = Padding.Empty,
-        };
-
-        passwordPanel.Controls.Add(this.passwordStatusLabel);
-        passwordPanel.Controls.Add(this.setPasswordButton);
-        passwordPanel.Controls.Add(this.clearPasswordButton);
-
-        this.passwordStatusLabel.Width = 80;
-
-        table.Controls.Add(passwordPanel, column: 1, row: 2);
+        this.AddEditorLabel(table, "Character", column: 0, row: 2);
+        table.Controls.Add(this.characterComboBox, column: 1, row: 2);
 
         this.AddEditorLabel(table, "Y", column: 2, row: 2);
         table.Controls.Add(this.topNumeric, column: 3, row: 2);
@@ -181,11 +160,14 @@ public sealed partial class MainForm
         this.AddEditorLabel(table, "Auto login", column: 0, row: 3);
         table.Controls.Add(this.autoLoginCheckBox, column: 1, row: 3);
 
-        table.Controls.Add(this.removeSlotButton, column: 2, row: 3);
-        table.Controls.Add(this.saveSlotButton, column: 3, row: 3);
+        this.AddEditorLabel(table, "Auto enter", column: 2, row: 3);
+        table.Controls.Add(this.autoEnterGameCheckBox, column: 3, row: 3);
+
+        table.Controls.Add(this.removeSlotButton, column: 2, row: 4);
+        table.Controls.Add(autoSaveLabel, column: 3, row: 4);
 
         table.Controls.Add(this.inputRiskWarningLabel, column: 0, row: 4);
-        table.SetColumnSpan(this.inputRiskWarningLabel, value: 4);
+        table.SetColumnSpan(this.inputRiskWarningLabel, value: 2);
 
         groupBox.Controls.Add(table);
 
@@ -250,23 +232,20 @@ public sealed partial class MainForm
             var hasSlot = slot != null;
 
             this.slotNameTextBox.Enabled = hasSlot;
-            this.accountNameTextBox.Enabled = hasSlot;
-            this.passwordStatusLabel.Enabled = hasSlot;
-            this.setPasswordButton.Enabled = hasSlot;
-            this.clearPasswordButton.Enabled = hasSlot && !string.IsNullOrWhiteSpace(slot?.ProtectedPassword);
+            this.accountComboBox.Enabled = hasSlot;
+            this.characterComboBox.Enabled = hasSlot;
+            this.autoEnterGameCheckBox.Enabled = hasSlot;
             this.resolutionComboBox.Enabled = hasSlot;
             this.autoLoginCheckBox.Enabled = hasSlot;
             this.leftNumeric.Enabled = hasSlot;
             this.topNumeric.Enabled = hasSlot;
             this.removeSlotButton.Enabled = hasSlot;
-            this.saveSlotButton.Enabled = hasSlot;
 
             if (slot == null)
             {
                 this.slotNameTextBox.Text = string.Empty;
-                this.accountNameTextBox.Text = string.Empty;
-                this.passwordStatusLabel.Text = "Not set";
-                this.clearPasswordButton.Enabled = false;
+                this.autoEnterGameCheckBox.Checked = false;
+                this.ReloadAccountAndCharacterCombos();
                 this.autoLoginCheckBox.Checked = false;
                 this.leftNumeric.Value = 0;
                 this.topNumeric.Value = 0;
@@ -277,11 +256,9 @@ public sealed partial class MainForm
             }
 
             this.slotNameTextBox.Text = slot.Name;
-            this.accountNameTextBox.Text = slot.AccountName ?? string.Empty;
-            var hasPassword = !string.IsNullOrWhiteSpace(slot.ProtectedPassword);
-            this.passwordStatusLabel.Text = hasPassword ? "Set" : "Not set";
-            this.clearPasswordButton.Enabled = hasPassword;
             this.autoLoginCheckBox.Checked = slot.AutoLogin;
+            this.autoEnterGameCheckBox.Checked = slot.AutoEnterGame;
+            this.ReloadAccountAndCharacterCombos();
             this.leftNumeric.Value = slot.Bounds.Left;
             this.topNumeric.Value = slot.Bounds.Top;
 
@@ -334,85 +311,204 @@ public sealed partial class MainForm
 
     private void ResolutionComboBox_OnSelectedIndexChanged(object? sender, EventArgs e)
     {
-        if (this.isUpdatingEditor)
-        {
-            return;
-        }
-
-        var slot = this.layoutDesignerControl.SelectedSlot;
-
-        if (slot == null)
-        {
-            return;
-        }
-
-        if (this.resolutionComboBox.SelectedItem is not ResolutionPresetComboBoxItem selectedPreset)
-        {
-            return;
-        }
-
-        slot.Bounds.Width = selectedPreset.Width;
-        slot.Bounds.Height = selectedPreset.Height;
-        slot.ResolutionPresetName = selectedPreset.Name;
-
-        this.clientManager.SaveSettings();
-
-        var assignedClient = this.clientManager.Clients.FirstOrDefault(client => client.AssignedSlotId == slot.Id);
-        assignedClient?.HostForm?.ApplySlot(slot);
-
-        this.layoutDesignerControl.Invalidate();
+        this.SaveSelectedSlotFromEditor();
     }
 
-    private void SetPasswordButton_OnClick(object? sender, EventArgs e)
+    private void ReloadAccountAndCharacterCombos()
     {
-        var slot = this.layoutDesignerControl.SelectedSlot;
+        var selectedSlot = this.layoutDesignerControl.SelectedSlot;
+        var selectedAccountId = selectedSlot?.AccountId;
 
-        if (slot == null)
+        var usedAccountIds = this.clientManager.CurrentProfile.Slots
+            .Where(slot => (selectedSlot == null || slot.Id != selectedSlot.Id) && slot.AccountId != null)
+            .Select(slot => slot.AccountId!.Value)
+            .ToHashSet();
+
+        var availableAccounts = this.clientManager.Accounts
+            .Where(account => account.Id == selectedAccountId || !usedAccountIds.Contains(account.Id))
+            .OrderBy(account => account.SortOrder)
+            .ThenBy(account => account.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(account => account.LoginName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        this.accountComboBox.BeginUpdate();
+
+        try
         {
-            return;
+            this.accountComboBox.Items.Clear();
+            this.accountComboBox.Items.Add(new AccountComboItem(AccountId: null, "(none)"));
+
+            foreach (var account in availableAccounts)
+            {
+                this.accountComboBox.Items.Add(new AccountComboItem(account.Id, account.ToString()));
+            }
+
+            var selectedAccount = this.accountComboBox.Items
+                .OfType<AccountComboItem>()
+                .FirstOrDefault(item => item.AccountId == selectedAccountId);
+
+            this.accountComboBox.SelectedItem = selectedAccount ?? this.accountComboBox.Items[0];
+        }
+        finally
+        {
+            this.accountComboBox.EndUpdate();
         }
 
-        using var dialog = new PasswordPromptForm();
-
-        if (dialog.ShowDialog(this) != DialogResult.OK)
-        {
-            return;
-        }
-
-        slot.ProtectedPassword = PasswordProtector.Protect(dialog.Password);
-
-        this.clientManager.SaveSettings();
-        this.LoadSelectedSlotIntoEditor(slot);
+        this.ReloadCharacterCombo();
     }
 
-    private void ClearPasswordButton_OnClick(object? sender, EventArgs e)
+    private void ReloadCharacterCombo()
     {
-        var slot = this.layoutDesignerControl.SelectedSlot;
+        var selectedSlot = this.layoutDesignerControl.SelectedSlot;
+        var accountId = (this.accountComboBox.SelectedItem as AccountComboItem)?.AccountId;
+        var account = this.clientManager.FindAccount(accountId);
 
-        if (slot == null)
+        this.characterComboBox.BeginUpdate();
+
+        try
         {
-            return;
+            this.characterComboBox.Items.Clear();
+            this.characterComboBox.Items.Add(new CharacterComboItem(CharacterId: null, "(none)"));
+
+            if (account != null)
+            {
+                foreach (var character in account.Characters)
+                {
+                    this.characterComboBox.Items.Add(new CharacterComboItem(character.Id, character.ToString()));
+                }
+            }
+
+            var selectedCharacter = this.characterComboBox.Items
+                .OfType<CharacterComboItem>()
+                .FirstOrDefault(item => item.CharacterId == selectedSlot?.CharacterId);
+
+            this.characterComboBox.SelectedItem = selectedCharacter ?? this.characterComboBox.Items[0];
         }
-
-        slot.ProtectedPassword = null;
-
-        this.clientManager.SaveSettings();
-        this.LoadSelectedSlotIntoEditor(slot);
+        finally
+        {
+            this.characterComboBox.EndUpdate();
+        }
     }
 
     private void LeftNumeric_OnValueChanged(object? sender, EventArgs e)
     {
+        this.UpdateInputRiskWarning(decimal.ToInt32(this.leftNumeric.Value) < 0);
+        this.SaveSelectedSlotFromEditor();
+    }
+
+    private void TopNumeric_OnValueChanged(object? sender, EventArgs e)
+    {
+        this.SaveSelectedSlotFromEditor();
+    }
+
+    private void AccountComboBox_SelectedIndexChanged(object? sender, EventArgs e)
+    {
         if (this.isUpdatingEditor)
         {
             return;
         }
 
-        this.UpdateInputRiskWarning(decimal.ToInt32(this.leftNumeric.Value) < 0);
+        var slot = this.layoutDesignerControl.SelectedSlot;
+
+        slot?.CharacterId = null;
+
+        this.isUpdatingEditor = true;
+
+        try
+        {
+            this.ReloadCharacterCombo();
+        }
+        finally
+        {
+            this.isUpdatingEditor = false;
+        }
+
+        this.SaveSelectedSlotFromEditor();
+    }
+
+    private void CharacterComboBox_SelectedIndexChanged(object? sender, EventArgs e)
+    {
+        this.SaveSelectedSlotFromEditor();
     }
 
     private void UpdateInputRiskWarning(bool hasInputRisk)
     {
         this.inputRiskWarningLabel.Visible = hasInputRisk;
+    }
+
+    private void SlotEditorValueChanged(object? sender, EventArgs e)
+    {
+        this.SaveSelectedSlotFromEditor();
+    }
+
+    private void SaveSelectedSlotFromEditor()
+    {
+        if (this.isUpdatingEditor)
+        {
+            return;
+        }
+
+        var slot = this.layoutDesignerControl.SelectedSlot;
+
+        if (slot == null)
+        {
+            return;
+        }
+
+        var selectedAccountId = (this.accountComboBox.SelectedItem as AccountComboItem)?.AccountId;
+        var selectedCharacterId = (this.characterComboBox.SelectedItem as CharacterComboItem)?.CharacterId;
+
+        if (selectedAccountId is { } accountId &&
+            this.clientManager.CurrentProfile.Slots.Exists(otherSlot =>
+                otherSlot.Id != slot.Id &&
+                otherSlot.AccountId == accountId))
+        {
+            MessageBox.Show(
+                this,
+                "This account is already assigned to another slot in this profile. Each account can only be used once per profile.",
+                "Account already assigned",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+
+            selectedAccountId = null;
+            selectedCharacterId = null;
+        }
+
+        slot.Name = this.slotNameTextBox.Text.Trim();
+
+        if (string.IsNullOrWhiteSpace(slot.Name))
+        {
+            slot.Name = "Unnamed Slot";
+            this.slotNameTextBox.Text = slot.Name;
+        }
+
+        slot.AccountId = selectedAccountId;
+        slot.CharacterId = selectedAccountId == null
+            ? null
+            : selectedCharacterId;
+
+        slot.AutoLogin = this.autoLoginCheckBox.Checked;
+        slot.AutoEnterGame = this.autoEnterGameCheckBox.Checked;
+
+        if (this.resolutionComboBox.SelectedItem is ResolutionPresetComboBoxItem selectedPreset)
+        {
+            slot.Bounds.Width = selectedPreset.Width;
+            slot.Bounds.Height = selectedPreset.Height;
+            slot.ResolutionPresetName = selectedPreset.Name;
+        }
+
+        slot.Bounds.Left = decimal.ToInt32(this.leftNumeric.Value);
+        slot.Bounds.Top = decimal.ToInt32(this.topNumeric.Value);
+
+        this.clientManager.SaveSettings();
+        this.clientManager.ReconcileClientsToCurrentProfile();
+
+        var assignedClient = this.clientManager.Clients.FirstOrDefault(client => client.AssignedSlotId == slot.Id);
+        assignedClient?.HostForm?.ApplySlot(slot);
+
+        this.UpdateInputRiskWarning(slot.Bounds.Left < 0);
+        this.layoutDesignerControl.Invalidate();
+        this.RefreshRunningClients();
     }
 
     private sealed class DoubleBufferedFlowLayoutPanel : FlowLayoutPanel

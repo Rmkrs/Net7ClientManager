@@ -1,7 +1,10 @@
 // ReSharper disable LocalizableElement
 namespace Net7ClientManager.Forms;
 
+using System.Globalization;
 using Net7ClientManager.Core;
+using Net7ClientManager.Models;
+
 public sealed partial class MainForm : Form
 {
     private readonly ClientManager clientManager;
@@ -18,10 +21,6 @@ public sealed partial class MainForm : Form
     private Button removeSlotButton = null!;
 
     private TextBox slotNameTextBox = null!;
-    private TextBox accountNameTextBox = null!;
-    private Label passwordStatusLabel = null!;
-    private Button setPasswordButton = null!;
-    private Button clearPasswordButton = null!;
     private ComboBox resolutionComboBox = null!;
     private CheckBox autoLoginCheckBox = null!;
     private Label inputRiskWarningLabel = null!;
@@ -29,13 +28,23 @@ public sealed partial class MainForm : Form
     private NumericUpDown leftNumeric = null!;
     private NumericUpDown topNumeric = null!;
 
-    private Button saveSlotButton = null!;
     private FlowLayoutPanel runningClientsFlowPanel = null!;
 
     private Button startClientButton = null!;
 
     private bool isUpdatingEditor;
     private bool isRefreshingProfileComboBox;
+
+    private Button accountsButton = null!;
+    private Button inputLabButton = null!;
+    private InputLabForm? inputLabForm;
+
+    private ComboBox accountComboBox = null!;
+    private ComboBox characterComboBox = null!;
+    private CheckBox autoEnterGameCheckBox = null!;
+
+    private Button createMissingClientsButton = null!;
+    private CheckBox keepClientsAliveCheckBox = null!;
 
     public MainForm(ClientManager clientManager)
     {
@@ -95,12 +104,17 @@ public sealed partial class MainForm : Form
 
         this.resolutionComboBox.SelectedIndexChanged -= this.ResolutionComboBox_OnSelectedIndexChanged;
         this.leftNumeric.ValueChanged -= this.LeftNumeric_OnValueChanged;
-        this.saveSlotButton.Click -= this.SaveSlotButton_OnClick;
 
         this.startClientButton.Click -= this.StartClientButton_OnClick;
 
-        this.setPasswordButton.Click -= this.SetPasswordButton_OnClick;
-        this.clearPasswordButton.Click -= this.ClearPasswordButton_OnClick;
+        this.accountsButton.Click -= this.AccountsButton_OnClick;
+        this.accountComboBox.SelectedIndexChanged -= this.AccountComboBox_SelectedIndexChanged;
+        this.characterComboBox.SelectedIndexChanged -= this.CharacterComboBox_SelectedIndexChanged;
+
+        this.inputLabButton.Click -= this.InputLabButton_OnClick;
+
+        this.createMissingClientsButton.Click -= this.CreateMissingClientsButton_OnClick;
+        this.keepClientsAliveCheckBox.CheckedChanged -= this.KeepClientsAliveCheckBox_OnCheckedChanged;
 
         base.OnFormClosed(e);
     }
@@ -117,6 +131,40 @@ public sealed partial class MainForm : Form
     {
         this.clientManager.StartClientFromLauncher(this);
         this.RefreshAll();
+    }
+
+    private void CreateMissingClientsButton_OnClick(object? sender, EventArgs e)
+    {
+        this.clientManager.CreateMissingClients(this);
+        this.RefreshAll();
+    }
+
+    private void KeepClientsAliveCheckBox_OnCheckedChanged(object? sender, EventArgs e)
+    {
+        this.clientManager.KeepClientsAlive = this.keepClientsAliveCheckBox.Checked;
+
+        if (this.keepClientsAliveCheckBox.Checked)
+        {
+            this.clientManager.CreateMissingClients(this);
+        }
+
+        this.RefreshAll();
+    }
+
+    private void AccountsButton_OnClick(object? sender, EventArgs e)
+    {
+        using var form = new AccountsForm(
+            this.clientManager.Accounts,
+            accounts =>
+            {
+                this.clientManager.SaveAccounts(accounts);
+                this.ReloadAccountAndCharacterCombos();
+                this.RefreshAll();
+            });
+
+        form.ShowDialog(this);
+
+        this.ReloadAccountAndCharacterCombos();
     }
 
     private void RefreshTimer_OnTick(object? sender, EventArgs e)
@@ -149,5 +197,62 @@ public sealed partial class MainForm : Form
         assignedClient?.HostForm?.ApplySlot(slot);
 
         this.RefreshAll();
+    }
+
+    private void InputLabButton_OnClick(object? sender, EventArgs e)
+    {
+        if (this.inputLabForm is { IsDisposed: false })
+        {
+            this.inputLabForm.Show();
+            this.inputLabForm.WindowState = FormWindowState.Normal;
+            this.inputLabForm.Activate();
+            return;
+        }
+
+        this.inputLabForm = new InputLabForm(
+            this.clientManager,
+            this.BuildInputLabClientDisplayName);
+
+        this.inputLabForm.FormClosed += (_, _) => this.inputLabForm = null;
+        this.inputLabForm.Show(this);
+    }
+
+    private string BuildInputLabClientDisplayName(ClientInstance client)
+    {
+        var slot = this.clientManager.CurrentProfile.Slots
+            .FirstOrDefault(slot => slot.Id == client.AssignedSlotId);
+
+        var slotName = slot?.Name ?? "Unassigned";
+        var accountName = this.GetAccountDisplayName(slot);
+
+        var account = string.IsNullOrWhiteSpace(accountName)
+            ? null
+            : string.Concat(" - ", accountName);
+
+        return string.Create(CultureInfo.InvariantCulture, $"{slotName}{account} - PID {client.ProcessId} - {client.State}");
+    }
+
+    private string? GetAccountDisplayName(ClientSlot? slot)
+    {
+        if (slot?.AccountId == null)
+        {
+            return null;
+        }
+
+        var account = this.clientManager.FindAccount(slot.AccountId);
+
+        if (account == null)
+        {
+            return "Unknown account";
+        }
+
+        if (!string.IsNullOrWhiteSpace(account.DisplayName))
+        {
+            return account.DisplayName;
+        }
+
+        return string.IsNullOrWhiteSpace(account.LoginName)
+            ? "Unnamed account"
+            : account.LoginName;
     }
 }

@@ -12,6 +12,9 @@ public enum ClientState
     WaitingForLogin,
     LoginNameFilled,
 
+    WaitingForCharacterSelect,
+    EnteringGame,
+
     Closing,
     Stopped,
 }

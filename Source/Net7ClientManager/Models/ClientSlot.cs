@@ -15,4 +15,10 @@ public sealed class ClientSlot
     public bool AutoLogin { get; set; }
 
     public string? ResolutionPresetName { get; set; }
+
+    public Guid? AccountId { get; set; }
+
+    public Guid? CharacterId { get; set; }
+
+    public bool AutoEnterGame { get; set; }
 }

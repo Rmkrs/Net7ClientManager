@@ -17,4 +17,20 @@ public sealed partial class MainForm
             return this.Name;
         }
     }
+
+    private sealed record AccountComboItem(Guid? AccountId, string Text)
+    {
+        public override string ToString()
+        {
+            return this.Text;
+        }
+    }
+
+    private sealed record CharacterComboItem(Guid? CharacterId, string Text)
+    {
+        public override string ToString()
+        {
+            return this.Text;
+        }
+    }
 }

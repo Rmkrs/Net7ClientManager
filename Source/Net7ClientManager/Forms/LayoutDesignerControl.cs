@@ -1223,9 +1223,9 @@ public sealed class LayoutDesignerControl : Control
 
         y += 20;
 
-        var accountText = string.IsNullOrWhiteSpace(slot.AccountName)
+        var accountText = slot.AccountId == null
             ? "No account"
-            : slot.AccountName;
+            : "Account assigned";
 
         graphics.DrawString(accountText, detailFont, mutedBrush, x, y);
 

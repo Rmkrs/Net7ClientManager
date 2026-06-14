@@ -79,11 +79,7 @@ public sealed class ClientHostForm : Form
 
     public void ApplySlot(ClientSlot slot)
     {
-        var title = string.IsNullOrWhiteSpace(slot.AccountName)
-            ? slot.Name
-            : string.Concat(slot.Name, " - ", slot.AccountName);
-
-        this.SetHostTitle(title);
+        this.SetHostTitle(slot.Name);
 
         this.StartPosition = FormStartPosition.Manual;
         this.Location = new Point(slot.Bounds.Left, slot.Bounds.Top);

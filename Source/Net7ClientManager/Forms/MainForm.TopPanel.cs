@@ -1,6 +1,8 @@
 // ReSharper disable LocalizableElement
 namespace Net7ClientManager.Forms;
 
+using System.Diagnostics;
+
 public sealed partial class MainForm
 {
     private Control CreateTopPanel()
@@ -69,12 +71,47 @@ public sealed partial class MainForm
             Location = new Point(x: 520, y: 33),
         };
 
+        this.createMissingClientsButton = new Button
+        {
+            Text = "Create Missing",
+            Width = 105,
+            Height = 24,
+            Location = new Point(x: 620, y: 33),
+        };
+
+        this.keepClientsAliveCheckBox = new CheckBox
+        {
+            Text = "Keep alive",
+            AutoSize = true,
+            Location = new Point(x: 735, y: 36),
+        };
+
+        this.accountsButton = new Button
+        {
+            Text = "Accounts",
+            Width = 90,
+            Height = 24,
+            Location = new Point(x: 835, y: 33),
+        };
+
+        this.inputLabButton = new Button
+        {
+            Text = "Input Lab",
+            Width = 90,
+            Height = 24,
+            Location = new Point(x: 935, y: 33),
+        };
+
+        this.accountsButton.Click += this.AccountsButton_OnClick;
         this.profileComboBox.SelectedIndexChanged += this.ProfileComboBox_OnSelectedIndexChanged;
         this.addProfileButton.Click += this.AddProfileButton_OnClick;
         this.renameProfileButton.Click += this.RenameProfileButton_OnClick;
         this.duplicateProfileButton.Click += this.DuplicateProfileButton_OnClick;
         this.deleteProfileButton.Click += this.DeleteProfileButton_OnClick;
         this.startClientButton.Click += this.StartClientButton_OnClick;
+        this.createMissingClientsButton.Click += this.CreateMissingClientsButton_OnClick;
+        this.keepClientsAliveCheckBox.CheckedChanged += this.KeepClientsAliveCheckBox_OnCheckedChanged;
+        this.inputLabButton.Click += this.InputLabButton_OnClick;
 
         panel.Controls.Add(titleLabel);
         panel.Controls.Add(this.profileComboBox);
@@ -83,6 +120,12 @@ public sealed partial class MainForm
         panel.Controls.Add(this.duplicateProfileButton);
         panel.Controls.Add(this.deleteProfileButton);
         panel.Controls.Add(this.startClientButton);
+        panel.Controls.Add(this.createMissingClientsButton);
+        panel.Controls.Add(this.keepClientsAliveCheckBox);
+        panel.Controls.Add(this.accountsButton);
+        panel.Controls.Add(this.inputLabButton);
+
+        this.inputLabButton.Visible = Debugger.IsAttached;
 
         return panel;
     }

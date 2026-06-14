@@ -3,6 +3,7 @@
 namespace Net7ClientManager.Core;
 
 using System.Diagnostics;
+using System.Globalization;
 using Net7ClientManager.Forms;
 using Net7ClientManager.Models;
 using Net7ClientManager.Services;
@@ -23,10 +24,18 @@ public sealed class ClientManager : IDisposable
     private DateTimeOffset? expectManagerStartedClientUntil;
     private static readonly TimeSpan managerStartedClientDetectionWindow = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan sizzleEscapeInterval = TimeSpan.FromMilliseconds(500);
+    private readonly GameAccountStore gameAccountStore = new();
+    private List<GameAccount> accounts;
+    private bool createMissingClientsRequested;
+    private DateTimeOffset? nextMissingClientStartAllowedAt;
+    private IWin32Window? automationOwner;
+    private static readonly TimeSpan missingClientStartCooldown = TimeSpan.FromSeconds(2);
+    private const string LoginScreenUsernameClickActionName = "Login Screen Username";
 
     public ClientManager()
     {
         this.settings = this.settingsStore.Load();
+        this.accounts = this.gameAccountStore.Load();
 
         this.clientProcessWatcher = new ClientProcessWatcher(this.ClientProcessStarted, this.ClientProcessStopped);
 
@@ -51,6 +60,10 @@ public sealed class ClientManager : IDisposable
 
     public LayoutProfile CurrentProfile => this.settings.GetOrCreateCurrentProfile();
 
+    public IReadOnlyList<GameAccount> Accounts => this.accounts;
+
+    public bool KeepClientsAlive { get; set; }
+
     public void Start()
     {
         this.clientProcessWatcher.Start();
@@ -73,6 +86,13 @@ public sealed class ClientManager : IDisposable
     }
 
     public IReadOnlyList<LayoutProfile> Profiles => this.settings.Profiles;
+
+    public void CreateMissingClients(IWin32Window owner)
+    {
+        this.automationOwner = owner;
+        this.createMissingClientsRequested = true;
+        this.TickClientCreationAutomation();
+    }
 
     public void ReconcileClientsToCurrentProfile()
     {
@@ -136,8 +156,9 @@ public sealed class ClientManager : IDisposable
                 .Select(slot => new ClientSlot
                 {
                     Name = slot.Name,
-                    AccountName = slot.AccountName,
-                    ProtectedPassword = slot.ProtectedPassword,
+                    AccountId = slot.AccountId,
+                    CharacterId = slot.CharacterId,
+                    AutoEnterGame = slot.AutoEnterGame,
                     Bounds = new WindowBounds
                     {
                         Left = slot.Bounds.Left,
@@ -182,6 +203,15 @@ public sealed class ClientManager : IDisposable
         this.SaveSettings();
     }
 
+    public void SaveAccounts(IReadOnlyCollection<GameAccount> gameAccounts)
+    {
+        this.accounts = [.. gameAccounts
+            .OrderBy(account => account.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(account => account.LoginName, StringComparer.OrdinalIgnoreCase)];
+
+        this.gameAccountStore.Save(this.accounts);
+    }
+
     public void Dispose()
     {
         this.clientWindowTimer.Stop();
@@ -205,6 +235,8 @@ public sealed class ClientManager : IDisposable
 
     public void StartClientFromLauncher(IWin32Window owner)
     {
+        this.automationOwner = owner;
+
         var launcherPath = this.ResolveLauncherPath(owner);
 
         if (launcherPath == null)
@@ -259,8 +291,7 @@ public sealed class ClientManager : IDisposable
             client.AutomationStatus = "Waiting for TOS";
 
             this.expectManagerStartedClientUntil = null;
-
-            this.launcherSession?.State = LauncherAutomationState.ClientDetected;
+            this.launcherSession = null;
         }
 
         lock (this.lockObject)
@@ -313,14 +344,83 @@ public sealed class ClientManager : IDisposable
 
                 case ClientState.WaitingForSizzle:
                 case ClientState.WaitingForLogin:
+                case ClientState.WaitingForCharacterSelect:
                     this.TickClientAutomation(client);
                     break;
+
                 case ClientState.LoginNameFilled:
+                case ClientState.EnteringGame:
                 case ClientState.Closing:
                 case ClientState.Stopped:
                 default:
                     break;
             }
+        }
+
+        this.TickClientCreationAutomation();
+    }
+
+    private void TickClientCreationAutomation()
+    {
+        if (!this.createMissingClientsRequested && !this.KeepClientsAlive)
+        {
+            return;
+        }
+
+        if (this.automationOwner == null)
+        {
+            return;
+        }
+
+        if (this.launcherSession != null)
+        {
+            return;
+        }
+
+        if (this.IsWaitingForExpectedManagerStartedClient())
+        {
+            return;
+        }
+
+        if (this.nextMissingClientStartAllowedAt != null &&
+            DateTimeOffset.UtcNow < this.nextMissingClientStartAllowedAt.Value)
+        {
+            return;
+        }
+
+        if (this.HasClientStillStarting())
+        {
+            return;
+        }
+
+        ClientSlot? missingSlot;
+
+        lock (this.lockObject)
+        {
+            missingSlot = this.CurrentProfile.Slots.FirstOrDefault(slot => !this.IsSlotSatisfied(slot));
+        }
+
+        if (missingSlot == null)
+        {
+            this.createMissingClientsRequested = false;
+            return;
+        }
+
+        this.StartClientFromLauncher(this.automationOwner);
+        this.nextMissingClientStartAllowedAt = DateTimeOffset.UtcNow + missingClientStartCooldown;
+    }
+
+    private bool HasClientStillStarting()
+    {
+        lock (this.lockObject)
+        {
+            return this.clients.Values.Any(client =>
+                                               client.State is ClientState.WaitingForGameWindow
+                                                   or ClientState.WaitingForTos
+                                                   or ClientState.AcceptingTos
+                                                   or ClientState.WaitingForSizzle
+                                                   or ClientState.WaitingForLogin
+                                                   or ClientState.WaitingForCharacterSelect);
         }
     }
 
@@ -391,9 +491,9 @@ public sealed class ClientManager : IDisposable
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(slot.AccountName))
+        if (slot.AccountId == null)
         {
-            client.AutomationStatus = "No account name";
+            client.AutomationStatus = "No account";
             return;
         }
 
@@ -405,6 +505,22 @@ public sealed class ClientManager : IDisposable
         client.LoginNameFilled = false;
         client.AutomationStatus = "Waiting for sizzle";
         client.State = ClientState.WaitingForSizzle;
+    }
+
+    private bool IsWaitingForExpectedManagerStartedClient()
+    {
+        if (this.expectManagerStartedClientUntil == null)
+        {
+            return false;
+        }
+
+        if (DateTimeOffset.UtcNow <= this.expectManagerStartedClientUntil.Value)
+        {
+            return true;
+        }
+
+        this.expectManagerStartedClientUntil = null;
+        return false;
     }
 
     private void TickClientAutomation(ClientInstance client)
@@ -421,8 +537,7 @@ public sealed class ClientManager : IDisposable
 
         var slot = this.GetAssignedSlot(client);
 
-        if (slot is not { AutoLogin: true }
-            || string.IsNullOrWhiteSpace(slot.AccountName))
+        if (slot is not { AutoLogin: true } || slot.AccountId == null)
         {
             client.State = ClientState.Docked;
             return;
@@ -438,11 +553,17 @@ public sealed class ClientManager : IDisposable
                 this.TryFillLoginName(client, slot);
                 return;
 
+
+            case ClientState.WaitingForCharacterSelect:
+                this.TryEnterGame(client);
+                break;
+
             case ClientState.WaitingForGameWindow:
             case ClientState.Docked:
             case ClientState.WaitingForTos:
             case ClientState.AcceptingTos:
             case ClientState.LoginNameFilled:
+            case ClientState.EnteringGame:
             case ClientState.Closing:
             case ClientState.Stopped:
             default:
@@ -508,27 +629,36 @@ public sealed class ClientManager : IDisposable
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(slot.AccountName))
+        var account = this.FindAccount(slot.AccountId);
+
+        if (account == null)
         {
-            client.AutomationStatus = "Missing account name";
+            client.AutomationStatus = "Missing account";
             return;
         }
 
-        var password = PasswordProtector.Unprotect(slot.ProtectedPassword);
+        if (string.IsNullOrWhiteSpace(account.LoginName))
+        {
+            client.AutomationStatus = "Missing login name";
+            return;
+        }
 
-        if (string.IsNullOrWhiteSpace(password))
+        var password = PasswordProtector.Unprotect(account.ProtectedPassword);
+
+        if (string.IsNullOrEmpty(password))
         {
             client.AutomationStatus = "Missing password";
             return;
         }
 
-        NativeMethods.FocusWindow(client.GameWindowHandle);
-
-        SendKeys.SendWait("{TAB}");
-        SendKeys.SendWait("{TAB}");
+        if (!this.TryClickNamedInputAction(client, LoginScreenUsernameClickActionName))
+        {
+            client.AutomationStatus = "Missing login screen username target";
+            return;
+        }
 
         SendKeys.SendWait("^a");
-        SendKeys.SendWait(EscapeSendKeysText(slot.AccountName));
+        SendKeys.SendWait(EscapeSendKeysText(account.LoginName));
 
         SendKeys.SendWait("{TAB}");
 
@@ -541,7 +671,154 @@ public sealed class ClientManager : IDisposable
         client.PasswordFilled = true;
         client.LoginSubmitted = true;
         client.AutomationStatus = "Login submitted";
-        client.State = ClientState.LoginNameFilled;
+
+        client.State = slot.AutoEnterGame
+            ? ClientState.WaitingForCharacterSelect
+            : ClientState.LoginNameFilled;
+
+        client.CharacterSelectReadyAt = DateTimeOffset.UtcNow.AddSeconds(6);
+    }
+
+    private void TryEnterGame(ClientInstance client)
+    {
+        if (client.AssignedSlotId == null)
+        {
+            return;
+        }
+
+        var slot = this.GetAssignedSlot(client);
+
+        if (slot == null || !slot.AutoEnterGame)
+        {
+            return;
+        }
+
+        if (client.CharacterSelectReadyAt == null ||
+            DateTimeOffset.UtcNow < client.CharacterSelectReadyAt.Value)
+        {
+            client.AutomationStatus = "Waiting for character select";
+            return;
+        }
+
+        var account = this.FindAccount(slot.AccountId);
+        var character = this.FindCharacter(slot.AccountId, slot.CharacterId);
+
+        if (account == null || character == null)
+        {
+            client.AutomationStatus = "Missing character";
+            return;
+        }
+
+        var characterSelectClickActionName = GetCharacterSelectClickActionName(character.CharacterSlotNumber);
+
+        var clickActions = new InputActionStore().LoadClickActions();
+
+        var characterSlotAction = clickActions.FirstOrDefault(action =>
+                                                                  string.Equals(
+                                                                      action.Name,
+                                                                      characterSelectClickActionName,
+                                                                      StringComparison.OrdinalIgnoreCase));
+
+        var enterGameAction = clickActions.FirstOrDefault(action =>
+                                                              string.Equals(
+                                                                  action.Name,
+                                                                  "Character Screen Enter Game",
+                                                                  StringComparison.OrdinalIgnoreCase));
+
+        if (characterSlotAction == null || enterGameAction == null)
+        {
+            client.AutomationStatus = "Missing character screen actions";
+            return;
+        }
+
+        if (client.PendingEnterGameAction != null)
+        {
+            if (client.EnterGameClickAt == null ||
+                DateTimeOffset.UtcNow < client.EnterGameClickAt.Value)
+            {
+                client.AutomationStatus = "Waiting to enter game";
+                return;
+            }
+
+            if (!this.ClickInputAction(client, client.PendingEnterGameAction))
+            {
+                return;
+            }
+
+            client.PendingEnterGameAction = null;
+            client.EnterGameClickAt = null;
+            client.AutomationStatus = $"Entering game as {character.Name}";
+            client.State = ClientState.EnteringGame;
+
+            return;
+        }
+
+        if (!this.ClickInputAction(client, characterSlotAction))
+        {
+            return;
+        }
+
+        client.PendingEnterGameAction = enterGameAction;
+        client.EnterGameClickAt = DateTimeOffset.UtcNow.AddMilliseconds(1000);
+        client.AutomationStatus = $"Selected character {character.Name}";
+    }
+
+    private static string GetCharacterSelectClickActionName(int characterSlotNumber)
+    {
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"Character Screen Slot {characterSlotNumber}");
+    }
+
+    private bool TryClickNamedInputAction(ClientInstance client, string actionName)
+    {
+        var clickActions = new InputActionStore().LoadClickActions();
+
+        var action = clickActions.FirstOrDefault(action =>
+                                                     string.Equals(
+                                                         action.Name,
+                                                         actionName,
+                                                         StringComparison.OrdinalIgnoreCase));
+
+        if (action == null)
+        {
+            client.AutomationStatus = $"Missing click target: {actionName}";
+            return false;
+        }
+
+        return this.ClickInputAction(client, action);
+    }
+
+    private bool ClickInputAction(ClientInstance client, InputClickActionDefinition action)
+    {
+        if (client.GameWindowHandle == IntPtr.Zero)
+        {
+            client.AutomationStatus = "Missing game window";
+            return false;
+        }
+
+        if (!NativeMethods.TryGetClientSize(client.GameWindowHandle, out var clientSize))
+        {
+            client.AutomationStatus = "Could not get client size";
+            return false;
+        }
+
+        var x = (int)Math.Round(action.BaseX * clientSize.Width / action.BaseWidth);
+        var y = (int)Math.Round(action.BaseY * clientSize.Height / action.BaseHeight);
+
+        var clicked = NativeMethods.ForegroundLeftClick(
+            client.GameWindowHandle,
+            x,
+            y);
+
+        if (!clicked)
+        {
+            client.AutomationStatus = $"Click failed: {action.Name}";
+            return false;
+        }
+
+        client.AutomationStatus = $"Clicked {action.Name}";
+        return true;
     }
 
     private static string EscapeSendKeysText(string value)
@@ -636,19 +913,33 @@ public sealed class ClientManager : IDisposable
             var activeSlots = this.CurrentProfile.Slots;
             var assignedSlotIds = new HashSet<Guid>();
 
-            foreach (var client in this.clients.Values.OrderBy(client => client.ProcessId))
+            // First pass: keep all existing valid unique assignments.
+            // Existing running clients must never be displaced just because a new process appeared.
+            foreach (var client in this.clients.Values)
             {
-                if (client.AssignedSlotId is { } assignedSlotId
-                    && activeSlots.Exists(slot => slot.Id == assignedSlotId)
-                    && assignedSlotIds.Add(assignedSlotId))
+                if (client.AssignedSlotId is not { } assignedSlotId)
                 {
-                    var existingSlot = activeSlots.First(slot => slot.Id == assignedSlotId);
-                    client.HostForm?.ApplySlot(existingSlot);
                     continue;
                 }
 
-                client.AssignedSlotId = null;
+                if (!activeSlots.Exists(slot => slot.Id == assignedSlotId))
+                {
+                    client.AssignedSlotId = null;
+                    continue;
+                }
 
+                if (!assignedSlotIds.Add(assignedSlotId))
+                {
+                    client.AssignedSlotId = null;
+                }
+            }
+
+            // Second pass: assign only currently unassigned clients to free slots.
+            foreach (var client in this.clients.Values
+                         .Where(client => client.AssignedSlotId == null)
+                         .OrderBy(client => client.StartedByManagerAt ?? DateTimeOffset.MaxValue)
+                         .ThenBy(client => client.ProcessId))
+            {
                 var nextSlot = activeSlots.FirstOrDefault(slot => !assignedSlotIds.Contains(slot.Id));
 
                 if (nextSlot == null)
@@ -659,7 +950,27 @@ public sealed class ClientManager : IDisposable
 
                 client.AssignedSlotId = nextSlot.Id;
                 assignedSlotIds.Add(nextSlot.Id);
-                client.HostForm?.ApplySlot(nextSlot);
+            }
+
+            // Third pass: apply the final assignments.
+            foreach (var client in this.clients.Values)
+            {
+                if (client.AssignedSlotId is not { } assignedSlotId)
+                {
+                    client.HostForm?.SetUnassignedTitle();
+                    continue;
+                }
+
+                var slot = activeSlots.FirstOrDefault(slot => slot.Id == assignedSlotId);
+
+                if (slot == null)
+                {
+                    client.AssignedSlotId = null;
+                    client.HostForm?.SetUnassignedTitle();
+                    continue;
+                }
+
+                client.HostForm?.ApplySlot(slot);
             }
         }
     }
@@ -751,7 +1062,6 @@ public sealed class ClientManager : IDisposable
                 this.launcherSession.State = LauncherAutomationState.WaitingForClientProcess;
                 return;
             case LauncherAutomationState.WaitingForClientProcess:
-            case LauncherAutomationState.ClientDetected:
             case LauncherAutomationState.Stopped:
             default:
                 return;
@@ -794,6 +1104,8 @@ public sealed class ClientManager : IDisposable
             case ClientState.LoginNameFilled:
             case ClientState.Closing:
             case ClientState.Stopped:
+            case ClientState.WaitingForCharacterSelect:
+            case ClientState.EnteringGame:
             default:
                 return;
         }
@@ -870,6 +1182,62 @@ public sealed class ClientManager : IDisposable
         }
     }
 
+    private bool IsSlotSatisfied(ClientSlot slot)
+    {
+        var client = this.clients.Values.FirstOrDefault(client => client.AssignedSlotId == slot.Id);
+
+        if (client == null)
+        {
+            return false;
+        }
+
+        if (client.State is ClientState.Closing or ClientState.Stopped)
+        {
+            return false;
+        }
+
+        if (!slot.AutoLogin)
+        {
+            return client.State is ClientState.Docked
+                or ClientState.WaitingForSizzle
+                or ClientState.WaitingForLogin
+                or ClientState.LoginNameFilled
+                or ClientState.WaitingForCharacterSelect
+                or ClientState.EnteringGame;
+        }
+
+        if (!slot.AutoEnterGame)
+        {
+            return client.State is ClientState.LoginNameFilled
+                or ClientState.WaitingForCharacterSelect
+                or ClientState.EnteringGame;
+        }
+
+        return client.State == ClientState.EnteringGame;
+    }
+
+    public GameAccount? FindAccount(Guid? accountId)
+    {
+        if (accountId == null)
+        {
+            return null;
+        }
+
+        return this.accounts.FirstOrDefault(account => account.Id == accountId.Value);
+    }
+
+    public GameCharacter? FindCharacter(Guid? accountId, Guid? characterId)
+    {
+        var account = this.FindAccount(accountId);
+
+        if (account == null || characterId == null)
+        {
+            return null;
+        }
+
+        return account.Characters.FirstOrDefault(character => character.Id == characterId.Value);
+    }
+
     private sealed class LauncherAutomationSession
     {
         public required int ProcessId { get; init; }
@@ -882,7 +1250,6 @@ public sealed class ClientManager : IDisposable
         WaitingForPlayButton,
         ClickedPlayButton,
         WaitingForClientProcess,
-        ClientDetected,
         Stopped,
     }
 }

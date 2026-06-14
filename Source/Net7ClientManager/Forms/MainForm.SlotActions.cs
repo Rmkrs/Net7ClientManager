@@ -45,17 +45,20 @@ public sealed partial class MainForm
         foreach (var client in clients)
         {
             var assignedSlot = this.clientManager.GetAssignedSlot(client);
+            var accountName = this.GetAccountDisplayName(assignedSlot);
 
             _ = builder
                 .Append(client.ProcessId)
                 .Append('|')
                 .Append(client.State)
                 .Append('|')
+                .Append(client.AutomationStatus)
+                .Append('|')
                 .Append(assignedSlot?.Id)
                 .Append('|')
                 .Append(assignedSlot?.Name)
                 .Append('|')
-                .Append(assignedSlot?.AccountName)
+                .Append(accountName)
                 .Append(';');
         }
 
@@ -82,12 +85,12 @@ public sealed partial class MainForm
     private Control CreateRunningClientCard(ClientInstance client, ClientSlot? assignedSlot)
     {
         var title = assignedSlot?.Name ?? "Unassigned";
-        var account = string.IsNullOrWhiteSpace(assignedSlot?.AccountName)
-            ? "No account"
-            : assignedSlot.AccountName;
+        var account = this.GetAccountDisplayName(assignedSlot) ?? "No account";
 
         var stateText = FormatClientState(client.State);
-        var footer = string.Create(CultureInfo.InvariantCulture, $"{stateText} · PID {client.ProcessId}");
+        var footer = string.IsNullOrWhiteSpace(client.AutomationStatus)
+            ? string.Create(CultureInfo.InvariantCulture, $"{stateText} · PID {client.ProcessId}")
+            : string.Create(CultureInfo.InvariantCulture, $"{stateText} · {client.AutomationStatus} · PID {client.ProcessId}");
 
         var card = new Panel
         {
@@ -147,44 +150,6 @@ public sealed partial class MainForm
         return card;
     }
 
-    private void SaveSlotButton_OnClick(object? sender, EventArgs e)
-    {
-        var slot = this.layoutDesignerControl.SelectedSlot;
-
-        if (slot == null || this.isUpdatingEditor)
-        {
-            return;
-        }
-
-        slot.Name = string.IsNullOrWhiteSpace(this.slotNameTextBox.Text)
-            ? "Unnamed Slot"
-            : this.slotNameTextBox.Text.Trim();
-
-        slot.AccountName = string.IsNullOrWhiteSpace(this.accountNameTextBox.Text)
-            ? null
-            : this.accountNameTextBox.Text.Trim();
-
-        slot.AutoLogin = this.autoLoginCheckBox.Checked;
-        slot.Bounds.Left = decimal.ToInt32(this.leftNumeric.Value);
-        slot.Bounds.Top = decimal.ToInt32(this.topNumeric.Value);
-
-        if (this.resolutionComboBox.SelectedItem is ResolutionPresetComboBoxItem selectedPreset)
-        {
-            slot.ResolutionPresetName = selectedPreset.Name;
-            slot.Bounds.Width = selectedPreset.Width;
-            slot.Bounds.Height = selectedPreset.Height;
-        }
-
-        this.clientManager.SaveSettings();
-
-        var assignedClient = this.clientManager.Clients.FirstOrDefault(client => client.AssignedSlotId == slot.Id);
-        assignedClient?.HostForm?.ApplySlot(slot);
-
-        this.LoadSelectedSlotIntoEditor(slot);
-        this.layoutDesignerControl.Invalidate();
-        this.RefreshAll();
-    }
-
     private void AddSlotButton_OnClick(object? sender, EventArgs e)
     {
         var slotNumber = this.clientManager.CurrentProfile.Slots.Count + 1;
@@ -242,6 +207,8 @@ public sealed partial class MainForm
             ClientState.WaitingForSizzle => "Waiting for sizzle",
             ClientState.WaitingForLogin => "Waiting for login",
             ClientState.LoginNameFilled => "Login filled",
+            ClientState.WaitingForCharacterSelect => "Character select",
+            ClientState.EnteringGame => "Entering game",
             ClientState.Closing => "Closing",
             ClientState.Stopped => "Stopped",
             _ => state.ToString(),

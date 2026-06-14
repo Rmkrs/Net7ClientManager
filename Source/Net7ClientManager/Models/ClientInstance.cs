@@ -38,4 +38,11 @@ public sealed class ClientInstance(int processId, Process process)
     public bool SizzleSeen { get; set; }
 
     public DateTimeOffset? LastSizzleEscapeSentAt { get; set; }
+
+    public DateTimeOffset? CharacterSelectReadyAt { get; set; }
+
+    public DateTimeOffset? EnterGameClickAt { get; set; }
+
+    public InputClickActionDefinition? PendingEnterGameAction { get; set; }
+
 }

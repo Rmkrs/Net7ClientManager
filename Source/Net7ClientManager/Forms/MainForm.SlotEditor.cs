@@ -84,8 +84,6 @@ public sealed partial class MainForm
             Text = string.Empty,
         };
 
-        this.accountComboBox.SelectedIndexChanged += this.AccountComboBox_SelectedIndexChanged;
-        this.characterComboBox.SelectedIndexChanged += this.CharacterComboBox_SelectedIndexChanged;
         this.autoLoginCheckBox = new CheckBox
         {
             AutoSize = true,

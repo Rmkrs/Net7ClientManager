@@ -13,6 +13,9 @@ public sealed class ClientHostForm : Form
     private readonly ClientInstance clientInstance;
     private readonly ClientDockingService clientDockingService;
     private readonly Action<ClientInstance, CloseReason> closeRequested;
+    private readonly Func<ClientSlot, GameAccount?> findAccount;
+    private readonly Func<ClientSlot, GameCharacter?> findCharacter;
+    private readonly HostedClientTitleService titleService = new();
 
     private readonly Panel titleBarPanel;
     private readonly Label titleLabel;
@@ -20,18 +23,33 @@ public sealed class ClientHostForm : Form
     private readonly Button closeButton;
     private readonly Panel gamePanel;
 
+    private readonly System.Windows.Forms.Timer titleStatusTimer = new();
+    private readonly System.Windows.Forms.Timer titleBlinkTimer = new();
+
+    private string baseTitle;
+    private string? titleStatusText;
+    private bool titleStatusBlinkEnabled;
+    private bool titleStatusBlinkVisible = true;
     private bool closeRequestedByManager;
 
     public ClientHostForm(
         ClientInstance clientInstance,
         ClientDockingService clientDockingService,
-        Action<ClientInstance, CloseReason> closeRequested)
+        Action<ClientInstance, CloseReason> closeRequested,
+        Func<ClientSlot, GameAccount?> findAccount,
+        Func<ClientSlot, GameCharacter?> findCharacter)
     {
         this.clientInstance = clientInstance;
         this.clientDockingService = clientDockingService;
         this.closeRequested = closeRequested;
+        this.findAccount = findAccount;
+        this.findCharacter = findCharacter;
 
-        this.Text = string.Create(CultureInfo.InvariantCulture, $"Earth & Beyond - PID {clientInstance.ProcessId}");
+        this.baseTitle = string.Create(
+            CultureInfo.InvariantCulture,
+            $"Earth & Beyond - PID {clientInstance.ProcessId}");
+
+        this.Text = this.baseTitle;
         this.Icon = ResourceLoader.EarthAndBeyondIcon;
         this.StartPosition = FormStartPosition.Manual;
         this.FormBorderStyle = FormBorderStyle.None;
@@ -53,7 +71,13 @@ public sealed class ClientHostForm : Form
         this.Controls.Add(this.gamePanel);
         this.Controls.Add(this.titleBarPanel);
 
+        this.ApplyCurrentHostTitle();
         this.ApplyInitialBoundsFromGameWindow();
+
+        this.titleStatusTimer.Tick += this.TitleStatusTimer_OnTick;
+
+        this.titleBlinkTimer.Interval = 500;
+        this.titleBlinkTimer.Tick += this.TitleBlinkTimer_OnTick;
 
         this.Load += this.ClientHostForm_OnLoad;
         this.Shown += this.ClientHostForm_OnShown;
@@ -79,7 +103,16 @@ public sealed class ClientHostForm : Form
 
     public void ApplySlot(ClientSlot slot)
     {
-        this.SetHostTitle(slot.Name);
+        var account = this.findAccount(slot);
+        var character = this.findCharacter(slot);
+
+        this.baseTitle = this.titleService.BuildBaseTitle(
+            slot,
+            account,
+            character,
+            this.clientInstance.ProcessId);
+
+        this.ApplyCurrentHostTitle();
 
         this.StartPosition = FormStartPosition.Manual;
         this.Location = new Point(slot.Bounds.Left, slot.Bounds.Top);
@@ -95,7 +128,75 @@ public sealed class ClientHostForm : Form
 
     public void SetUnassignedTitle()
     {
-        this.SetHostTitle(string.Create(CultureInfo.InvariantCulture, $"Earth & Beyond - PID {this.clientInstance.ProcessId}"));
+        this.baseTitle = this.titleService.BuildBaseTitle(
+            slot: null,
+            account: null,
+            character: null,
+            this.clientInstance.ProcessId);
+
+        this.ClearTitleStatus();
+    }
+
+    public void SetPermanentTitleStatus(string statusText, bool blink = false)
+    {
+        if (string.IsNullOrWhiteSpace(statusText))
+        {
+            this.ClearTitleStatus();
+            return;
+        }
+
+        this.titleStatusTimer.Stop();
+
+        this.titleStatusText = statusText.Trim();
+        this.titleStatusBlinkEnabled = blink;
+        this.titleStatusBlinkVisible = true;
+
+        this.UpdateBlinkTimer();
+        this.ApplyCurrentHostTitle();
+    }
+
+    public void SetTemporaryTitleStatus(
+        string statusText,
+        TimeSpan duration,
+        bool blink = false)
+    {
+        if (string.IsNullOrWhiteSpace(statusText))
+        {
+            return;
+        }
+
+        if (duration <= TimeSpan.Zero)
+        {
+            this.SetPermanentTitleStatus(statusText, blink);
+            return;
+        }
+
+        this.titleStatusTimer.Stop();
+
+        this.titleStatusText = statusText.Trim();
+        this.titleStatusBlinkEnabled = blink;
+        this.titleStatusBlinkVisible = true;
+
+        this.titleStatusTimer.Interval = Math.Max(
+            1,
+            (int)Math.Ceiling(duration.TotalMilliseconds));
+
+        this.titleStatusTimer.Start();
+
+        this.UpdateBlinkTimer();
+        this.ApplyCurrentHostTitle();
+    }
+
+    public void ClearTitleStatus()
+    {
+        this.titleStatusTimer.Stop();
+        this.titleBlinkTimer.Stop();
+
+        this.titleStatusText = null;
+        this.titleStatusBlinkEnabled = false;
+        this.titleStatusBlinkVisible = true;
+
+        this.ApplyCurrentHostTitle();
     }
 
     public WindowBounds GetSlotBounds()
@@ -113,6 +214,14 @@ public sealed class ClientHostForm : Form
     {
         if (disposing)
         {
+            this.titleStatusTimer.Stop();
+            this.titleStatusTimer.Tick -= this.TitleStatusTimer_OnTick;
+            this.titleStatusTimer.Dispose();
+
+            this.titleBlinkTimer.Stop();
+            this.titleBlinkTimer.Tick -= this.TitleBlinkTimer_OnTick;
+            this.titleBlinkTimer.Dispose();
+
             this.Load -= this.ClientHostForm_OnLoad;
             this.Shown -= this.ClientHostForm_OnShown;
             this.Resize -= this.ClientHostForm_OnResize;
@@ -170,6 +279,7 @@ public sealed class ClientHostForm : Form
 
         return button;
     }
+
     private Panel CreateGamePanel()
     {
         return new Panel
@@ -197,10 +307,38 @@ public sealed class ClientHostForm : Form
             height: bounds.Value.Height + TitleBarHeight);
     }
 
-    private void SetHostTitle(string title)
+    private void ApplyCurrentHostTitle()
     {
+        var title = this.titleService.BuildTitle(
+            this.baseTitle,
+            this.titleStatusText,
+            !this.titleStatusBlinkEnabled || this.titleStatusBlinkVisible);
+
         this.Text = title;
         this.titleLabel.Text = title;
+    }
+
+    private void UpdateBlinkTimer()
+    {
+        if (!this.titleStatusBlinkEnabled)
+        {
+            this.titleBlinkTimer.Stop();
+            this.titleStatusBlinkVisible = true;
+            return;
+        }
+
+        this.titleBlinkTimer.Start();
+    }
+
+    private void TitleStatusTimer_OnTick(object? sender, EventArgs e)
+    {
+        this.ClearTitleStatus();
+    }
+
+    private void TitleBlinkTimer_OnTick(object? sender, EventArgs e)
+    {
+        this.titleStatusBlinkVisible = !this.titleStatusBlinkVisible;
+        this.ApplyCurrentHostTitle();
     }
 
     private void ClientHostForm_OnLoad(object? sender, EventArgs e)

@@ -29,6 +29,8 @@ public static partial class NativeMethods
 
     private const uint ModControl = 0x0002;
     private const uint ModShift = 0x0004;
+    private const uint ModAlt = 0x0001;
+    private const uint ModWin = 0x0008;
 
     private const uint MouseEventLeftDown = 0x0002;
     private const uint MouseEventLeftUp = 0x0004;
@@ -370,6 +372,118 @@ public static partial class NativeMethods
         return true;
     }
 
+    public static bool RegisterGlobalHotKey(IntPtr windowHandle, int id, Keys keys)
+    {
+        var modifiers = 0u;
+
+        if ((keys & Keys.Control) == Keys.Control)
+        {
+            modifiers |= ModControl;
+        }
+
+        if ((keys & Keys.Shift) == Keys.Shift)
+        {
+            modifiers |= ModShift;
+        }
+
+        if ((keys & Keys.Alt) == Keys.Alt)
+        {
+            modifiers |= ModAlt;
+        }
+
+        if ((keys & Keys.LWin) == Keys.LWin || (keys & Keys.RWin) == Keys.RWin)
+        {
+            modifiers |= ModWin;
+        }
+
+        var key = keys & Keys.KeyCode;
+
+        if (key == Keys.None)
+        {
+            return false;
+        }
+
+        return RegisterHotKey(
+            windowHandle,
+            id,
+            modifiers,
+            (uint)key);
+    }
+
+    public static bool UnregisterGlobalHotKey(IntPtr windowHandle, int id)
+    {
+        return UnregisterHotKey(windowHandle, id);
+    }
+
+    public static Task ForegroundTapKeyAsync(IntPtr windowHandle, Keys key)
+    {
+        return ForegroundHoldKeyAsync(
+            windowHandle,
+            key,
+            TimeSpan.FromMilliseconds(80));
+    }
+
+    public static IntPtr GetForegroundWindowHandle()
+    {
+        return GetForegroundWindow();
+    }
+
+    public static bool IsChildOrSameWindow(IntPtr possibleParentWindowHandle, IntPtr possibleChildWindowHandle)
+    {
+        if (possibleParentWindowHandle == IntPtr.Zero || possibleChildWindowHandle == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        if (possibleParentWindowHandle == possibleChildWindowHandle)
+        {
+            return true;
+        }
+
+        var currentWindowHandle = possibleChildWindowHandle;
+
+        while (currentWindowHandle != IntPtr.Zero)
+        {
+            currentWindowHandle = GetParent(currentWindowHandle);
+
+            if (currentWindowHandle == possibleParentWindowHandle)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public static bool MoveCursorToClientPoint(
+        IntPtr clientWindowHandle,
+        int clientX,
+        int clientY)
+    {
+        if (clientWindowHandle == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        var point = new NativePoint
+        {
+            X = clientX,
+            Y = clientY,
+        };
+
+        if (!ClientToScreen(clientWindowHandle, ref point))
+        {
+            return false;
+        }
+
+        return SetCursorPos(point.X, point.Y);
+    }
+
+    public static bool IsKeyDown(Keys key)
+    {
+        return (GetAsyncKeyState((int)(key & Keys.KeyCode)) & 0x8000) != 0;
+    }
+
     private static IntPtr FindLauncherPlayButton(IntPtr windowHandle)
     {
         return FindWindowEx(
@@ -661,4 +775,13 @@ public static partial class NativeMethods
     private static partial bool ScreenToClient(
         IntPtr windowHandle,
         ref NativePoint point);
+
+    [LibraryImport("user32.dll", EntryPoint = "GetForegroundWindow")]
+    private static partial IntPtr GetForegroundWindow();
+
+    [LibraryImport("user32.dll", EntryPoint = "GetParent")]
+    private static partial IntPtr GetParent(IntPtr windowHandle);
+
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int vKey);
 }

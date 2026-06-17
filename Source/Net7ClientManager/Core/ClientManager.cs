@@ -32,6 +32,8 @@ public sealed class ClientManager : IDisposable
     private static readonly TimeSpan missingClientStartCooldown = TimeSpan.FromSeconds(2);
     private const string LoginScreenUsernameClickActionName = "Login Screen Username";
 
+    private readonly FleetCommandService fleetCommandService = new();
+
     public ClientManager()
     {
         this.settings = this.settingsStore.Load();
@@ -63,6 +65,8 @@ public sealed class ClientManager : IDisposable
     public IReadOnlyList<GameAccount> Accounts => this.accounts;
 
     public bool KeepClientsAlive { get; set; }
+
+    public FleetCommandSettings FleetCommandSettings => this.settings.FleetCommands;
 
     public void Start()
     {
@@ -268,6 +272,72 @@ public sealed class ClientManager : IDisposable
             ProcessId = process.Id,
         };
     }
+
+    public ClientInstance? FindForegroundHostedClient()
+    {
+        var foregroundWindowHandle = NativeMethods.GetForegroundWindowHandle();
+
+        if (foregroundWindowHandle == IntPtr.Zero)
+        {
+            return null;
+        }
+
+        lock (this.lockObject)
+        {
+            return this.clients.Values.FirstOrDefault(client =>
+                                                          client.HostForm != null &&
+                                                          (
+                                                              client.HostForm.Handle == foregroundWindowHandle ||
+                                                              NativeMethods.IsChildOrSameWindow(client.HostForm.Handle, foregroundWindowHandle) ||
+                                                              client.GameWindowHandle == foregroundWindowHandle ||
+                                                              NativeMethods.IsChildOrSameWindow(client.GameWindowHandle, foregroundWindowHandle)
+                                                          ));
+        }
+    }
+
+    public Task AssistMeAsync(FleetCommandInvocationContext invocationContext)
+    {
+        return this.fleetCommandService.AssistMeAsync(
+            invocationContext,
+            this.Clients,
+            this.CurrentProfile,
+            this.settings.FleetCommands,
+            this.BuildFleetCommandPilotName(invocationContext.ActiveClient));
+    }
+
+    private string BuildFleetCommandPilotName(ClientInstance client)
+    {
+        var slot = this.GetAssignedSlot(client);
+
+        if (slot == null)
+        {
+            return string.Create(
+                CultureInfo.InvariantCulture,
+                $"PID {client.ProcessId}");
+        }
+
+        var character = this.FindCharacter(slot.AccountId, slot.CharacterId);
+
+        if (!string.IsNullOrWhiteSpace(character?.Name))
+        {
+            return character.Name;
+        }
+
+        if (!string.IsNullOrWhiteSpace(slot.Name))
+        {
+            return slot.Name;
+        }
+
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"PID {client.ProcessId}");
+    }
+
+    public void CancelFleetCommand()
+    {
+        this.fleetCommandService.Cancel();
+    }
+
     private void ClientProcessStarted(int processId)
     {
         Process process;
@@ -444,7 +514,13 @@ public sealed class ClientManager : IDisposable
             return;
         }
 
-        var hostForm = new ClientHostForm(client, this.clientDockingService, this.CloseClient);
+        var hostForm = new ClientHostForm(
+            client,
+            this.clientDockingService,
+            this.CloseClient,
+            slot => this.FindAccount(slot.AccountId),
+            slot => this.FindCharacter(slot.AccountId, slot.CharacterId));
+
         client.HostForm = hostForm;
         client.State = ClientState.Docked;
         client.DockedAt = DateTimeOffset.UtcNow;
@@ -789,8 +865,14 @@ public sealed class ClientManager : IDisposable
         return this.ClickInputAction(client, action);
     }
 
-    private bool ClickInputAction(ClientInstance client, InputClickActionDefinition action)
+    private bool ClickInputAction(ClientInstance client, InputActionDefinition action)
     {
+        if (action.Kind != InputActionKind.MouseClick)
+        {
+            client.AutomationStatus = $"Action is not a click: {action.Name}";
+            return false;
+        }
+
         if (client.GameWindowHandle == IntPtr.Zero)
         {
             client.AutomationStatus = "Missing game window";

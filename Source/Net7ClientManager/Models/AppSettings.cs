@@ -51,6 +51,8 @@ public sealed class AppSettings
 
     public List<SlotResolutionPreset> SlotResolutionPresets { get; set; } = [];
 
+    public FleetCommandSettings FleetCommands { get; set; } = new();
+
     public LayoutProfile GetOrCreateCurrentProfile()
     {
         if (this.CurrentProfileId != null)

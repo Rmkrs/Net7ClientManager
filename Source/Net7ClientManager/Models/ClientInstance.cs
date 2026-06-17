@@ -43,6 +43,6 @@ public sealed class ClientInstance(int processId, Process process)
 
     public DateTimeOffset? EnterGameClickAt { get; set; }
 
-    public InputClickActionDefinition? PendingEnterGameAction { get; set; }
+    public InputActionDefinition? PendingEnterGameAction { get; set; }
 
 }

@@ -21,4 +21,6 @@ public sealed class ClientSlot
     public Guid? CharacterId { get; set; }
 
     public bool AutoEnterGame { get; set; }
+
+    public bool IncludeInAssistMe { get; set; } = true;
 }

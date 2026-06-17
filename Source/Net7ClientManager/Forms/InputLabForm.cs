@@ -373,10 +373,7 @@ public sealed class InputLabForm : Form
 
     private void FocusButton_OnClick(object? sender, EventArgs e)
     {
-        this.RunWithTarget("Focus", client =>
-        {
-            NativeMethods.FocusWindow(client.GameWindowHandle);
-        });
+        this.RunWithTarget("Focus", client => NativeMethods.FocusWindow(client.GameWindowHandle));
     }
 
     private void LogTargetButton_OnClick(object? sender, EventArgs e)
@@ -397,24 +394,18 @@ public sealed class InputLabForm : Form
 
     private async void SendKeyButton_OnClick(object? sender, EventArgs e)
     {
-        await this.RunWithTargetAsync("Send key", async client =>
-        {
-            await NativeMethods.ForegroundHoldKeyAsync(
+        await this.RunWithTargetAsync("Send key", async client => await NativeMethods.ForegroundHoldKeyAsync(
                 client.GameWindowHandle,
                 this.ParseKey(),
-                TimeSpan.FromMilliseconds(100));
-        });
+                TimeSpan.FromMilliseconds(100)));
     }
 
     private async void HoldKeyButton_OnClick(object? sender, EventArgs e)
     {
-        await this.RunWithTargetAsync("Hold key", async client =>
-        {
-            await NativeMethods.ForegroundHoldKeyAsync(
+        await this.RunWithTargetAsync("Hold key", async client => await NativeMethods.ForegroundHoldKeyAsync(
                 client.GameWindowHandle,
                 this.ParseKey(),
-                TimeSpan.FromMilliseconds((int)this.holdMillisecondsNumeric.Value));
-        });
+                TimeSpan.FromMilliseconds((int)this.holdMillisecondsNumeric.Value)));
     }
 
     private void ClickCoordinatesButton_OnClick(object? sender, EventArgs e)
@@ -450,7 +441,7 @@ public sealed class InputLabForm : Form
 
     private async void SendClickActionButton_OnClick(object? sender, EventArgs e)
     {
-        if (this.clickActionComboBox.SelectedItem is not InputClickActionDefinition action)
+        if (this.clickActionComboBox.SelectedItem is not InputActionDefinition action)
         {
             this.Log("Send selected: no click target selected");
             return;
@@ -473,8 +464,13 @@ public sealed class InputLabForm : Form
         });
     }
 
-    private void SendClickAction(ClientInstance client, InputClickActionDefinition action)
+    private void SendClickAction(ClientInstance client, InputActionDefinition action)
     {
+        if (action.Kind != InputActionKind.MouseClick)
+        {
+            throw new InvalidOperationException($"Action '{action.Name}' is not a mouse click.");
+        }
+
         if (!NativeMethods.TryGetClientSize(client.GameWindowHandle, out var clientSize))
         {
             throw new InvalidOperationException("Could not get client size.");
@@ -494,8 +490,8 @@ public sealed class InputLabForm : Form
         }
 
         this.Log(string.Create(
-            CultureInfo.InvariantCulture,
-            $"Resolved '{action.Name}' to X={x}, Y={y}, ClientSize={clientSize.Width}x{clientSize.Height}"));
+                     CultureInfo.InvariantCulture,
+                     $"Resolved '{action.Name}' to X={x}, Y={y}, ClientSize={clientSize.Width}x{clientSize.Height}"));
     }
 
     private void RunWithTarget(string actionName, Action<ClientInstance> action)
@@ -616,15 +612,16 @@ public sealed class InputLabForm : Form
             return;
         }
 
-        var action = new InputClickActionDefinition
+        var action = new InputActionDefinition
         {
             Name = this.pendingTeachName,
+            Kind = InputActionKind.MouseClick,
             BaseX = baseX,
             BaseY = baseY,
             UpdatedAt = DateTimeOffset.UtcNow,
         };
 
-        this.inputActionStore.SaveOrReplaceClickAction(action);
+        this.inputActionStore.SaveOrReplaceAction(action);
 
         this.Log(string.Create(
             CultureInfo.InvariantCulture,
@@ -639,7 +636,7 @@ public sealed class InputLabForm : Form
     private void ReloadClickActions(string? selectName = null)
     {
         var selectedName = selectName
-                           ?? (this.clickActionComboBox.SelectedItem as InputClickActionDefinition)?.Name;
+                           ?? (this.clickActionComboBox.SelectedItem as InputActionDefinition)?.Name;
 
         this.clickActionComboBox.BeginUpdate();
 
@@ -658,7 +655,7 @@ public sealed class InputLabForm : Form
             }
 
             var selectedItem = this.clickActionComboBox.Items
-                .OfType<InputClickActionDefinition>()
+                .OfType<InputActionDefinition>()
                 .FirstOrDefault(action => string.Equals(
                     action.Name,
                     selectedName,

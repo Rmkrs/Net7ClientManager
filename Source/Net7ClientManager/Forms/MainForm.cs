@@ -4,6 +4,7 @@ namespace Net7ClientManager.Forms;
 using System.Globalization;
 using Net7ClientManager.Core;
 using Net7ClientManager.Models;
+using Net7ClientManager.Win32;
 
 public sealed partial class MainForm : Form
 {
@@ -46,6 +47,13 @@ public sealed partial class MainForm : Form
     private Button createMissingClientsButton = null!;
     private CheckBox keepClientsAliveCheckBox = null!;
 
+    private const int CommandMenuHotKeyId = 0x4E38;
+    private bool commandMenuHotKeyRegistered;
+    private CommandOverlayForm? commandOverlayForm;
+
+    private readonly System.Windows.Forms.Timer commandMenuHotKeyReleaseTimer = new();
+    private bool commandMenuHotKeySuppressedUntilReleased;
+
     public MainForm(ClientManager clientManager)
     {
         this.clientManager = clientManager;
@@ -80,8 +88,30 @@ public sealed partial class MainForm : Form
         this.refreshTimer.Tick += this.RefreshTimer_OnTick;
         this.refreshTimer.Start();
 
+        this.commandMenuHotKeyReleaseTimer.Interval = 25;
+        this.commandMenuHotKeyReleaseTimer.Tick += this.CommandMenuHotKeyReleaseTimer_OnTick;
+
         this.SelectDefaultSlot();
         this.RefreshAll();
+
+        this.RegisterCommandMenuHotKey();
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        if (m.Msg == NativeMethods.WmHotKey
+            && m.WParam.ToInt32() == CommandMenuHotKeyId)
+        {
+            if (this.commandMenuHotKeySuppressedUntilReleased)
+            {
+                return;
+            }
+
+            this.ShowCommandOverlay();
+            return;
+        }
+
+        base.WndProc(ref m);
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)
@@ -89,6 +119,10 @@ public sealed partial class MainForm : Form
         this.refreshTimer.Stop();
         this.refreshTimer.Tick -= this.RefreshTimer_OnTick;
         this.refreshTimer.Dispose();
+
+        this.commandMenuHotKeyReleaseTimer.Stop();
+        this.commandMenuHotKeyReleaseTimer.Tick -= this.CommandMenuHotKeyReleaseTimer_OnTick;
+        this.commandMenuHotKeyReleaseTimer.Dispose();
 
         this.layoutDesignerControl.SelectedSlotChanged -= this.LayoutDesignerControl_OnSelectedSlotChanged;
         this.layoutDesignerControl.SlotBoundsChanged -= this.LayoutDesignerControl_OnSlotBoundsChanged;
@@ -103,6 +137,7 @@ public sealed partial class MainForm : Form
         this.removeSlotButton.Click -= this.RemoveSlotButton_OnClick;
 
         this.resolutionComboBox.SelectedIndexChanged -= this.ResolutionComboBox_OnSelectedIndexChanged;
+        this.topNumeric.ValueChanged -= this.TopNumeric_OnValueChanged;
         this.leftNumeric.ValueChanged -= this.LeftNumeric_OnValueChanged;
 
         this.startClientButton.Click -= this.StartClientButton_OnClick;
@@ -116,7 +151,162 @@ public sealed partial class MainForm : Form
         this.createMissingClientsButton.Click -= this.CreateMissingClientsButton_OnClick;
         this.keepClientsAliveCheckBox.CheckedChanged -= this.KeepClientsAliveCheckBox_OnCheckedChanged;
 
+        this.commandOverlayForm?.FormClosed -= this.CommandOverlayForm_OnFormClosed;
+        this.commandOverlayForm = null;
+
+        this.UnregisterCommandMenuHotKey();
+
         base.OnFormClosed(e);
+    }
+
+    private void CommandMenuHotKeyReleaseTimer_OnTick(object? sender, EventArgs e)
+    {
+        if (this.IsAnyCommandMenuHotKeyPartDown())
+        {
+            return;
+        }
+
+        this.commandMenuHotKeyReleaseTimer.Stop();
+        this.commandMenuHotKeySuppressedUntilReleased = false;
+    }
+
+    private bool IsAnyCommandMenuHotKeyPartDown()
+    {
+        var commandMenuHotKey = this.clientManager.FleetCommandSettings.CommandMenuHotKey;
+        var keyCode = commandMenuHotKey & Keys.KeyCode;
+
+        if (keyCode != Keys.None && NativeMethods.IsKeyDown(keyCode))
+        {
+            return true;
+        }
+
+        var requiredModifiers = commandMenuHotKey & Keys.Modifiers;
+
+        if ((requiredModifiers & Keys.Control) == Keys.Control &&
+            (
+                NativeMethods.IsKeyDown(Keys.ControlKey) ||
+                NativeMethods.IsKeyDown(Keys.LControlKey) ||
+                NativeMethods.IsKeyDown(Keys.RControlKey)
+            ))
+        {
+            return true;
+        }
+
+        if ((requiredModifiers & Keys.Shift) == Keys.Shift &&
+            (
+                NativeMethods.IsKeyDown(Keys.ShiftKey) ||
+                NativeMethods.IsKeyDown(Keys.LShiftKey) ||
+                NativeMethods.IsKeyDown(Keys.RShiftKey)
+            ))
+        {
+            return true;
+        }
+
+        if ((requiredModifiers & Keys.Alt) == Keys.Alt &&
+            (
+                NativeMethods.IsKeyDown(Keys.Menu) ||
+                NativeMethods.IsKeyDown(Keys.LMenu) ||
+                NativeMethods.IsKeyDown(Keys.RMenu)
+            ))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private void CommandOverlayForm_OnFormClosed(object? sender, FormClosedEventArgs e)
+    {
+        this.commandOverlayForm?.FormClosed -= this.CommandOverlayForm_OnFormClosed;
+        this.commandOverlayForm = null;
+
+        this.commandMenuHotKeySuppressedUntilReleased = true;
+        this.commandMenuHotKeyReleaseTimer.Start();
+    }
+
+    private void ShowCommandOverlay()
+    {
+        var activeClient = this.clientManager.FindForegroundHostedClient();
+
+        if (activeClient == null)
+        {
+            return;
+        }
+
+        Point? activeClientMousePosition = null;
+
+        if (NativeMethods.TryGetCursorPositionRelativeToClient(
+                activeClient.GameWindowHandle,
+                out var mousePosition))
+        {
+            activeClientMousePosition = mousePosition;
+        }
+
+        var invocationContext = new FleetCommandInvocationContext
+        {
+            ActiveClient = activeClient,
+            ActiveClientMousePosition = activeClientMousePosition,
+        };
+
+        if (this.commandOverlayForm is { IsDisposed: false })
+        {
+            this.commandOverlayForm.Close();
+            return;
+        }
+
+        this.commandOverlayForm = new CommandOverlayForm(
+            this.clientManager,
+            invocationContext,
+            this.clientManager.FleetCommandSettings.CommandMenuHotKey);
+
+        this.commandOverlayForm.FormClosed += this.CommandOverlayForm_OnFormClosed;
+
+        var cursorPosition = Cursor.Position;
+        var workingArea = Screen.FromPoint(cursorPosition).WorkingArea;
+
+        var x = cursorPosition.X - this.commandOverlayForm.Width / 2;
+        var y = cursorPosition.Y - this.commandOverlayForm.Height / 2;
+
+        x = Math.Clamp(
+            x,
+            workingArea.Left,
+            workingArea.Right - this.commandOverlayForm.Width);
+
+        y = Math.Clamp(
+            y,
+            workingArea.Top,
+            workingArea.Bottom - this.commandOverlayForm.Height);
+
+        this.commandOverlayForm.Location = new Point(x, y);
+        this.commandOverlayForm.Show();
+        this.commandOverlayForm.Activate();
+    }
+
+    private void RegisterCommandMenuHotKey()
+    {
+        if (this.commandMenuHotKeyRegistered)
+        {
+            return;
+        }
+
+        this.commandMenuHotKeyRegistered = NativeMethods.RegisterGlobalHotKey(
+            this.Handle,
+            CommandMenuHotKeyId,
+            this.clientManager.FleetCommandSettings.CommandMenuHotKey);
+    }
+
+    private void UnregisterCommandMenuHotKey()
+    {
+        if (!this.commandMenuHotKeyRegistered)
+        {
+            return;
+        }
+
+        _ = NativeMethods.UnregisterGlobalHotKey(
+            this.Handle,
+            CommandMenuHotKeyId);
+
+        this.commandMenuHotKeyRegistered = false;
     }
 
     private void SelectDefaultSlot()

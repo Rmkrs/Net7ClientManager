@@ -1,5 +1,11 @@
 namespace Net7ClientManager.Models;
 
+/// <summary>
+/// Window-hosting and startup-automation state.
+///
+/// This is deliberately separate from the observed game lifecycle exposed by
+/// <see cref="Net7ClientManager.Observations.ClientLifecycleState"/>.
+/// </summary>
 public enum ClientState
 {
     WaitingForGameWindow,
@@ -8,12 +14,13 @@ public enum ClientState
     WaitingForTos,
     AcceptingTos,
 
-    WaitingForSizzle,
+    WaitingForIntro,
     WaitingForLogin,
-    LoginNameFilled,
+    LoginSubmitted,
 
     WaitingForCharacterSelect,
     EnteringGame,
+    Ready,
 
     Closing,
     Stopped,

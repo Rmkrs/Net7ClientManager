@@ -1,0 +1,24 @@
+:root {
+  --n7-accent: #d0a84f;
+}
+
+.md-header {
+  background: #141a24;
+}
+
+.md-tabs {
+  background: #1b2431;
+}
+
+.md-typeset h1,
+.md-typeset h2 {
+  letter-spacing: 0.01em;
+}
+
+.md-typeset blockquote {
+  border-left-color: var(--n7-accent);
+}
+
+.md-typeset code {
+  word-break: normal;
+}

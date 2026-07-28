@@ -8,6 +8,8 @@ public sealed class InputActionDefinition
 
     public Keys Key { get; set; }
 
+    public GameCommand? GameCommand { get; set; }
+
     public int BaseWidth { get; set; } = 1280;
 
     public int BaseHeight { get; set; } = 720;
@@ -24,6 +26,7 @@ public sealed class InputActionDefinition
         {
             InputActionKind.KeyTap => $"{this.Name} ({this.Key})",
             InputActionKind.MouseClick => $"{this.Name} ({this.BaseX:0.0}, {this.BaseY:0.0})",
+            InputActionKind.GameCommand => $"{this.Name} ({this.GameCommand})",
             _ => this.Name,
         };
     }

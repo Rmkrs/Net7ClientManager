@@ -1,15 +1,18 @@
+using System.ComponentModel;
 // ReSharper disable LocalizableElement
 namespace Net7ClientManager.Forms;
 
 using System.Globalization;
+using Net7ClientManager.Core;
 using Net7ClientManager.Models;
+using Net7ClientManager.Services;
 
-public sealed class AccountsForm : Form
+public sealed class AccountsForm : ThemedForm
 {
     private readonly List<GameAccount> accounts;
 
-    private readonly FlowLayoutPanel accountsPanel = new();
-    private readonly FlowLayoutPanel charactersPanel = new();
+    private readonly ThemedFlowLayoutPanel accountsPanel = new();
+    private readonly ThemedFlowLayoutPanel charactersPanel = new();
 
     private readonly Button addAccountButton = new();
     private readonly Button editAccountButton = new();
@@ -28,9 +31,17 @@ public sealed class AccountsForm : Form
         this.saveAccounts = saveAccounts;
 
         this.Text = "Accounts";
+        this.Icon = ResourceLoader.Net7ClientManagerIcon;
         this.StartPosition = FormStartPosition.CenterParent;
-        this.MinimumSize = new Size(980, 620);
-        this.Size = new Size(1120, 720);
+        this.MinimumSize = new Size(width: 980, height: 620);
+        this.Size = new Size(width: 1180, height: 760);
+        this.BackColor = MainWindowTheme.Background;
+        this.ForeColor = MainWindowTheme.Text;
+        this.Font = MainWindowTheme.CreateBodyFont();
+        this.ConfigureWindowChrome(
+            allowResize: true,
+            showMinimizeButton: false,
+            showMaximizeButton: true);
 
         this.BuildUi();
         this.ReloadAccounts();
@@ -38,12 +49,12 @@ public sealed class AccountsForm : Form
         this.UpdateButtonState();
         this.NormalizeAccountSortOrder();
 
-        this.Resize += this.AccountsForm_Resize;
+        this.ResizeEnd += this.AccountsForm_Resize;
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
-        this.Resize -= this.AccountsForm_Resize;
+        this.ResizeEnd -= this.AccountsForm_Resize;
 
         this.addAccountButton.Click -= this.AddAccountButton_OnClick;
         this.editAccountButton.Click -= this.EditAccountButton_OnClick;
@@ -55,8 +66,6 @@ public sealed class AccountsForm : Form
         base.OnFormClosed(e);
     }
 
-    public IReadOnlyList<GameAccount> Accounts => this.accounts;
-
     private void BuildUi()
     {
         var root = new TableLayoutPanel
@@ -64,7 +73,8 @@ public sealed class AccountsForm : Form
             Dock = DockStyle.Fill,
             ColumnCount = 2,
             RowCount = 1,
-            Padding = new Padding(12),
+            Padding = new Padding(all: 18),
+            BackColor = MainWindowTheme.Background,
         };
 
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 42));
@@ -74,8 +84,14 @@ public sealed class AccountsForm : Form
 
         this.Controls.Add(root);
 
-        root.Controls.Add(this.BuildAccountsArea(), 0, 0);
-        root.Controls.Add(this.BuildCharactersArea(), 1, 0);
+        var accountsArea = this.BuildAccountsArea();
+        accountsArea.Margin = new Padding(left: 0, top: 0, right: 8, bottom: 0);
+
+        var charactersArea = this.BuildCharactersArea();
+        charactersArea.Margin = new Padding(left: 8, top: 0, right: 0, bottom: 0);
+
+        root.Controls.Add(accountsArea, column: 0, row: 0);
+        root.Controls.Add(charactersArea, column: 1, row: 0);
     }
 
     private Control BuildAccountsArea()
@@ -84,6 +100,9 @@ public sealed class AccountsForm : Form
         {
             Text = "Accounts",
             Dock = DockStyle.Fill,
+            BackColor = MainWindowTheme.Panel,
+            ForeColor = MainWindowTheme.Text,
+            Padding = new Padding(all: 10),
         };
 
         var layout = new TableLayoutPanel
@@ -91,7 +110,8 @@ public sealed class AccountsForm : Form
             Dock = DockStyle.Fill,
             ColumnCount = 1,
             RowCount = 2,
-            Padding = new Padding(8),
+            Padding = new Padding(all: 8),
+            BackColor = MainWindowTheme.Panel,
         };
 
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
@@ -103,18 +123,30 @@ public sealed class AccountsForm : Form
         {
             Dock = DockStyle.Fill,
             FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            Padding = new Padding(left: 0, top: 4, right: 0, bottom: 4),
+            BackColor = MainWindowTheme.Panel,
         };
 
         this.addAccountButton.Text = "Add";
         this.addAccountButton.Width = 90;
+        this.addAccountButton.Height = 32;
+        this.addAccountButton.Margin = new Padding(left: 0, top: 0, right: 6, bottom: 0);
+        MainWindowTheme.StyleButton(this.addAccountButton, primary: true);
         this.addAccountButton.Click += this.AddAccountButton_OnClick;
 
         this.editAccountButton.Text = "Edit";
         this.editAccountButton.Width = 90;
+        this.editAccountButton.Height = 32;
+        this.editAccountButton.Margin = new Padding(left: 0, top: 0, right: 6, bottom: 0);
+        MainWindowTheme.StyleButton(this.editAccountButton);
         this.editAccountButton.Click += this.EditAccountButton_OnClick;
 
         this.deleteAccountButton.Text = "Delete";
         this.deleteAccountButton.Width = 90;
+        this.deleteAccountButton.Height = 32;
+        this.deleteAccountButton.Margin = Padding.Empty;
+        MainWindowTheme.StyleButton(this.deleteAccountButton, danger: true);
         this.deleteAccountButton.Click += this.DeleteAccountButton_OnClick;
 
         buttonPanel.Controls.Add(this.addAccountButton);
@@ -125,6 +157,7 @@ public sealed class AccountsForm : Form
         this.accountsPanel.AutoScroll = true;
         this.accountsPanel.FlowDirection = FlowDirection.TopDown;
         this.accountsPanel.WrapContents = false;
+        this.accountsPanel.BackColor = MainWindowTheme.Panel;
 
         layout.Controls.Add(buttonPanel, 0, 0);
         layout.Controls.Add(this.accountsPanel, 0, 1);
@@ -138,6 +171,9 @@ public sealed class AccountsForm : Form
         {
             Text = "Characters",
             Dock = DockStyle.Fill,
+            BackColor = MainWindowTheme.Panel,
+            ForeColor = MainWindowTheme.Text,
+            Padding = new Padding(all: 10),
         };
 
         var layout = new TableLayoutPanel
@@ -145,7 +181,8 @@ public sealed class AccountsForm : Form
             Dock = DockStyle.Fill,
             ColumnCount = 1,
             RowCount = 2,
-            Padding = new Padding(8),
+            Padding = new Padding(all: 8),
+            BackColor = MainWindowTheme.Panel,
         };
 
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
@@ -157,14 +194,23 @@ public sealed class AccountsForm : Form
         {
             Dock = DockStyle.Fill,
             FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            Padding = new Padding(left: 0, top: 4, right: 0, bottom: 4),
+            BackColor = MainWindowTheme.Panel,
         };
 
         this.editCharacterButton.Text = "Edit";
         this.editCharacterButton.Width = 90;
+        this.editCharacterButton.Height = 32;
+        this.editCharacterButton.Margin = new Padding(left: 0, top: 0, right: 6, bottom: 0);
+        MainWindowTheme.StyleButton(this.editCharacterButton);
         this.editCharacterButton.Click += this.EditCharacterButton_OnClick;
 
         this.deleteCharacterButton.Text = "Delete";
         this.deleteCharacterButton.Width = 90;
+        this.deleteCharacterButton.Height = 32;
+        this.deleteCharacterButton.Margin = Padding.Empty;
+        MainWindowTheme.StyleButton(this.deleteCharacterButton, danger: true);
         this.deleteCharacterButton.Click += this.DeleteCharacterButton_OnClick;
 
         buttonPanel.Controls.Add(this.editCharacterButton);
@@ -174,6 +220,7 @@ public sealed class AccountsForm : Form
         this.charactersPanel.AutoScroll = true;
         this.charactersPanel.FlowDirection = FlowDirection.TopDown;
         this.charactersPanel.WrapContents = false;
+        this.charactersPanel.BackColor = MainWindowTheme.Panel;
 
         layout.Controls.Add(buttonPanel, 0, 0);
         layout.Controls.Add(this.charactersPanel, 0, 1);
@@ -249,30 +296,37 @@ public sealed class AccountsForm : Form
         var canMoveUp = accountIndex > 0;
         var canMoveDown = accountIndex >= 0 && accountIndex < orderedAccounts.Count - 1;
 
-        var card = new Panel
+        var card = new AccountsCardPanel
         {
             Width = cardWidth,
             Height = 108,
-            Margin = new Padding(4, 4, 8, 6),
-            BorderStyle = BorderStyle.FixedSingle,
+            Margin = new Padding(left: 4, top: 4, right: 8, bottom: 6),
             Tag = account,
             Cursor = Cursors.Hand,
+            BackColor = MainWindowTheme.Panel,
+            AccentColor = MainWindowTheme.Border,
         };
 
         var login = new Label
         {
-            Text = EmptyToFallback(account.LoginName, "Missing login name"),
+            Text = UiObfuscationMode.AccountName(
+                account.LoginName,
+                fallback: "Missing login name"),
             Font = new Font(this.Font, FontStyle.Bold),
             Location = new Point(12, 10),
             Size = new Size(cardWidth - 78, 22),
+            ForeColor = MainWindowTheme.Text,
         };
 
         var title = new Label
         {
             Text = string.IsNullOrWhiteSpace(account.DisplayName)
                 ? "No display name"
-                : $"Display name: {account.DisplayName}",
-            ForeColor = SystemColors.GrayText,
+                : string.Concat(
+                    "Display name: ",
+                    UiObfuscationMode.AccountName(
+                        account.DisplayName)),
+            ForeColor = MainWindowTheme.MutedText,
             Location = new Point(12, 34),
             Size = new Size(cardWidth - 36, 20),
         };
@@ -284,6 +338,7 @@ public sealed class AccountsForm : Form
                 : "Password: set",
             Location = new Point(12, 56),
             Size = new Size(180, 20),
+            ForeColor = MainWindowTheme.Text,
         };
 
         var characters = new Label
@@ -294,12 +349,13 @@ public sealed class AccountsForm : Form
             Location = new Point(210, 56),
             Size = new Size(cardWidth - 260, 20),
             TextAlign = ContentAlignment.MiddleLeft,
+            ForeColor = MainWindowTheme.Text,
         };
 
         var hint = new Label
         {
             Text = "Double-click to edit",
-            ForeColor = SystemColors.GrayText,
+            ForeColor = MainWindowTheme.MutedText,
             Location = new Point(12, 78),
             Size = new Size(cardWidth - 78, 20),
         };
@@ -334,6 +390,9 @@ public sealed class AccountsForm : Form
             Visible = canMoveDown,
             Tag = account,
         };
+
+        MainWindowTheme.StyleButton(moveUpButton);
+        MainWindowTheme.StyleButton(moveDownButton);
 
         moveUpButton.Click += this.MoveAccountUpButton_OnClick;
         moveDownButton.Click += this.MoveAccountDownButton_OnClick;
@@ -433,14 +492,15 @@ public sealed class AccountsForm : Form
         var cardWidth = GetCardWidth(this.charactersPanel, 420);
         var professionX = Math.Max(300, cardWidth - 280);
 
-        var card = new Panel
+        var card = new AccountsCardPanel
         {
             Width = cardWidth,
             Height = 92,
-            Margin = new Padding(4, 4, 8, 6),
-            BorderStyle = BorderStyle.FixedSingle,
+            Margin = new Padding(left: 4, top: 4, right: 8, bottom: 6),
             Tag = slotNumber,
             Cursor = Cursors.Hand,
+            BackColor = MainWindowTheme.Panel,
+            AccentColor = MainWindowTheme.Border,
         };
 
         var title = new Label
@@ -448,8 +508,8 @@ public sealed class AccountsForm : Form
             Text = character?.Name ?? "Empty character slot",
             Font = new Font(this.Font, FontStyle.Bold),
             ForeColor = character == null
-                ? SystemColors.GrayText
-                : SystemColors.ControlText,
+                ? MainWindowTheme.MutedText
+                : MainWindowTheme.Text,
             Location = new Point(12, 10),
             Size = new Size(cardWidth - 36, 22),
         };
@@ -457,7 +517,7 @@ public sealed class AccountsForm : Form
         var slotLabel = new Label
         {
             Text = string.Create(CultureInfo.InvariantCulture, $"Character Slot {slotNumber}"),
-            ForeColor = SystemColors.GrayText,
+            ForeColor = MainWindowTheme.MutedText,
             Location = new Point(12, 36),
             Size = new Size(180, 20),
         };
@@ -469,6 +529,7 @@ public sealed class AccountsForm : Form
                 : $"{character.Race} - {character.Profession}",
             Location = new Point(professionX, 36),
             Size = new Size(cardWidth - professionX - 24, 20),
+            ForeColor = MainWindowTheme.Text,
         };
 
         var hint = new Label
@@ -476,7 +537,7 @@ public sealed class AccountsForm : Form
             Text = character == null
                 ? "Double-click to create this character"
                 : "Double-click to edit this character",
-            ForeColor = SystemColors.GrayText,
+            ForeColor = MainWindowTheme.MutedText,
             Location = new Point(12, 60),
             Size = new Size(cardWidth - 36, 20),
         };
@@ -512,8 +573,15 @@ public sealed class AccountsForm : Form
 
     private static int GetCardWidth(ScrollableControl parent, int minimumWidth)
     {
+        var effectiveClientWidth = parent.ClientSize.Width;
+
+        if (parent.VerticalScroll.Visible)
+        {
+            effectiveClientWidth += SystemInformation.VerticalScrollBarWidth;
+        }
+
         var scrollbarAllowance = SystemInformation.VerticalScrollBarWidth + 32;
-        var width = parent.ClientSize.Width - scrollbarAllowance;
+        var width = effectiveClientWidth - scrollbarAllowance;
 
         return Math.Max(minimumWidth, width);
     }
@@ -538,26 +606,31 @@ public sealed class AccountsForm : Form
 
     private void HighlightSelectedCards()
     {
-        var selectedBackColor = Color.FromArgb(218, 235, 255);
-        var normalBackColor = Color.White;
-
         foreach (Control control in this.accountsPanel.Controls)
         {
-            if (control is Panel { Tag: GameAccount account } panel)
+            if (control is AccountsCardPanel { Tag: GameAccount account } panel)
             {
-                panel.BackColor = this.selectedAccount?.Id == account.Id
-                    ? selectedBackColor
-                    : normalBackColor;
+                var isSelected = this.selectedAccount?.Id == account.Id;
+                panel.BackColor = isSelected
+                    ? MainWindowTheme.ElevatedPanel
+                    : MainWindowTheme.Panel;
+                panel.AccentColor = isSelected
+                    ? MainWindowTheme.AccentBorder
+                    : MainWindowTheme.Border;
             }
         }
 
         foreach (Control control in this.charactersPanel.Controls)
         {
-            if (control is Panel { Tag: int slotNumber } panel)
+            if (control is AccountsCardPanel { Tag: int slotNumber } panel)
             {
-                panel.BackColor = this.selectedCharacterSlotNumber == slotNumber
-                    ? selectedBackColor
-                    : normalBackColor;
+                var isSelected = this.selectedCharacterSlotNumber == slotNumber;
+                panel.BackColor = isSelected
+                    ? MainWindowTheme.ElevatedPanel
+                    : MainWindowTheme.Panel;
+                panel.AccentColor = isSelected
+                    ? MainWindowTheme.AccentBorder
+                    : MainWindowTheme.Border;
             }
         }
     }
@@ -569,7 +642,9 @@ public sealed class AccountsForm : Form
 
         this.editCharacterButton.Enabled = this.selectedAccount != null;
         this.deleteCharacterButton.Enabled =
-            this.selectedAccount?.Characters.Exists(character => character.CharacterSlotNumber == this.selectedCharacterSlotNumber) == true;
+            this.selectedAccount?.Characters.Exists(character =>
+                character.CharacterSlotNumber ==
+                this.selectedCharacterSlotNumber) == true;
     }
 
     private void AddAccountButton_OnClick(object? sender, EventArgs e)
@@ -622,14 +697,15 @@ public sealed class AccountsForm : Form
             return;
         }
 
-        var result = MessageBox.Show(
-            this,
-            $"Delete account '{this.selectedAccount.DisplayName}'?",
-            "Delete Account",
-            MessageBoxButtons.YesNo,
-            MessageBoxIcon.Warning);
-
-        if (result != DialogResult.Yes)
+        if (!ThemedMessageDialog.Confirm(
+                this,
+                "Delete account",
+                string.Concat(
+                    "Delete account '",
+                    UiObfuscationMode.AccountName(
+                        this.selectedAccount.ToString()),
+                    "'?"),
+                confirmButtonText: "Delete"))
         {
             return;
         }
@@ -694,14 +770,13 @@ public sealed class AccountsForm : Form
             return;
         }
 
-        var result = MessageBox.Show(
-            this,
-            string.Create(CultureInfo.InvariantCulture, $"Delete character '{character.Name}' from slot {character.CharacterSlotNumber}?"),
-            "Delete Character",
-            MessageBoxButtons.YesNo,
-            MessageBoxIcon.Warning);
-
-        if (result != DialogResult.Yes)
+        if (!ThemedMessageDialog.Confirm(
+                this,
+                "Delete character",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"Delete character '{character.Name}' from slot {character.CharacterSlotNumber}?"),
+                confirmButtonText: "Delete"))
         {
             return;
         }
@@ -767,4 +842,53 @@ public sealed class AccountsForm : Form
             ? fallback
             : value;
     }
+    private sealed class ThemedFlowLayoutPanel : FlowLayoutPanel
+    {
+        public ThemedFlowLayoutPanel()
+        {
+            this.DoubleBuffered = true;
+            this.ResizeRedraw = true;
+        }
+    }
+
+    private sealed class AccountsCardPanel : Panel
+    {
+        private Color accentColor = MainWindowTheme.Border;
+
+        public AccountsCardPanel()
+        {
+            this.DoubleBuffered = true;
+            this.ResizeRedraw = true;
+        }
+
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public Color AccentColor
+        {
+            get => this.accentColor;
+            set
+            {
+                if (this.accentColor == value)
+                {
+                    return;
+                }
+
+                this.accentColor = value;
+                this.Invalidate();
+            }
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+
+            using var pen = new Pen(this.accentColor);
+            e.Graphics.DrawRectangle(
+                pen,
+                x: 0,
+                y: 0,
+                width: Math.Max(0, this.ClientSize.Width - 1),
+                height: Math.Max(0, this.ClientSize.Height - 1));
+        }
+    }
+
 }

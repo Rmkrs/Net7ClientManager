@@ -1,75 +1,270 @@
+// ReSharper disable LocalizableElement
 namespace Net7ClientManager.Forms;
 
-using System.Globalization;
+using System.Diagnostics;
+using Net7ClientManager.Addons.Contracts;
 using Net7ClientManager.Core;
+using Net7ClientManager.Contributions;
 using Net7ClientManager.Models;
+using Net7ClientManager.Navigation;
+using Net7ClientManager.Observations;
+using Net7ClientManager.Observations.Models;
 using Net7ClientManager.Services;
+using Net7ClientManager.SkillPlanning;
 using Net7ClientManager.Win32;
 
-public sealed class ClientHostForm : Form
+public sealed partial class ClientHostForm : Form
 {
-    private const int TitleBarHeight = 28;
+    private const int TitleBarHeight = 34;
+
+    private const int MissionWikiBaseCanvasWidth = 1280;
+    private const int MissionWikiBaseCanvasHeight = 720;
+    private const int MissionWikiBaseX = 345;
+    private const int MissionWikiBaseY = 268;
+    private const int MissionWikiBaseWidth = 700;
+    private const int MissionWikiBaseHeight = 420;
+    private const int MissionWikiControlBaseOffsetX = 0;
+    private const int MissionWikiControlBaseOffsetY = -72;
+    private const int MissionWikiControlBaseWidth = 95;
+    private const int MissionWikiControlBaseHeight = 30;
+    private const int MissionWikiControlMinimumWidth = 80;
+    private const int MissionWikiControlMinimumHeight = 24;
+
+    private const int JobTerminalRouteBaseCanvasWidth = 1280;
+    private const int JobTerminalRouteBaseCanvasHeight = 720;
+    private const int JobTerminalRouteBaseX = 994;
+    private const int JobTerminalRouteBaseY = 555;
+    private const int JobTerminalRouteBaseWidth = 193;
+    private const int JobTerminalRouteBaseHeight = 93;
+    private const int JobTerminalRouteMinimumWidth = 183;
+    private const int JobTerminalRouteMinimumHeight = 90;
+
+    private const int FactionDetailsBaseCanvasWidth = 1280;
+    private const int FactionDetailsBaseCanvasHeight = 720;
+    private const int FactionDetailsBaseX = 345;
+    private const int FactionDetailsBaseY = 170;
+    private const int FactionDetailsBaseWidth = 585;
+    private const int FactionDetailsBaseHeight = 450;
+    private const int FactionDetailsMinimumWidth = 350;
+    private const int FactionDetailsMinimumHeight = 300;
+
+    private const int BuildSkillsCompanionBaseCanvasWidth = 1280;
+    private const int BuildSkillsCompanionBaseCanvasHeight = 720;
+    private const int BuildSkillsCompanionBaseX = 345;
+    private const int BuildSkillsCompanionBaseY = 196;
+    private const int BuildSkillsCompanionBaseWidth = 325;
+    private const int BuildSkillsCompanionMinimumWidth = 300;
+    private const int BuildSkillsCompanionMinimumHeight = 150;
+    private const int BuildSkillsToggleBaseX = 27;
+    private const int BuildSkillsToggleBaseY = 140;
+    private const int BuildSkillsToggleBaseWidth = 88;
+    private const int BuildSkillsToggleBaseHeight = 25;
+    private const int BuildSkillsToggleMinimumWidth = 82;
+    private const int BuildSkillsToggleMinimumHeight = 22;
+    private const string BuildSkillsCompanionPlacementAddonId =
+        "net7.builds";
+    private const string BuildSkillsCompanionPlacementWidgetId =
+        "skills-companion-v1";
+
+    private const int BuildEquipmentCompanionBaseCanvasWidth = 1280;
+    private const int BuildEquipmentCompanionBaseCanvasHeight = 720;
+    private const int BuildEquipmentCompanionBaseX = 1016;
+    private const int BuildEquipmentCompanionBaseY = 70;
+    private const int BuildEquipmentCompanionBaseWidth = 255;
+    private const int BuildEquipmentCompanionMinimumWidth = 245;
+    private const int BuildEquipmentCompanionMinimumHeight = 150;
+    private const int BuildEquipmentToggleBaseX = 26;
+    private const int BuildEquipmentToggleStarbaseBaseY = 163;
+    private const int BuildEquipmentToggleUndockedBaseY = 186;
+    private const int BuildEquipmentToggleBaseWidth = 190;
+    private const int BuildEquipmentToggleBaseHeight = 19;
+    private const int BuildEquipmentToggleMinimumWidth = 180;
+    private const int BuildEquipmentToggleMinimumHeight = 18;
+    private const string BuildEquipmentCompanionPlacementAddonId =
+        "net7.builds";
+    private const string BuildEquipmentCompanionPlacementWidgetId =
+        "equipment-companion-v1";
 
     private readonly ClientInstance clientInstance;
     private readonly ClientDockingService clientDockingService;
     private readonly Action<ClientInstance, CloseReason> closeRequested;
-    private readonly Func<ClientSlot, GameAccount?> findAccount;
-    private readonly Func<ClientSlot, GameCharacter?> findCharacter;
-    private readonly HostedClientTitleService titleService = new();
+    private readonly Action<ClientInstance> openGalaxyAtlasRequested;
+    private readonly Action<ClientInstance, string?>
+        openWorldFindRequested;
+    private readonly Action<ClientInstance, IWin32Window> openForgeContributionsRequested;
+    private readonly Action<ClientInstance, IWin32Window> openPilotArchiveRequested;
+    private readonly Action<ClientInstance, IWin32Window> openSocialRequested;
+    private readonly Action<ClientInstance, IWin32Window> openAddonsRequested;
+    private readonly Action<ClientInstance, IWin32Window>
+        openInGameOptionsRequested;
+    private readonly Func<
+        MissionWikiLocationHint,
+        NavigationDestination?> resolveMissionWikiDestination;
+    private readonly Func<
+        ClientMissionObservation,
+        MissionJobGuidance?> resolveMissionJobGuidance;
+    private readonly Func<
+        NavigationDestination,
+        NavigationRouteCommandResult> setMissionWikiDestination;
+    private readonly Action<AddonUiInteraction> addonUiInteractionRaised;
+    private readonly Func<string, string, AddonWindowPlacement?>
+        resolveAddonWindowPlacement;
+    private readonly Action<string, string, AddonWindowPlacement>
+        saveAddonWindowPlacement;
+    private readonly SkillBuildLocalWorkspace skillBuildLocalWorkspace;
+    private readonly ForgeContributionCoordinator forgeContributionCoordinator;
+    private readonly Func<int?, Size, Image?> resolveBuildItemIcon;
+    private readonly Action<int, ClientTooltipHoverObservation>
+        requestGameItemToolTipRefresh;
+    private static readonly SkillBuildBoardPresentationBuilder
+        skillBuildBoardPresentationBuilder =
+            new(new SkillPlannerCatalogService().GetCatalog());
 
-    private readonly Panel titleBarPanel;
-    private readonly Label titleLabel;
-    private readonly Button minimizeButton;
-    private readonly Button closeButton;
+    private readonly HostedClientTitleService titleService = new();
+    private readonly ActionToolTip gameItemToolTip = new(topMost: false);
+
+    private readonly HostedClientTitleBar titleBar;
     private readonly Panel gamePanel;
 
     private readonly System.Windows.Forms.Timer titleStatusTimer = new();
     private readonly System.Windows.Forms.Timer titleBlinkTimer = new();
+    private readonly Lock pendingUiCommandLock = new();
+    private readonly List<AddonUiCommand> pendingUiCommands = [];
 
-    private string baseTitle;
+    private AddonOverlayForm? addonOverlayForm;
+    private MissionWikiWebViewForm? missionWikiWebViewForm;
+    private MissionWikiControlForm? missionWikiControlForm;
+    private JobTerminalRouteControlForm? jobTerminalRouteControlForm;
+    private JobTerminalRoutePresentation jobTerminalRoutePresentation =
+        JobTerminalRoutePresentation.Hidden;
+    private FactionDetailsOverlayForm? factionDetailsOverlayForm;
+    private FactionDetailsPresentation factionDetailsPresentation =
+        FactionDetailsPresentation.Hidden;
+    private SkillBuildBoardForm? skillBuildBoardForm;
+    private SkillBuildBoardPresentation skillBuildBoardPresentation =
+        SkillBuildBoardPresentation.Hidden;
+    private SkillBuildSkillsCompanionForm? skillBuildSkillsCompanionForm;
+    private BuildCompanionToggleForm? skillBuildSkillsToggleForm;
+    private SkillBuildSkillsCompanionPresentation
+        skillBuildSkillsCompanionPresentation =
+            SkillBuildSkillsCompanionPresentation.Hidden;
+    private bool? skillBuildSkillsCompanionVisible;
+    private string skillBuildSkillsCompanionSourceFingerprint = "";
+    private int skillBuildSkillsWorkspaceRevision;
+    private SkillBuildEquipmentCompanionForm?
+        skillBuildEquipmentCompanionForm;
+    private BuildCompanionToggleForm? skillBuildEquipmentToggleForm;
+    private SkillBuildEquipmentCompanionPresentation
+        skillBuildEquipmentCompanionPresentation =
+            SkillBuildEquipmentCompanionPresentation.Hidden;
+    private bool? skillBuildEquipmentCompanionVisible;
+    private string skillBuildEquipmentCompanionSourceFingerprint = "";
+    private int skillBuildEquipmentWorkspaceRevision;
+    private ClientPanelPresentationObservation skillPlannerPanelPresentation =
+        ClientPanelPresentationObservation.Unavailable(
+            "Equipment panel was not observed");
+    private ClientObservationSnapshot? gameItemToolTipSnapshot;
+    private ClientTooltipHoverObservation gameItemToolTipHover =
+        ClientTooltipHoverObservation.Unavailable(
+            "Tooltip hover was not observed");
+    private GameItemToolTipPreparation? gameItemToolTipPreparation;
+    private string gameItemToolTipRefreshRequestKey = "";
+    private bool gameItemToolTipsEnabled = true;
+    private Point gameItemToolTipOffset;
+    private uint missionWikiMissionAddress;
+    private string? missionWikiMissionName;
+    private MissionJobGuidance? missionJobGuidance;
+    private string missionWikiPresentationStatus =
+        "Waiting for an open mission-details pane.";
+    private bool missionWikiEnabled;
+    private bool missionWikiExpanded = true;
+    private bool missionWikiForfeitConfirmationDisplayed;
+    private bool addonsSuspendedForSession;
+    private string? appliedSlotName;
     private string? titleStatusText;
     private bool titleStatusBlinkEnabled;
     private bool titleStatusBlinkVisible = true;
+    private ClientLifecycleState addonLifecycleState =
+        ClientLifecycleState.Unknown;
+    private bool addonTransitioning;
     private bool closeRequestedByManager;
+    private Guid? appliedSlotId;
 
-    public ClientHostForm(
+    internal ClientHostForm(
         ClientInstance clientInstance,
         ClientDockingService clientDockingService,
         Action<ClientInstance, CloseReason> closeRequested,
-        Func<ClientSlot, GameAccount?> findAccount,
-        Func<ClientSlot, GameCharacter?> findCharacter)
+        Action<ClientInstance> openGalaxyAtlasRequested,
+        Action<ClientInstance, string?> openWorldFindRequested,
+        Action<ClientInstance, IWin32Window> openForgeContributionsRequested,
+        Action<ClientInstance, IWin32Window> openPilotArchiveRequested,
+        Action<ClientInstance, IWin32Window> openSocialRequested,
+        Action<ClientInstance, IWin32Window> openAddonsRequested,
+        Action<ClientInstance, IWin32Window> openInGameOptionsRequested,
+        Func<
+            MissionWikiLocationHint,
+            NavigationDestination?> resolveMissionWikiDestination,
+        Func<
+            ClientMissionObservation,
+            MissionJobGuidance?> resolveMissionJobGuidance,
+        Func<
+            NavigationDestination,
+            NavigationRouteCommandResult> setMissionWikiDestination,
+        Action<AddonUiInteraction> addonUiInteractionRaised,
+        Func<string, string, AddonWindowPlacement?>
+            resolveAddonWindowPlacement,
+        Action<string, string, AddonWindowPlacement>
+            saveAddonWindowPlacement,
+        SkillBuildLocalWorkspace skillBuildLocalWorkspace,
+        ForgeContributionCoordinator forgeContributionCoordinator,
+        Func<int?, Size, Image?> resolveBuildItemIcon,
+        Action<int, ClientTooltipHoverObservation>
+            requestGameItemToolTipRefresh)
     {
         this.clientInstance = clientInstance;
         this.clientDockingService = clientDockingService;
         this.closeRequested = closeRequested;
-        this.findAccount = findAccount;
-        this.findCharacter = findCharacter;
+        this.openGalaxyAtlasRequested = openGalaxyAtlasRequested;
+        this.openWorldFindRequested = openWorldFindRequested;
+        this.openForgeContributionsRequested = openForgeContributionsRequested;
+        this.openPilotArchiveRequested = openPilotArchiveRequested;
+        this.openSocialRequested = openSocialRequested;
+        this.openAddonsRequested = openAddonsRequested;
+        this.openInGameOptionsRequested =
+            openInGameOptionsRequested;
+        this.resolveMissionWikiDestination =
+            resolveMissionWikiDestination;
+        this.resolveMissionJobGuidance =
+            resolveMissionJobGuidance;
+        this.setMissionWikiDestination =
+            setMissionWikiDestination;
+        this.addonUiInteractionRaised = addonUiInteractionRaised;
+        this.resolveAddonWindowPlacement =
+            resolveAddonWindowPlacement;
+        this.saveAddonWindowPlacement =
+            saveAddonWindowPlacement;
+        this.skillBuildLocalWorkspace = skillBuildLocalWorkspace ??
+            throw new ArgumentNullException(nameof(skillBuildLocalWorkspace));
+        this.forgeContributionCoordinator = forgeContributionCoordinator ??
+            throw new ArgumentNullException(nameof(forgeContributionCoordinator));
+        this.resolveBuildItemIcon = resolveBuildItemIcon ??
+            throw new ArgumentNullException(nameof(resolveBuildItemIcon));
+        this.requestGameItemToolTipRefresh =
+            requestGameItemToolTipRefresh ??
+            throw new ArgumentNullException(
+                nameof(requestGameItemToolTipRefresh));
 
-        this.baseTitle = string.Create(
-            CultureInfo.InvariantCulture,
-            $"Earth & Beyond - PID {clientInstance.ProcessId}");
-
-        this.Text = this.baseTitle;
+        this.Text = "Earth & Beyond";
         this.Icon = ResourceLoader.EarthAndBeyondIcon;
         this.StartPosition = FormStartPosition.Manual;
         this.FormBorderStyle = FormBorderStyle.None;
         this.MinimumSize = new Size(640, 480 + TitleBarHeight);
 
-        this.titleBarPanel = this.CreateTitleBarPanel();
-        this.titleLabel = this.CreateTitleLabel();
-        this.minimizeButton = this.CreateTitleButton("─");
-        this.closeButton = this.CreateTitleButton("×");
-        this.closeButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(red: 232, green: 80, blue: 80);
-        this.closeButton.FlatAppearance.MouseDownBackColor = Color.FromArgb(red: 200, green: 55, blue: 55);
-
+        this.titleBar = this.CreateTitleBar();
         this.gamePanel = this.CreateGamePanel();
 
-        this.titleBarPanel.Controls.Add(this.titleLabel);
-        this.titleBarPanel.Controls.Add(this.minimizeButton);
-        this.titleBarPanel.Controls.Add(this.closeButton);
-
         this.Controls.Add(this.gamePanel);
-        this.Controls.Add(this.titleBarPanel);
+        this.Controls.Add(this.titleBar);
 
         this.ApplyCurrentHostTitle();
         this.ApplyInitialBoundsFromGameWindow();
@@ -82,12 +277,15 @@ public sealed class ClientHostForm : Form
         this.Load += this.ClientHostForm_OnLoad;
         this.Shown += this.ClientHostForm_OnShown;
         this.Resize += this.ClientHostForm_OnResize;
+        this.Move += this.ClientHostForm_OnMove;
+        this.VisibleChanged += this.ClientHostForm_OnVisibleChanged;
         this.FormClosing += this.ClientHostForm_OnFormClosing;
+        this.skillBuildLocalWorkspace.Changed +=
+            this.SkillBuildLocalWorkspace_OnChanged;
 
-        this.titleBarPanel.MouseDown += this.TitleBarPanel_OnMouseDown;
-        this.titleLabel.MouseDown += this.TitleBarPanel_OnMouseDown;
-        this.minimizeButton.Click += this.MinimizeButton_OnClick;
-        this.closeButton.Click += this.CloseButton_OnClick;
+        this.titleBar.DragRequested += this.TitleBar_OnDragRequested;
+        this.titleBar.MinimizeRequested += this.TitleBar_OnMinimizeRequested;
+        this.titleBar.CloseRequested += this.TitleBar_OnCloseRequested;
     }
 
     public void CloseFromManager()
@@ -101,17 +299,56 @@ public sealed class ClientHostForm : Form
         this.Close();
     }
 
+    public void RefreshRuntimeTitle()
+    {
+        if (this.IsDisposed || this.Disposing)
+        {
+            return;
+        }
+
+        if (!this.IsHandleCreated)
+        {
+            return;
+        }
+
+        if (this.InvokeRequired)
+        {
+            try
+            {
+                this.BeginInvoke(this.RefreshRuntimeTitle);
+            }
+            catch (InvalidOperationException)
+            {
+            }
+
+            return;
+        }
+
+        this.ApplyCurrentHostTitle();
+    }
+
+    public void ApplyManagedHostSize(int width, int height)
+    {
+        if (width <= 0 || height <= 0)
+        {
+            return;
+        }
+
+        this.ClientSize = new Size(
+            width,
+            height + TitleBarHeight);
+
+        _ = this.clientDockingService.TryResizeDockedWindow(
+            this.clientInstance.GameWindowHandle,
+            this.gamePanel.ClientSize);
+    }
+
     public void ApplySlot(ClientSlot slot)
     {
-        var account = this.findAccount(slot);
-        var character = this.findCharacter(slot);
+        var slotChanged = this.appliedSlotId != slot.Id;
+        this.appliedSlotId = slot.Id;
 
-        this.baseTitle = this.titleService.BuildBaseTitle(
-            slot,
-            account,
-            character,
-            this.clientInstance.ProcessId);
-
+        this.appliedSlotName = slot.Name;
         this.ApplyCurrentHostTitle();
 
         this.StartPosition = FormStartPosition.Manual;
@@ -124,17 +361,578 @@ public sealed class ClientHostForm : Form
         _ = this.clientDockingService.TryResizeDockedWindow(
             this.clientInstance.GameWindowHandle,
             this.gamePanel.ClientSize);
+
+        this.SetMissionWikiEnabled(
+            !this.addonsSuspendedForSession &&
+            slot.EnabledAddonIds.Contains(
+                MissionWikiFeature.AddonId,
+                StringComparer.Ordinal));
+
+        if (slotChanged)
+        {
+            this.skillBuildSkillsCompanionVisible = null;
+            this.skillBuildSkillsCompanionSourceFingerprint = "";
+            this.skillBuildEquipmentCompanionVisible = null;
+            this.skillBuildEquipmentCompanionSourceFingerprint = "";
+            this.QueueAddonWindowStateReload();
+        }
+
+        this.SyncMissionWiki();
+        this.SyncBuildSkillsCompanion();
+        this.SyncBuildEquipmentCompanion();
+        this.SyncVendorShoppingCompanion();
+    }
+
+    public void SetAddonsSuspendedForSession(bool suspended)
+    {
+        this.addonsSuspendedForSession = suspended;
     }
 
     public void SetUnassignedTitle()
     {
-        this.baseTitle = this.titleService.BuildBaseTitle(
-            slot: null,
-            account: null,
-            character: null,
-            this.clientInstance.ProcessId);
+        var slotChanged = this.appliedSlotId != null;
+        this.appliedSlotId = null;
 
+        this.appliedSlotName = null;
         this.ClearTitleStatus();
+        this.SetMissionWikiEnabled(enabled: false);
+
+        if (slotChanged)
+        {
+            this.skillBuildSkillsCompanionVisible = null;
+            this.skillBuildSkillsCompanionSourceFingerprint = "";
+            this.skillBuildEquipmentCompanionVisible = null;
+            this.skillBuildEquipmentCompanionSourceFingerprint = "";
+            this.QueueAddonWindowStateReload();
+        }
+
+        this.SyncBuildSkillsCompanion();
+        this.SyncBuildEquipmentCompanion();
+        this.SyncVendorShoppingCompanion();
+    }
+
+    public AddonRuntimeState MissionWikiRuntimeState
+    {
+        get
+        {
+            if (!this.missionWikiEnabled)
+            {
+                return AddonRuntimeState.Disabled;
+            }
+
+            if (string.IsNullOrWhiteSpace(
+                    this.missionWikiMissionName))
+            {
+                return AddonRuntimeState.WaitingForContext;
+            }
+
+            return this.missionWikiWebViewForm?.RuntimeState ??
+                   AddonRuntimeState.Loading;
+        }
+    }
+
+    public string MissionWikiStatusText
+    {
+        get
+        {
+            if (!this.missionWikiEnabled)
+            {
+                return "Disabled.";
+            }
+
+            if (string.IsNullOrWhiteSpace(
+                    this.missionWikiMissionName))
+            {
+                return this.missionWikiPresentationStatus;
+            }
+
+            return this.missionWikiWebViewForm?.StatusText ??
+                   "Preparing the host-owned browser.";
+        }
+    }
+
+    public void SetMissionWikiEnabled(bool enabled)
+    {
+        if (this.IsDisposed || this.Disposing)
+        {
+            return;
+        }
+
+        if (this.InvokeRequired)
+        {
+            try
+            {
+                this.BeginInvoke(
+                    () => this.SetMissionWikiEnabled(enabled));
+            }
+            catch (InvalidOperationException)
+            {
+            }
+
+            return;
+        }
+
+        if (this.missionWikiEnabled == enabled)
+        {
+            this.SyncMissionWiki();
+            return;
+        }
+
+        this.missionWikiEnabled = enabled;
+        if (!enabled)
+        {
+            this.CloseMissionWikiForm();
+            return;
+        }
+
+        this.SyncMissionWiki();
+    }
+
+    public void UpdateMissionWikiPresentation(
+        ClientObservationSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        this.UpdateMissionWikiPresentation(
+            snapshot.PanelPresentation,
+            snapshot.LocalPlayer.Missions);
+    }
+
+    public void UpdateMissionWikiPresentation(
+        ClientPanelPresentationObservation panelPresentation,
+        ClientMissionLogObservation missions)
+    {
+        ArgumentNullException.ThrowIfNull(panelPresentation);
+        ArgumentNullException.ThrowIfNull(missions);
+
+        if (this.IsDisposed || this.Disposing)
+        {
+            return;
+        }
+
+        if (this.InvokeRequired)
+        {
+            try
+            {
+                this.BeginInvoke(
+                    () => this.UpdateMissionWikiPresentation(
+                        panelPresentation,
+                        missions));
+            }
+            catch (InvalidOperationException)
+            {
+            }
+
+            return;
+        }
+
+        var details =
+            panelPresentation.MissionDetails;
+
+        var nextMissionAddress =
+            details.IsDisplayed
+                ? details.SelectedMissionAddress
+                : 0;
+
+        var selectedMission =
+            details.IsDisplayed &&
+            missions.IsAvailable
+                ? missions.GetByAddress(
+                    details.SelectedMissionAddress)
+                : null;
+
+        var observedMissionName =
+            selectedMission?.Name;
+
+        if (string.IsNullOrWhiteSpace(observedMissionName))
+        {
+            observedMissionName =
+                details.SelectedMissionName;
+        }
+
+        var nextMissionName =
+            details.IsDisplayed &&
+            !string.IsNullOrWhiteSpace(observedMissionName)
+                ? observedMissionName.Trim()
+                : null;
+        var nextJobGuidance =
+            selectedMission != null
+                ? this.resolveMissionJobGuidance(selectedMission)
+                : null;
+
+        this.missionWikiPresentationStatus =
+            BuildMissionWikiPresentationStatus(
+                panelPresentation,
+                details,
+                missions,
+                nextMissionName,
+                nextJobGuidance != null);
+
+        var missionChanged =
+            this.missionWikiMissionAddress !=
+                nextMissionAddress ||
+            !string.Equals(
+                this.missionWikiMissionName,
+                nextMissionName,
+                StringComparison.Ordinal) ||
+            !string.Equals(
+                this.missionJobGuidance?.Fingerprint,
+                nextJobGuidance?.Fingerprint,
+                StringComparison.Ordinal);
+
+        this.missionWikiMissionAddress =
+            nextMissionAddress;
+        this.missionWikiMissionName =
+            nextMissionName;
+        this.missionJobGuidance =
+            nextJobGuidance;
+        this.missionWikiForfeitConfirmationDisplayed =
+            details.IsForfeitConfirmationDisplayed;
+
+        if (missionChanged &&
+            this.missionWikiWebViewForm != null &&
+            nextMissionName != null)
+        {
+            if (nextJobGuidance != null)
+            {
+                this.missionWikiWebViewForm.NavigateToJob(
+                    nextJobGuidance);
+            }
+            else
+            {
+                this.missionWikiWebViewForm.NavigateToMission(
+                    nextMissionName);
+            }
+        }
+
+        this.SyncMissionWiki();
+    }
+
+    public void UpdateJobTerminalRoutePresentation(
+        JobTerminalRoutePresentation presentation)
+    {
+        ArgumentNullException.ThrowIfNull(presentation);
+
+        if (this.IsDisposed || this.Disposing)
+        {
+            return;
+        }
+
+        if (this.InvokeRequired)
+        {
+            try
+            {
+                this.BeginInvoke(
+                    () => this.UpdateJobTerminalRoutePresentation(
+                        presentation));
+            }
+            catch (InvalidOperationException)
+            {
+            }
+
+            return;
+        }
+
+        this.jobTerminalRoutePresentation = presentation;
+        this.SyncJobTerminalRoute();
+    }
+
+    public void UpdateFactionDetailsPresentation(
+        FactionDetailsPresentation presentation)
+    {
+        ArgumentNullException.ThrowIfNull(presentation);
+
+        if (this.IsDisposed || this.Disposing)
+        {
+            return;
+        }
+
+        if (this.InvokeRequired)
+        {
+            try
+            {
+                this.BeginInvoke(
+                    () => this.UpdateFactionDetailsPresentation(
+                        presentation));
+            }
+            catch (InvalidOperationException)
+            {
+            }
+
+            return;
+        }
+
+        this.factionDetailsPresentation = presentation;
+        this.SyncFactionDetails();
+    }
+
+    public void UpdateGameItemToolTipSnapshot(
+        ClientObservationSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        if (this.IsDisposed || this.Disposing)
+        {
+            return;
+        }
+
+        if (this.InvokeRequired)
+        {
+            try
+            {
+                this.BeginInvoke(
+                    () => this.UpdateGameItemToolTipSnapshot(snapshot));
+            }
+            catch (InvalidOperationException)
+            {
+            }
+
+            return;
+        }
+
+        this.gameItemToolTipSnapshot = snapshot;
+        this.RefreshGameItemToolTipPreparation();
+        this.SyncGameItemToolTip();
+    }
+
+    public void SetGameItemToolTipOptions(
+        bool enabled,
+        int horizontalOffset,
+        int verticalOffset)
+    {
+        if (this.IsDisposed || this.Disposing)
+        {
+            return;
+        }
+
+        if (this.InvokeRequired)
+        {
+            try
+            {
+                this.BeginInvoke(
+                    () => this.SetGameItemToolTipOptions(
+                        enabled,
+                        horizontalOffset,
+                        verticalOffset));
+            }
+            catch (InvalidOperationException)
+            {
+            }
+
+            return;
+        }
+
+        this.gameItemToolTipsEnabled = enabled;
+        this.gameItemToolTipOffset = new Point(
+            Math.Clamp(
+                horizontalOffset,
+                GameItemToolTipSettings.MinimumOffset,
+                GameItemToolTipSettings.MaximumOffset),
+            Math.Clamp(
+                verticalOffset,
+                GameItemToolTipSettings.MinimumOffset,
+                GameItemToolTipSettings.MaximumOffset));
+
+        if (!enabled)
+        {
+            this.gameItemToolTipPreparation = null;
+            this.gameItemToolTipRefreshRequestKey = "";
+            this.gameItemToolTip.HideExternal();
+            return;
+        }
+
+        this.RefreshGameItemToolTipPreparation();
+        this.SyncGameItemToolTip();
+    }
+
+    public void UpdateGameItemToolTipHover(
+        ClientTooltipHoverObservation hover)
+    {
+        ArgumentNullException.ThrowIfNull(hover);
+
+        if (this.IsDisposed || this.Disposing)
+        {
+            return;
+        }
+
+        if (this.InvokeRequired)
+        {
+            try
+            {
+                this.BeginInvoke(
+                    () => this.UpdateGameItemToolTipHover(hover));
+            }
+            catch (InvalidOperationException)
+            {
+            }
+
+            return;
+        }
+
+        var previousIdentity =
+            GameItemToolTipPresentationBuilder.GetHoverIdentity(
+                this.gameItemToolTipHover);
+        var nextIdentity =
+            GameItemToolTipPresentationBuilder.GetHoverIdentity(
+                hover);
+
+        if (!string.Equals(
+                previousIdentity,
+                nextIdentity,
+                StringComparison.Ordinal))
+        {
+            this.gameItemToolTip.HideExternal();
+            this.gameItemToolTipPreparation = null;
+            this.gameItemToolTipRefreshRequestKey = "";
+        }
+
+        this.gameItemToolTipHover = hover;
+        this.RefreshGameItemToolTipPreparation();
+        this.SyncGameItemToolTip();
+    }
+
+    public void UpdateSkillPlannerPresentation(
+        ClientObservationSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        if (this.IsDisposed || this.Disposing)
+        {
+            return;
+        }
+
+        if (this.InvokeRequired)
+        {
+            try
+            {
+                this.BeginInvoke(
+                    () => this.UpdateSkillPlannerPresentation(snapshot));
+            }
+            catch (InvalidOperationException)
+            {
+            }
+
+            return;
+        }
+
+        this.skillPlannerPanelPresentation =
+            snapshot.PanelPresentation;
+        this.skillBuildBoardPresentation =
+            skillBuildBoardPresentationBuilder.Build(snapshot);
+        if (this.skillBuildBoardForm is
+            {
+                IsDisposed: false,
+                Disposing: false,
+            })
+        {
+            this.skillBuildBoardForm.SetPresentation(
+                this.skillBuildBoardPresentation);
+        }
+
+        this.SyncBuildSkillsCompanion();
+        this.SyncBuildEquipmentCompanion();
+    }
+
+    public void UpdateSkillPlannerPanelPresentation(
+        ClientPanelPresentationObservation panelPresentation)
+    {
+        ArgumentNullException.ThrowIfNull(panelPresentation);
+
+        if (this.IsDisposed || this.Disposing)
+        {
+            return;
+        }
+
+        if (this.InvokeRequired)
+        {
+            try
+            {
+                this.BeginInvoke(
+                    () => this.UpdateSkillPlannerPanelPresentation(
+                        panelPresentation));
+            }
+            catch (InvalidOperationException)
+            {
+            }
+
+            return;
+        }
+
+        this.skillPlannerPanelPresentation = panelPresentation;
+        this.SyncBuildSkillsCompanion();
+        this.SyncBuildEquipmentCompanion();
+    }
+
+    private static string BuildMissionWikiPresentationStatus(
+        ClientPanelPresentationObservation panelPresentation,
+        ClientMissionDetailsPresentationObservation details,
+        ClientMissionLogObservation missions,
+        string? missionName,
+        bool isJobTerminalMission)
+    {
+        if (!panelPresentation.IsAvailable)
+        {
+            return string.Concat(
+                "Mission-panel observation is unavailable: ",
+                panelPresentation.Status);
+        }
+
+        if (!details.IsAvailable)
+        {
+            return string.Concat(
+                "Mission-details observation is unavailable: ",
+                details.Status);
+        }
+
+        if (!details.IsDisplayed)
+        {
+            return "Waiting for an open mission-details pane.";
+        }
+
+        if (details.SelectedMissionAddress == 0)
+        {
+            return "Mission details are open, but no mission is selected.";
+        }
+
+        if (!string.IsNullOrWhiteSpace(missionName))
+        {
+            return string.Concat(
+                isJobTerminalMission
+                    ? "Showing job guidance for "
+                    : "Showing mission guidance for ",
+                missionName,
+                ".");
+        }
+
+        return missions.IsAvailable
+            ? "Mission details are open, but the selected mission name could not be resolved."
+            : string.Concat(
+                "Mission details are open, but mission-log observation is unavailable: ",
+                missions.Status);
+    }
+
+    public void ReloadMissionWiki()
+    {
+        if (this.IsDisposed || this.Disposing)
+        {
+            return;
+        }
+
+        if (this.InvokeRequired)
+        {
+            try
+            {
+                this.BeginInvoke(this.ReloadMissionWiki);
+            }
+            catch (InvalidOperationException)
+            {
+            }
+
+            return;
+        }
+
+        this.missionWikiWebViewForm?.ReloadCurrentMission();
+        this.SyncMissionWiki();
     }
 
     public void SetPermanentTitleStatus(string statusText, bool blink = false)
@@ -187,7 +985,7 @@ public sealed class ClientHostForm : Form
         this.ApplyCurrentHostTitle();
     }
 
-    public void ClearTitleStatus()
+    private void ClearTitleStatus()
     {
         this.titleStatusTimer.Stop();
         this.titleBlinkTimer.Stop();
@@ -199,15 +997,134 @@ public sealed class ClientHostForm : Form
         this.ApplyCurrentHostTitle();
     }
 
-    public WindowBounds GetSlotBounds()
+    public void SetAddonPresentationState(
+        ClientLifecycleState lifecycleState,
+        bool isTransitioning)
     {
-        return new WindowBounds
+        if (this.IsDisposed || this.Disposing)
         {
-            Left = this.Left,
-            Top = this.Top,
-            Width = this.gamePanel.ClientSize.Width,
-            Height = this.gamePanel.ClientSize.Height,
-        };
+            return;
+        }
+
+        this.addonLifecycleState = lifecycleState;
+        this.addonTransitioning = isTransitioning;
+
+        if (!this.IsHandleCreated)
+        {
+            return;
+        }
+
+        if (this.InvokeRequired)
+        {
+            try
+            {
+                this.BeginInvoke(
+                    () => this.SetAddonPresentationState(
+                        lifecycleState,
+                        isTransitioning));
+            }
+            catch (InvalidOperationException)
+            {
+            }
+
+            return;
+        }
+
+        this.ApplyAddonPresentationState();
+        this.SyncAddonOverlay();
+        this.SyncMissionWiki();
+        this.SyncJobTerminalRoute();
+        this.SyncFactionDetails();
+        this.SyncBuildSkillsCompanion();
+        this.SyncBuildEquipmentCompanion();
+        this.SyncVendorShoppingCompanion();
+        this.SyncGameItemToolTip();
+    }
+
+    public void ApplyAddonUiCommand(AddonUiCommand command)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+
+        if (this.IsDisposed || this.Disposing)
+        {
+            return;
+        }
+
+        if (!this.IsHandleCreated)
+        {
+            lock (this.pendingUiCommandLock)
+            {
+                this.pendingUiCommands.Add(command);
+            }
+
+            return;
+        }
+
+        if (this.InvokeRequired)
+        {
+            try
+            {
+                this.BeginInvoke(
+                    () => this.ApplyAddonUiCommand(command));
+            }
+            catch (InvalidOperationException)
+            {
+            }
+
+            return;
+        }
+
+        this.EnsureAddonOverlay();
+        this.addonOverlayForm!.Apply(command);
+        this.SyncAddonOverlay();
+    }
+
+    public Task SetAddonOverlayInputSuppressedAsync(
+        bool suppressed)
+    {
+        if (this.IsDisposed || this.Disposing)
+        {
+            return Task.CompletedTask;
+        }
+
+        var completion = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        void ApplySuppression()
+        {
+            if (this.IsDisposed || this.Disposing)
+            {
+                completion.TrySetResult(true);
+                return;
+            }
+
+            this.EnsureAddonOverlay();
+            this.addonOverlayForm!.SetInputSuppressed(suppressed);
+            this.SyncAddonOverlay();
+            completion.TrySetResult(true);
+        }
+
+        if (!this.IsHandleCreated)
+        {
+            completion.TrySetResult(true);
+            return completion.Task;
+        }
+
+        if (!this.InvokeRequired)
+        {
+            ApplySuppression();
+            return completion.Task;
+        }
+
+        try
+        {
+            this.BeginInvoke(ApplySuppression);
+        }
+        catch (InvalidOperationException)
+        {
+            completion.TrySetResult(true);
+        }
+        return completion.Task;
     }
 
     protected override void Dispose(bool disposing)
@@ -225,59 +1142,75 @@ public sealed class ClientHostForm : Form
             this.Load -= this.ClientHostForm_OnLoad;
             this.Shown -= this.ClientHostForm_OnShown;
             this.Resize -= this.ClientHostForm_OnResize;
+            this.Move -= this.ClientHostForm_OnMove;
+            this.VisibleChanged -= this.ClientHostForm_OnVisibleChanged;
             this.FormClosing -= this.ClientHostForm_OnFormClosing;
+            this.skillBuildLocalWorkspace.Changed -=
+                this.SkillBuildLocalWorkspace_OnChanged;
 
-            this.titleBarPanel.MouseDown -= this.TitleBarPanel_OnMouseDown;
-            this.titleLabel.MouseDown -= this.TitleBarPanel_OnMouseDown;
-            this.minimizeButton.Click -= this.MinimizeButton_OnClick;
-            this.closeButton.Click -= this.CloseButton_OnClick;
+            this.titleBar.DragRequested -= this.TitleBar_OnDragRequested;
+            this.titleBar.MinimizeRequested -= this.TitleBar_OnMinimizeRequested;
+            this.titleBar.CloseRequested -= this.TitleBar_OnCloseRequested;
+
+            if (this.addonOverlayForm != null)
+            {
+                this.addonOverlayForm.UiInteractionRaised -=
+                    this.AddonOverlayForm_OnUiInteractionRaised;
+
+                this.addonOverlayForm.GalaxyAtlasRequested -=
+                    this.AddonOverlayForm_OnGalaxyAtlasRequested;
+
+                this.addonOverlayForm.ForgeContributionsRequested -=
+                    this.AddonOverlayForm_OnForgeContributionsRequested;
+
+                this.addonOverlayForm.PilotArchiveRequested -=
+                    this.AddonOverlayForm_OnPilotArchiveRequested;
+
+                this.addonOverlayForm.BuildsRequested -=
+                    this.AddonOverlayForm_OnBuildsRequested;
+
+                this.addonOverlayForm.SocialRequested -=
+                    this.AddonOverlayForm_OnSocialRequested;
+
+                this.addonOverlayForm.ManageAddonsRequested -=
+                    this.AddonOverlayForm_OnManageAddonsRequested;
+
+                this.addonOverlayForm.InGameOptionsRequested -=
+                    this.AddonOverlayForm_OnInGameOptionsRequested;
+
+                this.addonOverlayForm.GameMenuOpened -=
+                    this.AddonOverlayForm_OnGameMenuOpened;
+
+                this.addonOverlayForm.Close();
+                this.addonOverlayForm.Dispose();
+            }
+            this.addonOverlayForm = null;
+
+            this.CloseMissionWikiForm();
+            this.CloseJobTerminalRouteForm();
+            this.CloseFactionDetailsForm();
+            this.CloseBuildBoardForm();
+            this.CloseBuildSkillsCompanionForms();
+            this.CloseBuildEquipmentCompanionForms();
+            this.CloseVendorShoppingCompanionForm();
+            this.gameItemToolTip.Dispose();
+
+            lock (this.pendingUiCommandLock)
+            {
+                this.pendingUiCommands.Clear();
+            }
         }
 
         base.Dispose(disposing);
     }
 
-    private Panel CreateTitleBarPanel()
+    private HostedClientTitleBar CreateTitleBar()
     {
-        return new Panel
+        return new HostedClientTitleBar
         {
             Dock = DockStyle.Top,
             Height = TitleBarHeight,
-            BackColor = Color.FromArgb(red: 245, green: 247, blue: 250),
         };
-    }
-
-    private Label CreateTitleLabel()
-    {
-        return new Label
-        {
-            AutoEllipsis = true,
-            Dock = DockStyle.Fill,
-            TextAlign = ContentAlignment.MiddleLeft,
-            Padding = new Padding(left: 8, top: 0, right: 0, bottom: 0),
-            ForeColor = Color.FromArgb(red: 28, green: 35, blue: 45),
-        };
-    }
-
-    private Button CreateTitleButton(string text)
-    {
-        var button = new Button
-        {
-            Dock = DockStyle.Right,
-            Text = text,
-            Width = 36,
-            FlatStyle = FlatStyle.Flat,
-            TabStop = false,
-            BackColor = Color.FromArgb(red: 245, green: 247, blue: 250),
-            ForeColor = Color.FromArgb(red: 45, green: 52, blue: 64),
-            Margin = Padding.Empty,
-            Padding = Padding.Empty,
-        };
-
-        button.FlatAppearance.BorderSize = 0;
-        button.FlatAppearance.MouseOverBackColor = Color.FromArgb(red: 230, green: 235, blue: 243);
-        button.FlatAppearance.MouseDownBackColor = Color.FromArgb(red: 210, green: 218, blue: 230);
-
-        return button;
     }
 
     private Panel CreateGamePanel()
@@ -309,13 +1242,14 @@ public sealed class ClientHostForm : Form
 
     private void ApplyCurrentHostTitle()
     {
-        var title = this.titleService.BuildTitle(
-            this.baseTitle,
+        var presentation = this.titleService.BuildPresentation(
+            this.clientInstance,
+            this.appliedSlotName,
             this.titleStatusText,
             !this.titleStatusBlinkEnabled || this.titleStatusBlinkVisible);
 
-        this.Text = title;
-        this.titleLabel.Text = title;
+        this.Text = presentation.WindowTitle;
+        this.titleBar.Presentation = presentation;
     }
 
     private void UpdateBlinkTimer()
@@ -366,6 +1300,18 @@ public sealed class ClientHostForm : Form
             _ = this.clientDockingService.TryResizeDockedWindow(
                 this.clientInstance.GameWindowHandle,
                 this.gamePanel.ClientSize);
+
+            this.EnsureAddonOverlay();
+            this.ApplyAddonPresentationState();
+            this.FlushPendingUiCommands();
+            this.SyncAddonOverlay();
+            this.SyncMissionWiki();
+            this.SyncJobTerminalRoute();
+            this.SyncFactionDetails();
+            this.SyncBuildSkillsCompanion();
+            this.SyncBuildEquipmentCompanion();
+            this.SyncVendorShoppingCompanion();
+            this.SyncGameItemToolTip();
         });
     }
 
@@ -379,10 +1325,49 @@ public sealed class ClientHostForm : Form
         _ = this.clientDockingService.TryResizeDockedWindow(
             this.clientInstance.GameWindowHandle,
             this.gamePanel.ClientSize);
+
+        this.SyncAddonOverlay();
+        this.SyncMissionWiki();
+        this.SyncJobTerminalRoute();
+        this.SyncFactionDetails();
+        this.SyncBuildSkillsCompanion();
+        this.SyncBuildEquipmentCompanion();
+        this.SyncVendorShoppingCompanion();
+        this.gameItemToolTip.HideExternal();
+        this.SyncGameItemToolTip();
+    }
+
+    private void ClientHostForm_OnMove(object? sender, EventArgs e)
+    {
+        this.SyncAddonOverlay();
+        this.SyncMissionWiki();
+        this.SyncJobTerminalRoute();
+        this.SyncFactionDetails();
+        this.SyncBuildSkillsCompanion();
+        this.SyncBuildEquipmentCompanion();
+        this.SyncVendorShoppingCompanion();
+        this.gameItemToolTip.HideExternal();
+        this.SyncGameItemToolTip();
+    }
+
+    private void ClientHostForm_OnVisibleChanged(
+        object? sender,
+        EventArgs e)
+    {
+        this.SyncAddonOverlay();
+        this.SyncMissionWiki();
+        this.SyncJobTerminalRoute();
+        this.SyncFactionDetails();
+        this.SyncBuildSkillsCompanion();
+        this.SyncBuildEquipmentCompanion();
+        this.SyncVendorShoppingCompanion();
+        this.SyncGameItemToolTip();
     }
 
     private void ClientHostForm_OnFormClosing(object? sender, FormClosingEventArgs e)
     {
+        this.gameItemToolTip.HideExternal();
+
         if (this.closeRequestedByManager)
         {
             return;
@@ -391,24 +1376,1796 @@ public sealed class ClientHostForm : Form
         this.closeRequested(this.clientInstance, CloseReason.UserRequested);
     }
 
-    private void TitleBarPanel_OnMouseDown(object? sender, MouseEventArgs e)
+    private void TitleBar_OnDragRequested(
+        object? sender,
+        EventArgs e)
     {
-        if (e.Button != MouseButtons.Left)
-        {
-            return;
-        }
-
         NativeMethods.ReleaseCapture();
         NativeMethods.SendMoveWindowMessage(this.Handle);
     }
 
-    private void MinimizeButton_OnClick(object? sender, EventArgs e)
+    private void TitleBar_OnMinimizeRequested(
+        object? sender,
+        EventArgs e)
     {
         this.WindowState = FormWindowState.Minimized;
     }
 
-    private void CloseButton_OnClick(object? sender, EventArgs e)
+    private void TitleBar_OnCloseRequested(
+        object? sender,
+        EventArgs e)
     {
         this.Close();
     }
+
+    private void EnsureAddonOverlay()
+    {
+        if (this.addonOverlayForm is
+            {
+                IsDisposed: false,
+                Disposing: false,
+            })
+        {
+            return;
+        }
+
+        this.addonOverlayForm = new AddonOverlayForm(
+            this.clientInstance.ProcessId,
+            this.resolveAddonWindowPlacement,
+            this.saveAddonWindowPlacement);
+
+        this.addonOverlayForm.UiInteractionRaised +=
+            this.AddonOverlayForm_OnUiInteractionRaised;
+
+        this.addonOverlayForm.GalaxyAtlasRequested +=
+            this.AddonOverlayForm_OnGalaxyAtlasRequested;
+
+        this.addonOverlayForm.WorldFindRequested +=
+            this.AddonOverlayForm_OnWorldFindRequested;
+
+        this.addonOverlayForm.ForgeContributionsRequested +=
+            this.AddonOverlayForm_OnForgeContributionsRequested;
+
+        this.addonOverlayForm.PilotArchiveRequested +=
+            this.AddonOverlayForm_OnPilotArchiveRequested;
+
+        this.addonOverlayForm.BuildsRequested +=
+            this.AddonOverlayForm_OnBuildsRequested;
+
+        this.addonOverlayForm.SocialRequested +=
+            this.AddonOverlayForm_OnSocialRequested;
+
+        this.addonOverlayForm.ManageAddonsRequested +=
+            this.AddonOverlayForm_OnManageAddonsRequested;
+
+        this.addonOverlayForm.InGameOptionsRequested +=
+            this.AddonOverlayForm_OnInGameOptionsRequested;
+
+        this.addonOverlayForm.GameMenuOpened +=
+            this.AddonOverlayForm_OnGameMenuOpened;
+
+        this.ApplyAddonPresentationState();
+    }
+
+    private void QueueAddonWindowStateReload()
+    {
+        if (!this.IsHandleCreated ||
+            this.IsDisposed ||
+            this.Disposing)
+        {
+            return;
+        }
+
+        try
+        {
+            this.BeginInvoke(() =>
+            {
+                if (this.IsDisposed ||
+                    this.Disposing ||
+                    this.addonOverlayForm == null ||
+                    this.addonOverlayForm.IsDisposed ||
+                    this.addonOverlayForm.Disposing)
+                {
+                    return;
+                }
+
+                this.addonOverlayForm.ReloadWindowState();
+                this.SyncAddonOverlay();
+            });
+        }
+        catch (InvalidOperationException)
+        {
+        }
+    }
+
+    private void ApplyAddonPresentationState()
+    {
+        var inGame =
+            this.addonLifecycleState ==
+                ClientLifecycleState.InGame;
+
+        var canPresent =
+            !this.addonTransitioning;
+
+        if (this.addonOverlayForm == null ||
+            this.addonOverlayForm.IsDisposed ||
+            this.addonOverlayForm.Disposing)
+        {
+            return;
+        }
+
+        this.addonOverlayForm.SetGameMenuVisible(
+            inGame &&
+            canPresent);
+
+        this.addonOverlayForm.SetPresentationEnabled(
+            canPresent);
+    }
+
+    private void FlushPendingUiCommands()
+    {
+        AddonUiCommand[] commands;
+
+        lock (this.pendingUiCommandLock)
+        {
+            commands = [.. this.pendingUiCommands];
+            this.pendingUiCommands.Clear();
+        }
+
+        foreach (var command in commands)
+        {
+            this.addonOverlayForm!.Apply(command);
+        }
+    }
+
+    private void RefreshGameItemToolTipPreparation()
+    {
+        if (!this.gameItemToolTipsEnabled)
+        {
+            this.gameItemToolTipPreparation = null;
+            this.gameItemToolTipRefreshRequestKey = "";
+            this.gameItemToolTip.HideExternal();
+            return;
+        }
+
+        var snapshot = this.gameItemToolTipSnapshot;
+
+        if (snapshot == null)
+        {
+            this.gameItemToolTipPreparation = null;
+            this.gameItemToolTip.HideExternal();
+            return;
+        }
+
+        var preparation =
+            GameItemToolTipPresentationBuilder.Prepare(
+                snapshot,
+                this.gameItemToolTipHover,
+                this.resolveBuildItemIcon);
+
+        this.gameItemToolTipPreparation = preparation;
+
+        if (preparation != null)
+        {
+            this.gameItemToolTip.PrepareExternal(
+                preparation.Key,
+                preparation.Content);
+        }
+        else
+        {
+            this.gameItemToolTip.HideExternal();
+        }
+
+        var shouldRefresh =
+            GameItemToolTipPresentationBuilder
+                .ShouldRequestAuthoritativeRefresh(
+                    snapshot,
+                    this.gameItemToolTipHover,
+                    preparation);
+        var hoverIdentity =
+            GameItemToolTipPresentationBuilder.GetHoverIdentity(
+                this.gameItemToolTipHover);
+
+        if (shouldRefresh)
+        {
+            if (!string.Equals(
+                    this.gameItemToolTipRefreshRequestKey,
+                    hoverIdentity,
+                    StringComparison.Ordinal))
+            {
+                this.gameItemToolTipRefreshRequestKey =
+                    hoverIdentity;
+                this.requestGameItemToolTipRefresh(
+                    this.clientInstance.ProcessId,
+                    this.gameItemToolTipHover);
+            }
+        }
+        else
+        {
+            this.gameItemToolTipRefreshRequestKey = "";
+        }
+    }
+
+    private void SyncGameItemToolTip()
+    {
+        var snapshot = this.gameItemToolTipSnapshot;
+        var cursorPosition = Cursor.Position;
+        var canPresent =
+            this.gameItemToolTipsEnabled &&
+            snapshot is
+            {
+                LifecycleState: ClientLifecycleState.InGame,
+                LoadingOrTransitionFlag: 0,
+            } &&
+            this.addonLifecycleState == ClientLifecycleState.InGame &&
+            !this.addonTransitioning &&
+            this.Visible &&
+            this.WindowState != FormWindowState.Minimized &&
+            this.gamePanel.ClientSize is
+            {
+                Width: > 0,
+                Height: > 0,
+            } &&
+            this.gamePanel.RectangleToScreen(
+                    this.gamePanel.ClientRectangle)
+                .Contains(cursorPosition);
+
+        if (!canPresent || snapshot == null)
+        {
+            this.gameItemToolTip.HideExternal();
+            return;
+        }
+
+        var preparation = this.gameItemToolTipPreparation;
+
+        if (preparation == null)
+        {
+            this.gameItemToolTip.HideExternal();
+            return;
+        }
+
+        if (!GameItemToolTipPresentationBuilder.CanShow(
+                preparation,
+                this.gameItemToolTipHover))
+        {
+            this.gameItemToolTip.HideExternalPreservePreparation();
+            return;
+        }
+
+        this.gameItemToolTip.ShowExternalOverNative(
+            this,
+            preparation.Key,
+            preparation.Content,
+            cursorPosition,
+            this.gameItemToolTipOffset);
+    }
+
+    private void SyncAddonOverlay()
+    {
+        if (this.addonOverlayForm == null ||
+            this.addonOverlayForm.IsDisposed ||
+            this.addonOverlayForm.Disposing)
+        {
+            return;
+        }
+
+        var shouldShow =
+            this.Visible &&
+            this.WindowState != FormWindowState.Minimized &&
+            this.gamePanel.ClientSize is { Width: > 0, Height: > 0 } &&
+            this.addonOverlayForm.HasWidgets;
+
+        if (!shouldShow)
+        {
+            this.addonOverlayForm.Hide();
+            return;
+        }
+
+        var screenLocation = this.gamePanel.PointToScreen(Point.Empty);
+
+        this.addonOverlayForm.Bounds = new Rectangle(
+            screenLocation,
+            this.gamePanel.ClientSize);
+
+        if (!this.addonOverlayForm.Visible)
+        {
+            this.addonOverlayForm.Show(this);
+        }
+
+        this.addonOverlayForm.Invalidate();
+    }
+
+    private void SyncMissionWiki()
+    {
+        var shouldPresent =
+            this.missionWikiEnabled &&
+            !string.IsNullOrWhiteSpace(
+                this.missionWikiMissionName) &&
+            this.addonLifecycleState ==
+            ClientLifecycleState.InGame &&
+            !this.addonTransitioning &&
+            this.Visible &&
+            this.WindowState != FormWindowState.Minimized &&
+            this.gamePanel.ClientSize is { Width: > 0, Height: > 0 };
+
+        if (!shouldPresent)
+        {
+            this.missionWikiWebViewForm?.Hide();
+            this.missionWikiControlForm?.Hide();
+            return;
+        }
+
+        this.EnsureMissionWikiForms();
+
+        var bounds = this.CalculateMissionWikiBounds();
+        this.missionWikiWebViewForm!.Bounds = bounds;
+        this.missionWikiControlForm!.Bounds =
+            this.CalculateMissionWikiControlBounds(bounds);
+
+        var contentMismatch =
+            !string.Equals(
+                this.missionWikiWebViewForm.MissionName,
+                this.missionWikiMissionName,
+                StringComparison.Ordinal) ||
+            !string.Equals(
+                this.missionWikiWebViewForm.JobGuidanceFingerprint,
+                this.missionJobGuidance?.Fingerprint,
+                StringComparison.Ordinal);
+
+        if (contentMismatch)
+        {
+            if (this.missionJobGuidance != null)
+            {
+                this.missionWikiWebViewForm.NavigateToJob(
+                    this.missionJobGuidance);
+            }
+            else
+            {
+                this.missionWikiWebViewForm.NavigateToMission(
+                    this.missionWikiMissionName!);
+            }
+        }
+
+        var suppressExpandedWikiForForfeitConfirmation =
+            this.missionWikiExpanded &&
+            this.missionWikiForfeitConfirmationDisplayed;
+
+        if (suppressExpandedWikiForForfeitConfirmation)
+        {
+            this.missionWikiWebViewForm.Hide();
+            this.missionWikiControlForm.Hide();
+            return;
+        }
+
+        this.missionWikiControlForm.SetState(
+            this.missionWikiExpanded
+                ? MissionWikiControlState.Expanded
+                : MissionWikiControlState.Collapsed,
+            this.missionJobGuidance != null);
+
+        var showBrowser = this.missionWikiExpanded;
+
+        // Owned overlays stay with the hosted client without activation.
+        // Never promote them with HWND_TOP; doing so can raise the game
+        // above unrelated applications while the user works elsewhere.
+        if (showBrowser)
+        {
+            if (!this.missionWikiWebViewForm.Visible)
+            {
+                this.missionWikiWebViewForm.Show(this);
+            }
+        }
+        else
+        {
+            this.missionWikiWebViewForm.Hide();
+        }
+
+        if (!this.missionWikiControlForm.Visible)
+        {
+            this.missionWikiControlForm.Show(this);
+        }
+    }
+
+    private void EnsureMissionWikiForms()
+    {
+        if (this.missionWikiWebViewForm is not
+            {
+                IsDisposed: false,
+                Disposing: false,
+            })
+        {
+            this.missionWikiWebViewForm =
+                new MissionWikiWebViewForm(
+                    this.resolveMissionWikiDestination,
+                    this.setMissionWikiDestination);
+
+            this.missionWikiWebViewForm.ContentStateChanged +=
+                this.MissionWikiWebViewForm_OnContentStateChanged;
+        }
+
+        if (this.missionWikiControlForm is
+            {
+                IsDisposed: false,
+                Disposing: false,
+            })
+        {
+            return;
+        }
+
+        this.missionWikiControlForm =
+            new MissionWikiControlForm();
+
+        this.missionWikiControlForm.ToggleRequested +=
+            this.MissionWikiControlForm_OnToggleRequested;
+    }
+
+    private Rectangle CalculateMissionWikiBounds()
+    {
+        var scaleX = this.gamePanel.ClientSize.Width /
+                     (float)MissionWikiBaseCanvasWidth;
+        var scaleY = this.gamePanel.ClientSize.Height /
+                     (float)MissionWikiBaseCanvasHeight;
+
+        var x = (int)Math.Round(
+            MissionWikiBaseX * scaleX);
+        var y = (int)Math.Round(
+            MissionWikiBaseY * scaleY);
+        var width = (int)Math.Round(
+            MissionWikiBaseWidth * scaleX);
+        var height = (int)Math.Round(
+            MissionWikiBaseHeight * scaleY);
+
+        x = Math.Clamp(
+            x,
+            0,
+            Math.Max(0, this.gamePanel.ClientSize.Width - 1));
+        y = Math.Clamp(
+            y,
+            0,
+            Math.Max(0, this.gamePanel.ClientSize.Height - 1));
+
+        width = Math.Clamp(
+            width,
+            1,
+            Math.Max(1, this.gamePanel.ClientSize.Width - x));
+        height = Math.Clamp(
+            height,
+            1,
+            Math.Max(1, this.gamePanel.ClientSize.Height - y));
+
+        var screenLocation =
+            this.gamePanel.PointToScreen(
+                new Point(x, y));
+
+        return new Rectangle(
+            screenLocation,
+            new Size(width, height));
+    }
+
+    private Rectangle CalculateMissionWikiControlBounds(
+        Rectangle missionWikiBounds)
+    {
+        var scaleX = missionWikiBounds.Width /
+                     (float)MissionWikiBaseWidth;
+        var scaleY = missionWikiBounds.Height /
+                     (float)MissionWikiBaseHeight;
+
+        var width = Math.Max(
+            MissionWikiControlMinimumWidth,
+            (int)Math.Round(
+                MissionWikiControlBaseWidth * scaleX));
+        var height = Math.Max(
+            MissionWikiControlMinimumHeight,
+            (int)Math.Round(
+                MissionWikiControlBaseHeight * scaleY));
+
+        var x = missionWikiBounds.Left +
+                (int)Math.Round(
+                    MissionWikiControlBaseOffsetX * scaleX);
+        var y = missionWikiBounds.Top +
+                (int)Math.Round(
+                    MissionWikiControlBaseOffsetY * scaleY);
+
+        var panelScreenLocation =
+            this.gamePanel.PointToScreen(Point.Empty);
+        var panelBounds = new Rectangle(
+            panelScreenLocation,
+            this.gamePanel.ClientSize);
+
+        width = Math.Min(width, Math.Max(1, panelBounds.Width));
+        height = Math.Min(height, Math.Max(1, panelBounds.Height));
+
+        x = Math.Clamp(
+            x,
+            panelBounds.Left,
+            Math.Max(panelBounds.Left, panelBounds.Right - width));
+        y = Math.Clamp(
+            y,
+            panelBounds.Top,
+            Math.Max(panelBounds.Top, panelBounds.Bottom - height));
+
+        return new Rectangle(x, y, width, height);
+    }
+
+    private void SyncFactionDetails()
+    {
+        var shouldPresent =
+            this.factionDetailsPresentation.IsVisible &&
+            this.addonLifecycleState == ClientLifecycleState.InGame &&
+            !this.addonTransitioning &&
+            this.Visible &&
+            this.WindowState != FormWindowState.Minimized &&
+            this.gamePanel.ClientSize is { Width: > 0, Height: > 0 };
+
+        if (!shouldPresent)
+        {
+            this.factionDetailsOverlayForm?.Hide();
+            return;
+        }
+
+        this.EnsureFactionDetailsForm();
+
+        this.factionDetailsOverlayForm!.Bounds =
+            this.CalculateFactionDetailsBounds();
+        this.factionDetailsOverlayForm.SetPresentation(
+            this.factionDetailsPresentation);
+
+        if (!this.factionDetailsOverlayForm.Visible)
+        {
+            this.factionDetailsOverlayForm.Show(this);
+        }
+    }
+
+    private void EnsureFactionDetailsForm()
+    {
+        if (this.factionDetailsOverlayForm is
+            {
+                IsDisposed: false,
+                Disposing: false,
+            })
+        {
+            return;
+        }
+
+        this.factionDetailsOverlayForm =
+            new FactionDetailsOverlayForm();
+    }
+
+    private Rectangle CalculateFactionDetailsBounds()
+    {
+        var scaleX = this.gamePanel.ClientSize.Width /
+                     (float)FactionDetailsBaseCanvasWidth;
+        var scaleY = this.gamePanel.ClientSize.Height /
+                     (float)FactionDetailsBaseCanvasHeight;
+
+        var width = Math.Max(
+            FactionDetailsMinimumWidth,
+            (int)Math.Round(FactionDetailsBaseWidth * scaleX));
+        var height = Math.Max(
+            FactionDetailsMinimumHeight,
+            (int)Math.Round(FactionDetailsBaseHeight * scaleY));
+        var x = (int)Math.Round(FactionDetailsBaseX * scaleY);
+        var y = (int)Math.Round(FactionDetailsBaseY * scaleY);
+
+        width = Math.Min(width, this.gamePanel.ClientSize.Width);
+        height = Math.Min(height, this.gamePanel.ClientSize.Height);
+        x = Math.Clamp(
+            x,
+            0,
+            Math.Max(0, this.gamePanel.ClientSize.Width - width));
+        y = Math.Clamp(
+            y,
+            0,
+            Math.Max(0, this.gamePanel.ClientSize.Height - height));
+
+        return new Rectangle(
+            this.gamePanel.PointToScreen(new Point(x, y)),
+            new Size(width, height));
+    }
+
+    private void CloseFactionDetailsForm()
+    {
+        if (this.factionDetailsOverlayForm == null)
+        {
+            return;
+        }
+
+        if (!this.factionDetailsOverlayForm.IsDisposed)
+        {
+            this.factionDetailsOverlayForm.Close();
+            this.factionDetailsOverlayForm.Dispose();
+        }
+
+        this.factionDetailsOverlayForm = null;
+    }
+
+    private void ShowBuildBoard()
+    {
+        if (!this.skillBuildBoardPresentation.HasBuildContext ||
+            this.skillBuildBoardPresentation.Baseline == null)
+        {
+            this.SetTemporaryTitleStatus(
+                "Builds are waiting for the live character.",
+                TimeSpan.FromSeconds(4));
+            return;
+        }
+
+        this.EnsureBuildBoardForm();
+        this.skillBuildBoardForm!.SetPresentation(
+            this.skillBuildBoardPresentation);
+        this.skillBuildBoardForm.RestorePlacement(this.Bounds);
+
+        if (!this.skillBuildBoardForm.Visible)
+        {
+            this.skillBuildBoardForm.Show(this);
+        }
+        else
+        {
+            this.skillBuildBoardForm.Activate();
+        }
+    }
+
+    private void EnsureBuildBoardForm()
+    {
+        if (this.skillBuildBoardForm is
+            {
+                IsDisposed: false,
+                Disposing: false,
+            })
+        {
+            return;
+        }
+
+        this.skillBuildBoardForm =
+            new SkillBuildBoardForm(
+                this.skillBuildLocalWorkspace,
+                this.forgeContributionCoordinator,
+                this.resolveAddonWindowPlacement,
+                this.saveAddonWindowPlacement,
+                this.resolveBuildItemIcon);
+        this.skillBuildBoardForm.FormClosed +=
+            this.SkillBuildBoardForm_OnFormClosed;
+    }
+
+    private void SkillBuildBoardForm_OnFormClosed(
+        object? sender,
+        FormClosedEventArgs e)
+    {
+        if (this.skillBuildBoardForm != null)
+        {
+            this.skillBuildBoardForm.FormClosed -=
+                this.SkillBuildBoardForm_OnFormClosed;
+        }
+
+        this.skillBuildBoardForm = null;
+    }
+
+    private void CloseBuildBoardForm()
+    {
+        var form = this.skillBuildBoardForm;
+        this.skillBuildBoardForm = null;
+        if (form == null)
+        {
+            return;
+        }
+
+        form.FormClosed -= this.SkillBuildBoardForm_OnFormClosed;
+        if (form.IsDisposed)
+        {
+            return;
+        }
+
+        try
+        {
+            form.Close();
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine($"[Builds] Could not close the Build Board: {exception}");
+        }
+
+        try
+        {
+            form.Dispose();
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine($"[Builds] Could not dispose the Build Board: {exception}");
+        }
+    }
+
+    private void SyncBuildSkillsCompanion()
+    {
+        if (this.IsDisposed || this.Disposing || !this.IsHandleCreated)
+        {
+            return;
+        }
+
+        if (this.InvokeRequired)
+        {
+            try
+            {
+                this.BeginInvoke(this.SyncBuildSkillsCompanion);
+            }
+            catch (InvalidOperationException)
+            {
+            }
+
+            return;
+        }
+
+        try
+        {
+            this.ApplyBuildSkillsCompanionState();
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine(string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"[Builds] Could not synchronize the Skills companion: {exception}"));
+            this.TryHideBuildSkillsCompanionSurfaces();
+        }
+    }
+
+    private void ApplyBuildSkillsCompanionState()
+    {
+        var skillsPanelOpen =
+            this.skillPlannerPanelPresentation.IsAvailable &&
+            this.skillPlannerPanelPresentation.IsCharacterInfoDisplayed &&
+            this.skillPlannerPanelPresentation.ActiveCharacterInfoTab ==
+                ClientCharacterInfoTab.Skills;
+        var shouldPresent =
+            skillsPanelOpen &&
+            this.addonLifecycleState == ClientLifecycleState.InGame &&
+            !this.addonTransitioning &&
+            this.Visible &&
+            this.WindowState != FormWindowState.Minimized &&
+            this.gamePanel.ClientSize is { Width: > 0, Height: > 0 };
+
+        if (!shouldPresent)
+        {
+            this.TryHideBuildSkillsCompanionSurfaces();
+            return;
+        }
+
+        this.EnsureBuildSkillsToggleForm();
+        var companionVisible =
+            this.ResolveBuildSkillsCompanionVisibility();
+        this.skillBuildSkillsToggleForm!.Bounds =
+            this.CalculateBuildSkillsToggleBounds();
+        this.skillBuildSkillsToggleForm.SetActive(companionVisible);
+        if (!this.skillBuildSkillsToggleForm.Visible)
+        {
+            this.skillBuildSkillsToggleForm.Show(this);
+        }
+
+        if (!companionVisible)
+        {
+            this.TryHideBuildSkillsCompanionForm();
+            return;
+        }
+
+        var sourceFingerprint = string.Concat(
+            this.skillBuildBoardPresentation.Fingerprint,
+            "|workspace:",
+            this.skillBuildSkillsWorkspaceRevision.ToString(
+                System.Globalization.CultureInfo.InvariantCulture));
+        if (!string.Equals(
+                this.skillBuildSkillsCompanionSourceFingerprint,
+                sourceFingerprint,
+                StringComparison.Ordinal))
+        {
+            this.skillBuildSkillsCompanionPresentation =
+                SkillBuildSkillsCompanionPresentation.Create(
+                    this.skillBuildBoardPresentation,
+                    this.skillBuildLocalWorkspace);
+            this.skillBuildSkillsCompanionSourceFingerprint =
+                sourceFingerprint;
+        }
+        this.EnsureBuildSkillsCompanionForm();
+        this.skillBuildSkillsCompanionForm!.SetPresentation(
+            this.skillBuildSkillsCompanionPresentation);
+        this.skillBuildSkillsCompanionForm.Bounds =
+            this.CalculateBuildSkillsCompanionBounds();
+        if (!this.skillBuildSkillsCompanionForm.Visible)
+        {
+            this.skillBuildSkillsCompanionForm.Show(this);
+        }
+    }
+
+    private bool ResolveBuildSkillsCompanionVisibility()
+    {
+        if (this.skillBuildSkillsCompanionVisible.HasValue)
+        {
+            return this.skillBuildSkillsCompanionVisible.Value;
+        }
+
+        var placement = this.resolveAddonWindowPlacement(
+            BuildSkillsCompanionPlacementAddonId,
+            BuildSkillsCompanionPlacementWidgetId);
+        this.skillBuildSkillsCompanionVisible =
+            placement?.IsVisible ?? false;
+        return this.skillBuildSkillsCompanionVisible.Value;
+    }
+
+    private void SaveBuildSkillsCompanionVisibility(bool visible)
+    {
+        this.skillBuildSkillsCompanionVisible = visible;
+        this.saveAddonWindowPlacement(
+            BuildSkillsCompanionPlacementAddonId,
+            BuildSkillsCompanionPlacementWidgetId,
+            new AddonWindowPlacement
+            {
+                AddonId = BuildSkillsCompanionPlacementAddonId,
+                WidgetId = BuildSkillsCompanionPlacementWidgetId,
+                IsVisible = visible,
+                IsClosed = false,
+            });
+    }
+
+    private void EnsureBuildSkillsToggleForm()
+    {
+        if (this.skillBuildSkillsToggleForm is
+            {
+                IsDisposed: false,
+                Disposing: false,
+            })
+        {
+            return;
+        }
+
+        this.skillBuildSkillsToggleForm =
+            new BuildCompanionToggleForm("Build");
+        this.skillBuildSkillsToggleForm.ToggleRequested +=
+            this.BuildSkillsToggleForm_OnToggleRequested;
+    }
+
+    private void EnsureBuildSkillsCompanionForm()
+    {
+        if (this.skillBuildSkillsCompanionForm is
+            {
+                IsDisposed: false,
+                Disposing: false,
+            })
+        {
+            return;
+        }
+
+        this.skillBuildSkillsCompanionForm =
+            new SkillBuildSkillsCompanionForm();
+        this.skillBuildSkillsCompanionForm.OpenBuildsRequested +=
+            this.BuildSkillsCompanionForm_OnOpenBuildsRequested;
+    }
+
+    private Rectangle CalculateBuildSkillsCompanionBounds()
+    {
+        var scaleX = this.gamePanel.ClientSize.Width /
+                     (float)BuildSkillsCompanionBaseCanvasWidth;
+        var scaleY = this.gamePanel.ClientSize.Height /
+                     (float)BuildSkillsCompanionBaseCanvasHeight;
+        var width = Math.Max(
+            BuildSkillsCompanionMinimumWidth,
+            (int)Math.Round(BuildSkillsCompanionBaseWidth * scaleX));
+        var x = (int)Math.Round(BuildSkillsCompanionBaseX * scaleX);
+        var y = (int)Math.Round(BuildSkillsCompanionBaseY * scaleY);
+
+        width = Math.Min(width, this.gamePanel.ClientSize.Width);
+        x = Math.Clamp(
+            x,
+            0,
+            Math.Max(0, this.gamePanel.ClientSize.Width - width));
+        y = Math.Clamp(
+            y,
+            0,
+            Math.Max(0, this.gamePanel.ClientSize.Height - 1));
+
+        var availableHeight = Math.Max(
+            1,
+            this.gamePanel.ClientSize.Height - y);
+        var height = this.skillBuildSkillsCompanionForm?.GetPreferredHeight(
+                availableHeight) ??
+            Math.Min(
+                availableHeight,
+                BuildSkillsCompanionMinimumHeight);
+
+        return new Rectangle(
+            this.gamePanel.PointToScreen(new Point(x, y)),
+            new Size(width, height));
+    }
+
+    private Rectangle CalculateBuildSkillsToggleBounds()
+    {
+        var scaleX = this.gamePanel.ClientSize.Width /
+                     (float)BuildSkillsCompanionBaseCanvasWidth;
+        var scaleY = this.gamePanel.ClientSize.Height /
+                     (float)BuildSkillsCompanionBaseCanvasHeight;
+        var width = Math.Max(
+            BuildSkillsToggleMinimumWidth,
+            (int)Math.Round(BuildSkillsToggleBaseWidth * scaleX));
+        var height = Math.Max(
+            BuildSkillsToggleMinimumHeight,
+            (int)Math.Round(BuildSkillsToggleBaseHeight * scaleY));
+        var x = (int)Math.Round(BuildSkillsToggleBaseX * scaleX);
+        var y = (int)Math.Round(BuildSkillsToggleBaseY * scaleY);
+
+        width = Math.Min(width, this.gamePanel.ClientSize.Width);
+        height = Math.Min(height, this.gamePanel.ClientSize.Height);
+        x = Math.Clamp(
+            x,
+            0,
+            Math.Max(0, this.gamePanel.ClientSize.Width - width));
+        y = Math.Clamp(
+            y,
+            0,
+            Math.Max(0, this.gamePanel.ClientSize.Height - height));
+
+        return new Rectangle(
+            this.gamePanel.PointToScreen(new Point(x, y)),
+            new Size(width, height));
+    }
+
+    private void BuildSkillsToggleForm_OnToggleRequested(
+        object? sender,
+        EventArgs e)
+    {
+        try
+        {
+            this.SaveBuildSkillsCompanionVisibility(
+                !this.ResolveBuildSkillsCompanionVisibility());
+            this.SyncBuildSkillsCompanion();
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine(string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"[Builds] Could not toggle the Skills companion: {exception}"));
+            this.TryHideBuildSkillsCompanionForm();
+        }
+    }
+
+    private void BuildSkillsCompanionForm_OnOpenBuildsRequested(
+        object? sender,
+        EventArgs e)
+    {
+        try
+        {
+            this.ShowBuildBoard();
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine(string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"[Builds] Could not open the Build Board from the Skills companion: {exception}"));
+            this.SetTemporaryTitleStatus(
+                "Builds could not open. The game client is still running.",
+                TimeSpan.FromSeconds(5));
+        }
+    }
+
+    private void SkillBuildLocalWorkspace_OnChanged(
+        object? sender,
+        EventArgs e)
+    {
+        if (this.IsDisposed || this.Disposing)
+        {
+            return;
+        }
+
+        if (this.InvokeRequired)
+        {
+            try
+            {
+                this.BeginInvoke(() =>
+                    this.SkillBuildLocalWorkspace_OnChanged(sender, e));
+            }
+            catch (InvalidOperationException)
+            {
+            }
+
+            return;
+        }
+
+        this.skillBuildSkillsWorkspaceRevision++;
+        this.skillBuildSkillsCompanionSourceFingerprint = "";
+        this.skillBuildEquipmentWorkspaceRevision++;
+        this.skillBuildEquipmentCompanionSourceFingerprint = "";
+        this.SyncBuildSkillsCompanion();
+        this.SyncBuildEquipmentCompanion();
+    }
+
+    private void TryHideBuildSkillsCompanionSurfaces()
+    {
+        this.TryHideBuildSkillsCompanionForm();
+        this.TryHideBuildSkillsToggleForm();
+    }
+
+    private void TryHideBuildSkillsCompanionForm()
+    {
+        var form = this.skillBuildSkillsCompanionForm;
+        if (form == null || form.IsDisposed || form.Disposing)
+        {
+            return;
+        }
+
+        try
+        {
+            form.Hide();
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine(string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"[Builds] Could not hide the Skills companion: {exception}"));
+        }
+    }
+
+    private void TryHideBuildSkillsToggleForm()
+    {
+        var form = this.skillBuildSkillsToggleForm;
+        if (form == null || form.IsDisposed || form.Disposing)
+        {
+            return;
+        }
+
+        try
+        {
+            form.Hide();
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine(string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"[Builds] Could not hide the Skills Build toggle: {exception}"));
+        }
+    }
+
+    private void CloseBuildSkillsCompanionForms()
+    {
+        var companion = this.skillBuildSkillsCompanionForm;
+        this.skillBuildSkillsCompanionForm = null;
+        if (companion != null)
+        {
+            companion.OpenBuildsRequested -=
+                this.BuildSkillsCompanionForm_OnOpenBuildsRequested;
+            this.TryCloseBuildCompanionForm(
+                companion,
+                "Skills companion");
+        }
+
+        var toggle = this.skillBuildSkillsToggleForm;
+        this.skillBuildSkillsToggleForm = null;
+        if (toggle == null)
+        {
+            return;
+        }
+
+        toggle.ToggleRequested -=
+            this.BuildSkillsToggleForm_OnToggleRequested;
+        this.TryCloseBuildCompanionForm(
+            toggle,
+            "Skills Build toggle");
+    }
+
+    private void SyncBuildEquipmentCompanion()
+    {
+        if (this.IsDisposed || this.Disposing || !this.IsHandleCreated)
+        {
+            return;
+        }
+
+        if (this.InvokeRequired)
+        {
+            try
+            {
+                this.BeginInvoke(this.SyncBuildEquipmentCompanion);
+            }
+            catch (InvalidOperationException)
+            {
+            }
+
+            return;
+        }
+
+        try
+        {
+            this.ApplyBuildEquipmentCompanionState();
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine(string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"[Builds] Could not synchronize the Equipment companion: {exception}"));
+            this.TryHideBuildEquipmentCompanionSurfaces();
+        }
+    }
+
+    private void ApplyBuildEquipmentCompanionState()
+    {
+        var equipmentPanelOpen =
+            this.skillPlannerPanelPresentation.IsAvailable &&
+            this.skillPlannerPanelPresentation.IsInventoryDisplayed;
+        var shouldPresent =
+            equipmentPanelOpen &&
+            this.addonLifecycleState == ClientLifecycleState.InGame &&
+            !this.addonTransitioning &&
+            this.Visible &&
+            this.WindowState != FormWindowState.Minimized &&
+            this.gamePanel.ClientSize is { Width: > 0, Height: > 0 };
+
+        if (!shouldPresent)
+        {
+            this.TryHideBuildEquipmentCompanionSurfaces();
+            return;
+        }
+
+        this.EnsureBuildEquipmentToggleForm();
+        var companionVisible =
+            this.ResolveBuildEquipmentCompanionVisibility();
+        this.skillBuildEquipmentToggleForm!.Bounds =
+            this.CalculateBuildEquipmentToggleBounds();
+        this.skillBuildEquipmentToggleForm.SetActive(companionVisible);
+        if (!this.skillBuildEquipmentToggleForm.Visible)
+        {
+            this.skillBuildEquipmentToggleForm.Show(this);
+        }
+
+        if (!companionVisible)
+        {
+            this.TryHideBuildEquipmentCompanionForm();
+            return;
+        }
+
+        var sourceFingerprint = string.Concat(
+            this.skillBuildBoardPresentation.Fingerprint,
+            "|workspace:",
+            this.skillBuildEquipmentWorkspaceRevision.ToString(
+                System.Globalization.CultureInfo.InvariantCulture));
+        if (!string.Equals(
+                this.skillBuildEquipmentCompanionSourceFingerprint,
+                sourceFingerprint,
+                StringComparison.Ordinal))
+        {
+            this.skillBuildEquipmentCompanionPresentation =
+                SkillBuildEquipmentCompanionPresentation.Create(
+                    this.skillBuildBoardPresentation,
+                    this.skillBuildLocalWorkspace);
+            this.skillBuildEquipmentCompanionSourceFingerprint =
+                sourceFingerprint;
+        }
+
+        this.EnsureBuildEquipmentCompanionForm();
+        this.skillBuildEquipmentCompanionForm!.SetPresentation(
+            this.skillBuildEquipmentCompanionPresentation);
+        this.skillBuildEquipmentCompanionForm.Bounds =
+            this.CalculateBuildEquipmentCompanionBounds();
+        if (!this.skillBuildEquipmentCompanionForm.Visible)
+        {
+            this.skillBuildEquipmentCompanionForm.Show(this);
+        }
+
+    }
+
+    private bool ResolveBuildEquipmentCompanionVisibility()
+    {
+        if (this.skillBuildEquipmentCompanionVisible.HasValue)
+        {
+            return this.skillBuildEquipmentCompanionVisible.Value;
+        }
+
+        var placement = this.resolveAddonWindowPlacement(
+            BuildEquipmentCompanionPlacementAddonId,
+            BuildEquipmentCompanionPlacementWidgetId);
+        this.skillBuildEquipmentCompanionVisible =
+            placement?.IsVisible ?? false;
+        return this.skillBuildEquipmentCompanionVisible.Value;
+    }
+
+    private void SaveBuildEquipmentCompanionVisibility(bool visible)
+    {
+        this.skillBuildEquipmentCompanionVisible = visible;
+        this.saveAddonWindowPlacement(
+            BuildEquipmentCompanionPlacementAddonId,
+            BuildEquipmentCompanionPlacementWidgetId,
+            new AddonWindowPlacement
+            {
+                AddonId = BuildEquipmentCompanionPlacementAddonId,
+                WidgetId = BuildEquipmentCompanionPlacementWidgetId,
+                IsVisible = visible,
+                IsClosed = false,
+            });
+    }
+
+    private void EnsureBuildEquipmentToggleForm()
+    {
+        if (this.skillBuildEquipmentToggleForm is
+            {
+                IsDisposed: false,
+                Disposing: false,
+            })
+        {
+            return;
+        }
+
+        this.skillBuildEquipmentToggleForm =
+            new BuildCompanionToggleForm(
+                "Build>>",
+                BuildCompanionToggleStyle.EquipmentStack);
+        this.skillBuildEquipmentToggleForm.ToggleRequested +=
+            this.BuildEquipmentToggleForm_OnToggleRequested;
+    }
+
+    private void EnsureBuildEquipmentCompanionForm()
+    {
+        if (this.skillBuildEquipmentCompanionForm is
+            {
+                IsDisposed: false,
+                Disposing: false,
+            })
+        {
+            return;
+        }
+
+        this.skillBuildEquipmentCompanionForm =
+            new SkillBuildEquipmentCompanionForm(
+                this.resolveBuildItemIcon);
+        this.skillBuildEquipmentCompanionForm.OpenBuildsRequested +=
+            this.BuildEquipmentCompanionForm_OnOpenBuildsRequested;
+        this.skillBuildEquipmentCompanionForm.FindItemRequested +=
+            this.BuildEquipmentCompanionForm_OnFindItemRequested;
+    }
+
+    private Rectangle CalculateBuildEquipmentCompanionBounds()
+    {
+        var scaleX = this.gamePanel.ClientSize.Width /
+                     (float)BuildEquipmentCompanionBaseCanvasWidth;
+        var scaleY = this.gamePanel.ClientSize.Height /
+                     (float)BuildEquipmentCompanionBaseCanvasHeight;
+        var width = Math.Max(
+            BuildEquipmentCompanionMinimumWidth,
+            (int)Math.Round(BuildEquipmentCompanionBaseWidth * scaleX));
+        var x = (int)Math.Round(BuildEquipmentCompanionBaseX * scaleX);
+        var y = (int)Math.Round(BuildEquipmentCompanionBaseY * scaleY);
+
+        width = Math.Min(width, this.gamePanel.ClientSize.Width);
+        x = Math.Clamp(
+            x,
+            0,
+            Math.Max(0, this.gamePanel.ClientSize.Width - width));
+        y = Math.Clamp(
+            y,
+            0,
+            Math.Max(0, this.gamePanel.ClientSize.Height - 1));
+
+        var availableHeight = Math.Max(
+            1,
+            this.gamePanel.ClientSize.Height - y);
+        var height = this.skillBuildEquipmentCompanionForm?.GetPreferredHeight(
+                availableHeight) ??
+            Math.Min(
+                availableHeight,
+                BuildEquipmentCompanionMinimumHeight);
+
+        return new Rectangle(
+            this.gamePanel.PointToScreen(new Point(x, y)),
+            new Size(width, height));
+    }
+
+    private Rectangle CalculateBuildEquipmentToggleBounds()
+    {
+        var scaleX = this.gamePanel.ClientSize.Width /
+                     (float)BuildEquipmentCompanionBaseCanvasWidth;
+        var scaleY = this.gamePanel.ClientSize.Height /
+                     (float)BuildEquipmentCompanionBaseCanvasHeight;
+        var width = Math.Max(
+            BuildEquipmentToggleMinimumWidth,
+            (int)Math.Round(BuildEquipmentToggleBaseWidth * scaleX));
+        var height = Math.Max(
+            BuildEquipmentToggleMinimumHeight,
+            (int)Math.Round(BuildEquipmentToggleBaseHeight * scaleY));
+        var x = (int)Math.Round(BuildEquipmentToggleBaseX * scaleX);
+        var baseY = this.gameItemToolTipSnapshot?.World.Environment ==
+                    ClientWorldEnvironment.Starbase
+            ? BuildEquipmentToggleStarbaseBaseY
+            : BuildEquipmentToggleUndockedBaseY;
+        var y = (int)Math.Round(baseY * scaleY);
+
+        width = Math.Min(width, this.gamePanel.ClientSize.Width);
+        height = Math.Min(height, this.gamePanel.ClientSize.Height);
+        x = Math.Clamp(
+            x,
+            0,
+            Math.Max(0, this.gamePanel.ClientSize.Width - width));
+        y = Math.Clamp(
+            y,
+            0,
+            Math.Max(0, this.gamePanel.ClientSize.Height - height));
+
+        return new Rectangle(
+            this.gamePanel.PointToScreen(new Point(x, y)),
+            new Size(width, height));
+    }
+
+    private void BuildEquipmentToggleForm_OnToggleRequested(
+        object? sender,
+        EventArgs e)
+    {
+        try
+        {
+            this.SaveBuildEquipmentCompanionVisibility(
+                !this.ResolveBuildEquipmentCompanionVisibility());
+            this.SyncBuildEquipmentCompanion();
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine(string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"[Builds] Could not toggle the Equipment companion: {exception}"));
+            this.TryHideBuildEquipmentCompanionForm();
+        }
+    }
+
+    private void BuildEquipmentCompanionForm_OnOpenBuildsRequested(
+        object? sender,
+        EventArgs e)
+    {
+        try
+        {
+            this.ShowBuildBoard();
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine(string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"[Builds] Could not open the Build Board from the Equipment companion: {exception}"));
+            this.SetTemporaryTitleStatus(
+                "Builds could not open. The game client is still running.",
+                TimeSpan.FromSeconds(5));
+        }
+    }
+
+    private void BuildEquipmentCompanionForm_OnFindItemRequested(
+        object? sender,
+        SkillBuildEquipmentFindRequestedEventArgs e)
+    {
+        try
+        {
+            this.openWorldFindRequested(
+                this.clientInstance,
+                e.ItemName);
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine(string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"[Builds] Could not find {e.ItemName} from the Equipment companion: {exception}"));
+            this.SetTemporaryTitleStatus(
+                "Galaxy Finder could not open. The game client is still running.",
+                TimeSpan.FromSeconds(5));
+        }
+    }
+
+    private void TryHideBuildEquipmentCompanionSurfaces()
+    {
+        this.TryHideBuildEquipmentCompanionForm();
+        this.TryHideBuildEquipmentToggleForm();
+    }
+
+    private void TryHideBuildEquipmentCompanionForm()
+    {
+        var form = this.skillBuildEquipmentCompanionForm;
+        if (form == null || form.IsDisposed || form.Disposing)
+        {
+            return;
+        }
+
+        try
+        {
+            form.Hide();
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine(string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"[Builds] Could not hide the Equipment companion: {exception}"));
+        }
+    }
+
+    private void TryHideBuildEquipmentToggleForm()
+    {
+        var form = this.skillBuildEquipmentToggleForm;
+        if (form == null || form.IsDisposed || form.Disposing)
+        {
+            return;
+        }
+
+        try
+        {
+            form.Hide();
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine(string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"[Builds] Could not hide the Equipment Build toggle: {exception}"));
+        }
+    }
+
+    private void CloseBuildEquipmentCompanionForms()
+    {
+        var companion = this.skillBuildEquipmentCompanionForm;
+        this.skillBuildEquipmentCompanionForm = null;
+        if (companion != null)
+        {
+            companion.OpenBuildsRequested -=
+                this.BuildEquipmentCompanionForm_OnOpenBuildsRequested;
+            companion.FindItemRequested -=
+                this.BuildEquipmentCompanionForm_OnFindItemRequested;
+            this.TryCloseBuildCompanionForm(
+                companion,
+                "Equipment companion");
+        }
+
+        var toggle = this.skillBuildEquipmentToggleForm;
+        this.skillBuildEquipmentToggleForm = null;
+        if (toggle == null)
+        {
+            return;
+        }
+
+        toggle.ToggleRequested -=
+            this.BuildEquipmentToggleForm_OnToggleRequested;
+        this.TryCloseBuildCompanionForm(
+            toggle,
+            "Equipment Build toggle");
+    }
+
+    private void TryCloseBuildCompanionForm(
+        Form form,
+        string surfaceName)
+    {
+        if (!form.IsDisposed)
+        {
+            try
+            {
+                form.Close();
+            }
+            catch (Exception exception)
+            {
+                Debug.WriteLine(string.Create(
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    $"[Builds] Could not close the {surfaceName}: {exception}"));
+            }
+        }
+
+        if (form.IsDisposed)
+        {
+            return;
+        }
+
+        try
+        {
+            form.Dispose();
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine(string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"[Builds] Could not dispose the {surfaceName}: {exception}"));
+        }
+    }
+
+    private void SyncJobTerminalRoute()
+    {
+        var shouldPresent =
+            this.jobTerminalRoutePresentation.IsVisible &&
+            this.addonLifecycleState == ClientLifecycleState.InGame &&
+            !this.addonTransitioning &&
+            this.Visible &&
+            this.WindowState != FormWindowState.Minimized &&
+            this.gamePanel.ClientSize is { Width: > 0, Height: > 0 };
+
+        if (!shouldPresent)
+        {
+            this.jobTerminalRouteControlForm?.Hide();
+            return;
+        }
+
+        this.EnsureJobTerminalRouteForm();
+
+        this.jobTerminalRouteControlForm!.Bounds =
+            this.CalculateJobTerminalRouteBounds();
+        this.jobTerminalRouteControlForm.SetPresentation(
+            this.jobTerminalRoutePresentation);
+
+        if (!this.jobTerminalRouteControlForm.Visible)
+        {
+            this.jobTerminalRouteControlForm.Show(this);
+        }
+    }
+
+    private void EnsureJobTerminalRouteForm()
+    {
+        if (this.jobTerminalRouteControlForm is
+            {
+                IsDisposed: false,
+                Disposing: false,
+            })
+        {
+            return;
+        }
+
+        this.jobTerminalRouteControlForm =
+            new JobTerminalRouteControlForm();
+        this.jobTerminalRouteControlForm.SetDestinationRequested +=
+            this.JobTerminalRouteControlForm_OnSetDestinationRequested;
+    }
+
+    private Rectangle CalculateJobTerminalRouteBounds()
+    {
+        var scaleX = this.gamePanel.ClientSize.Width /
+                     (float)JobTerminalRouteBaseCanvasWidth;
+        var scaleY = this.gamePanel.ClientSize.Height /
+                     (float)JobTerminalRouteBaseCanvasHeight;
+
+        var width = Math.Max(
+            JobTerminalRouteMinimumWidth,
+            (int)Math.Round(JobTerminalRouteBaseWidth * scaleX));
+        var height = Math.Max(
+            JobTerminalRouteMinimumHeight,
+            (int)Math.Round(JobTerminalRouteBaseHeight * scaleY));
+        var x = (int)Math.Round(JobTerminalRouteBaseX * scaleX);
+        var y = (int)Math.Round(JobTerminalRouteBaseY * scaleY);
+
+        width = Math.Min(
+            width,
+            Math.Max(1, this.gamePanel.ClientSize.Width));
+        height = Math.Min(
+            height,
+            Math.Max(1, this.gamePanel.ClientSize.Height));
+        x = Math.Clamp(
+            x,
+            0,
+            Math.Max(0, this.gamePanel.ClientSize.Width - width));
+        y = Math.Clamp(
+            y,
+            0,
+            Math.Max(0, this.gamePanel.ClientSize.Height - height));
+
+        return new Rectangle(
+            this.gamePanel.PointToScreen(new Point(x, y)),
+            new Size(width, height));
+    }
+
+    private void CloseJobTerminalRouteForm()
+    {
+        if (this.jobTerminalRouteControlForm == null)
+        {
+            return;
+        }
+
+        this.jobTerminalRouteControlForm.SetDestinationRequested -=
+            this.JobTerminalRouteControlForm_OnSetDestinationRequested;
+
+        if (!this.jobTerminalRouteControlForm.IsDisposed)
+        {
+            this.jobTerminalRouteControlForm.Close();
+            this.jobTerminalRouteControlForm.Dispose();
+        }
+
+        this.jobTerminalRouteControlForm = null;
+    }
+
+    private void JobTerminalRouteControlForm_OnSetDestinationRequested(
+        NavigationDestination destination)
+    {
+        var result = this.setMissionWikiDestination(destination);
+
+        if (result.Succeeded)
+        {
+            var destinationName = string.IsNullOrWhiteSpace(
+                    this.jobTerminalRoutePresentation.DestinationName)
+                ? destination.DisplayName
+                : this.jobTerminalRoutePresentation.DestinationName;
+
+            this.SetTemporaryTitleStatus(
+                $"Destination set: {destinationName}",
+                TimeSpan.FromSeconds(3));
+            return;
+        }
+
+        this.SetTemporaryTitleStatus(
+            string.IsNullOrWhiteSpace(result.Error)
+                ? "Destination could not be set."
+                : result.Error,
+            TimeSpan.FromSeconds(5));
+    }
+
+    private void CloseMissionWikiForm()
+    {
+        if (this.missionWikiWebViewForm != null)
+        {
+            this.missionWikiWebViewForm.ContentStateChanged -=
+                this.MissionWikiWebViewForm_OnContentStateChanged;
+
+            if (!this.missionWikiWebViewForm.IsDisposed)
+            {
+                this.missionWikiWebViewForm.Close();
+                this.missionWikiWebViewForm.Dispose();
+            }
+
+            this.missionWikiWebViewForm = null;
+        }
+
+        if (this.missionWikiControlForm != null)
+        {
+            this.missionWikiControlForm.ToggleRequested -=
+                this.MissionWikiControlForm_OnToggleRequested;
+
+            if (!this.missionWikiControlForm.IsDisposed)
+            {
+                this.missionWikiControlForm.Close();
+                this.missionWikiControlForm.Dispose();
+            }
+
+            this.missionWikiControlForm = null;
+        }
+    }
+
+    private void MissionWikiControlForm_OnToggleRequested(
+        object? sender,
+        EventArgs e)
+    {
+        this.missionWikiExpanded = !this.missionWikiExpanded;
+        this.SyncMissionWiki();
+    }
+
+    private void MissionWikiWebViewForm_OnContentStateChanged(
+        object? sender,
+        EventArgs e)
+    {
+        this.SyncMissionWiki();
+    }
+
+    private void AddonOverlayForm_OnGameMenuOpened(
+        object? sender,
+        EventArgs e)
+    {
+        var overlay = this.addonOverlayForm;
+
+        if (overlay == null ||
+            overlay.IsDisposed ||
+            overlay.Disposing ||
+            !overlay.Visible ||
+            !overlay.IsHandleCreated)
+        {
+            return;
+        }
+
+        this.PlaceBuildSurfaceBehindAddonOverlay(
+            this.skillBuildEquipmentCompanionForm,
+            overlay);
+        this.PlaceBuildSurfaceBehindAddonOverlay(
+            this.skillBuildEquipmentToggleForm,
+            overlay);
+        this.PlaceBuildSurfaceBehindAddonOverlay(
+            this.skillBuildSkillsCompanionForm,
+            overlay);
+        this.PlaceBuildSurfaceBehindAddonOverlay(
+            this.skillBuildSkillsToggleForm,
+            overlay);
+    }
+
+    private void PlaceBuildSurfaceBehindAddonOverlay(
+        Form? buildSurface,
+        Form overlay)
+    {
+        if (buildSurface == null ||
+            buildSurface.IsDisposed ||
+            buildSurface.Disposing ||
+            !buildSurface.Visible ||
+            !buildSurface.IsHandleCreated)
+        {
+            return;
+        }
+
+        _ = NativeMethods.TryPlaceWindowBehindWithoutActivation(
+            buildSurface.Handle,
+            overlay.Handle);
+    }
+
+    private void AddonOverlayForm_OnUiInteractionRaised(
+        object? sender,
+        AddonUiInteractionEventArgs e)
+    {
+        this.addonUiInteractionRaised(e.Interaction);
+    }
+
+    private void AddonOverlayForm_OnGalaxyAtlasRequested(
+        object? sender,
+        EventArgs e)
+    {
+        this.openGalaxyAtlasRequested(
+            this.clientInstance);
+    }
+
+    private void AddonOverlayForm_OnWorldFindRequested(
+        object? sender,
+        EventArgs e)
+    {
+        this.openWorldFindRequested(
+            this.clientInstance,
+            null);
+    }
+
+    private void AddonOverlayForm_OnForgeContributionsRequested(
+        object? sender,
+        EventArgs e)
+    {
+        this.openForgeContributionsRequested(
+            this.clientInstance,
+            this);
+    }
+
+    private void AddonOverlayForm_OnPilotArchiveRequested(
+        object? sender,
+        EventArgs e)
+    {
+        this.openPilotArchiveRequested(
+            this.clientInstance,
+            this);
+    }
+
+    private void AddonOverlayForm_OnBuildsRequested(
+        object? sender,
+        EventArgs e)
+    {
+        try
+        {
+            this.ShowBuildBoard();
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine($"[Builds] Could not open the Build Board: {exception}");
+            try
+            {
+                this.CloseBuildBoardForm();
+            }
+            catch (Exception closeException)
+            {
+                Debug.WriteLine($"[Builds] Could not close the failed Build Board: {closeException}");
+            }
+
+            this.SetTemporaryTitleStatus(
+                "Builds could not open. The game client is still running.",
+                TimeSpan.FromSeconds(5));
+        }
+    }
+
+    private void AddonOverlayForm_OnSocialRequested(
+        object? sender,
+        EventArgs e)
+    {
+        this.openSocialRequested(
+            this.clientInstance,
+            this);
+    }
+
+    private void AddonOverlayForm_OnManageAddonsRequested(
+        object? sender,
+        EventArgs e)
+    {
+        this.openAddonsRequested(
+            this.clientInstance,
+            this);
+    }
+
+    private void AddonOverlayForm_OnInGameOptionsRequested(
+        object? sender,
+        EventArgs e)
+    {
+        this.openInGameOptionsRequested(
+            this.clientInstance,
+            this);
+    }
+
 }

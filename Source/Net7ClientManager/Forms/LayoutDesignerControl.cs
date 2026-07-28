@@ -15,25 +15,25 @@ public sealed class LayoutDesignerControl : Control
     private const float ZoomStepFactor = 1.12f;
     private const float MonitorGap = 48.0f;
 
-    private static readonly Color backgroundColor = Color.FromArgb(red: 244, green: 247, blue: 251);
-    private static readonly Color monitorColor = Color.FromArgb(red: 232, green: 237, blue: 245);
-    private static readonly Color primaryMonitorColor = Color.FromArgb(red: 226, green: 235, blue: 248);
-    private static readonly Color selectedMonitorColor = Color.FromArgb(red: 215, green: 231, blue: 255);
-    private static readonly Color monitorBorderColor = Color.FromArgb(red: 176, green: 188, blue: 204);
-    private static readonly Color selectedMonitorBorderColor = Color.FromArgb(red: 58, green: 123, blue: 213);
-    private static readonly Color slotColor = Color.FromArgb(red: 255, green: 255, blue: 255);
-    private static readonly Color slotAssignedColor = Color.FromArgb(red: 232, green: 245, blue: 255);
-    private static readonly Color slotSelectedColor = Color.FromArgb(red: 58, green: 123, blue: 213);
-    private static readonly Color slotBorderColor = Color.FromArgb(red: 168, green: 181, blue: 198);
-    private static readonly Color snapGuideColor = Color.FromArgb(red: 58, green: 123, blue: 213);
-    private static readonly Color textColor = Color.FromArgb(red: 28, green: 35, blue: 45);
-    private static readonly Color mutedTextColor = Color.FromArgb(red: 86, green: 99, blue: 116);
+    private static readonly Color backgroundColor = MainWindowTheme.Background;
+    private static readonly Color monitorColor = Color.FromArgb(20, 31, 43);
+    private static readonly Color primaryMonitorColor = Color.FromArgb(23, 38, 52);
+    private static readonly Color selectedMonitorColor = Color.FromArgb(28, 58, 75);
+    private static readonly Color monitorBorderColor = MainWindowTheme.Border;
+    private static readonly Color selectedMonitorBorderColor = MainWindowTheme.AccentBorder;
+    private static readonly Color slotColor = MainWindowTheme.ElevatedPanel;
+    private static readonly Color slotAssignedColor = Color.FromArgb(23, 58, 57);
+    private static readonly Color slotSelectedColor = MainWindowTheme.Accent;
+    private static readonly Color slotBorderColor = MainWindowTheme.Border;
+    private static readonly Color snapGuideColor = MainWindowTheme.Accent;
+    private static readonly Color textColor = MainWindowTheme.Text;
+    private static readonly Color mutedTextColor = MainWindowTheme.MutedText;
 
-    private static readonly Color inputRiskMonitorColor = Color.FromArgb(red: 255, green: 246, blue: 222);
-    private static readonly Color inputRiskMonitorBorderColor = Color.FromArgb(red: 210, green: 153, blue: 36);
-    private static readonly Color inputRiskSlotColor = Color.FromArgb(red: 255, green: 252, blue: 240);
-    private static readonly Color inputRiskSlotBorderColor = Color.FromArgb(red: 210, green: 153, blue: 36);
-    private static readonly Color inputRiskTextColor = Color.FromArgb(red: 150, green: 92, blue: 0);
+    private static readonly Color inputRiskMonitorColor = Color.FromArgb(54, 42, 21);
+    private static readonly Color inputRiskMonitorBorderColor = MainWindowTheme.Warning;
+    private static readonly Color inputRiskSlotColor = Color.FromArgb(63, 46, 21);
+    private static readonly Color inputRiskSlotBorderColor = MainWindowTheme.Warning;
+    private static readonly Color inputRiskTextColor = MainWindowTheme.Warning;
 
     private readonly Dictionary<Guid, RectangleF> renderedSlotRectangles = [];
     private readonly List<RenderedMonitor> renderedMonitors = [];
@@ -136,6 +136,11 @@ public sealed class LayoutDesignerControl : Control
         this.Invalidate();
     }
 
+    public void ResetView()
+    {
+        this.FitToView();
+    }
+
     public WindowBounds CreateDefaultSlotBounds()
     {
         var monitors = this.GetDisplayMonitors();
@@ -148,17 +153,7 @@ public sealed class LayoutDesignerControl : Control
                             ?? Screen.PrimaryScreen?.Bounds
                             ?? SystemInformation.VirtualScreen;
 
-        var inset = Math.Min(40, Math.Max(16, monitorBounds.Width / 20));
-        var width = Math.Min(1280, Math.Max(640, monitorBounds.Width / 2));
-        var height = Math.Min(720, Math.Max(480, monitorBounds.Height / 2));
-
-        return new WindowBounds
-        {
-            Left = monitorBounds.Left + inset,
-            Top = monitorBounds.Top + inset,
-            Width = width,
-            Height = height,
-        };
+        return SlotPlacementDefaults.CreateForScreen(monitorBounds);
     }
 
     private void FitToView()

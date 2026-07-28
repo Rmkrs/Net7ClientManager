@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="LuaCSharp" Version="0.5.5" />
+    <ProjectReference Include="..\Net7ClientManager.Observations\Net7ClientManager.Observations.csproj" />
+  </ItemGroup>
+</Project>

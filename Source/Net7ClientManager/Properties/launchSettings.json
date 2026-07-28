@@ -1,0 +1,7 @@
+{
+  "profiles": {
+    "Net7ClientManager": {
+      "commandName": "Project"
+    }
+  }
+}

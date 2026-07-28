@@ -40,7 +40,6 @@ public sealed class SettingsStore
             var settings = JsonSerializer.Deserialize<AppSettings>(json, jsonSerializerOptions) ?? new AppSettings();
 
             settings.EnsureDefaults();
-            _ = settings.GetOrCreateCurrentProfile();
 
             return settings;
         }
@@ -75,7 +74,6 @@ public sealed class SettingsStore
         var settings = new AppSettings();
 
         settings.EnsureDefaults();
-        _ = settings.GetOrCreateCurrentProfile();
 
         return settings;
     }

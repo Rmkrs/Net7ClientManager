@@ -95,8 +95,9 @@ public sealed class InputActionStore
         new()
         {
             Name = "Fire All",
-            Kind = InputActionKind.KeyTap,
-            Key = Keys.F,
+            Kind = InputActionKind.GameCommand,
+            GameCommand = GameCommand.FireAll,
+            Key = Keys.None,
             BaseWidth = 1280,
             BaseHeight = 720,
             BaseX = 0,
@@ -123,6 +124,7 @@ public sealed class InputActionStore
         var changed = this.MigrateLegacyClickActions(config);
 
         changed |= this.EnsureDefaultInputActions(config);
+        changed |= MigrateLegacyGameCommands(config);
         changed |= NormalizeActions(config);
 
         if (changed)
@@ -138,32 +140,6 @@ public sealed class InputActionStore
         return [.. this.LoadActions()
             .Where(action => action.Kind == InputActionKind.MouseClick)
             .OrderBy(action => action.Name, StringComparer.OrdinalIgnoreCase)];
-    }
-
-    public void SaveOrReplaceAction(InputActionDefinition action)
-    {
-        var config = this.LoadConfig();
-
-        _ = this.MigrateLegacyClickActions(config);
-        _ = this.EnsureDefaultInputActions(config);
-
-        action.UpdatedAt = DateTimeOffset.UtcNow;
-
-        var existingIndex = config.Actions.FindIndex(existingAction =>
-            string.Equals(existingAction.Name, action.Name, StringComparison.OrdinalIgnoreCase));
-
-        if (existingIndex >= 0)
-        {
-            config.Actions[existingIndex] = action;
-        }
-        else
-        {
-            config.Actions.Add(action);
-        }
-
-        _ = NormalizeActions(config);
-
-        this.SaveConfig(config);
     }
 
     private InputActionConfig LoadConfig()
@@ -227,6 +203,36 @@ public sealed class InputActionStore
         return true;
     }
 
+    private static bool MigrateLegacyGameCommands(InputActionConfig config)
+    {
+        var changed = false;
+
+        foreach (var action in config.Actions)
+        {
+            if (!string.Equals(
+                    action.Name,
+                    "Fire All",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (action.Kind == InputActionKind.GameCommand &&
+                action.GameCommand == GameCommand.FireAll &&
+                action.Key == Keys.None)
+            {
+                continue;
+            }
+
+            action.Kind = InputActionKind.GameCommand;
+            action.GameCommand = GameCommand.FireAll;
+            action.Key = Keys.None;
+            changed = true;
+        }
+
+        return changed;
+    }
+
     private bool EnsureDefaultInputActions(InputActionConfig config)
     {
         var changed = false;
@@ -260,7 +266,7 @@ public sealed class InputActionStore
                 changed = true;
             }
 
-            if (action.Kind == InputActionKind.KeyTap)
+            if (action.Kind is InputActionKind.KeyTap or InputActionKind.GameCommand)
             {
                 if (action.BaseWidth != 1280)
                 {
@@ -285,6 +291,20 @@ public sealed class InputActionStore
                     action.BaseY = 0;
                     changed = true;
                 }
+            }
+
+            if (action.Kind == InputActionKind.GameCommand &&
+                action.Key != Keys.None)
+            {
+                action.Key = Keys.None;
+                changed = true;
+            }
+
+            if (action.Kind != InputActionKind.GameCommand &&
+                action.GameCommand != null)
+            {
+                action.GameCommand = null;
+                changed = true;
             }
         }
 
@@ -324,6 +344,7 @@ public sealed class InputActionStore
             Name = action.Name,
             Kind = action.Kind,
             Key = action.Key,
+            GameCommand = action.GameCommand,
             BaseWidth = action.BaseWidth,
             BaseHeight = action.BaseHeight,
             BaseX = action.BaseX,

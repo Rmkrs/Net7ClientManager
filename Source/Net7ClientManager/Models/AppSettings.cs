@@ -51,29 +51,44 @@ public sealed class AppSettings
 
     public List<SlotResolutionPreset> SlotResolutionPresets { get; set; } = [];
 
+    public MainWindowSettings MainWindow { get; set; } = new();
+
+    public QuickLaunchSettings QuickLaunch { get; set; } = new();
+
     public FleetCommandSettings FleetCommands { get; set; } = new();
 
-    public LayoutProfile GetOrCreateCurrentProfile()
+    public NavigationPlannerSettings NavigationPlanner { get; set; } = new();
+
+    public GalaxyAtlasSettings GalaxyAtlas { get; set; } = new();
+
+    public WorldFindSettings WorldFind { get; set; } = new();
+
+    public AddonCenterSettings AddonCenter { get; set; } = new();
+
+    public ForgeContributionSettings ForgeContributions { get; set; } = new();
+
+    public PilotArchiveSettings PilotArchive { get; set; } = new();
+
+    public HistorySettings History { get; set; } = new();
+
+    public GameItemToolTipSettings GameItemToolTips { get; set; } = new();
+
+    public GameSettingsEditorSettings GameSettingsEditor { get; set; } = new();
+
+    public SocialSettings Social { get; set; } = new();
+
+    public Dictionary<string, SavedWindowPlacement> WindowPlacements
+    { get; set; } = new(StringComparer.Ordinal);
+
+    public LayoutProfile? GetCurrentProfile()
     {
-        if (this.CurrentProfileId != null)
+        if (this.CurrentProfileId == null)
         {
-            var currentProfile = this.Profiles.FirstOrDefault(profile => profile.Id == this.CurrentProfileId.Value);
-
-            if (currentProfile != null)
-            {
-                return currentProfile;
-            }
+            return null;
         }
 
-        if (this.Profiles.Count > 0)
-        {
-            var firstProfile = this.Profiles[0];
-            this.CurrentProfileId = firstProfile.Id;
-
-            return firstProfile;
-        }
-
-        return this.CreateProfile("Default");
+        return this.Profiles.FirstOrDefault(
+            profile => profile.Id == this.CurrentProfileId.Value);
     }
 
     public LayoutProfile CreateProfile(string name)
@@ -93,6 +108,46 @@ public sealed class AppSettings
 
     public void EnsureDefaults()
     {
+        this.MainWindow ??= new MainWindowSettings();
+        this.QuickLaunch ??= new QuickLaunchSettings();
+        this.FleetCommands ??= new FleetCommandSettings();
+        this.FleetCommands.EnsureDefaults();
+        this.ForgeContributions ??= new ForgeContributionSettings();
+        this.PilotArchive ??= new PilotArchiveSettings();
+        this.PilotArchive.EnsureDefaults();
+        this.History ??= new HistorySettings();
+        this.GameItemToolTips ??= new GameItemToolTipSettings();
+        this.GameItemToolTips.EnsureDefaults();
+        this.GameSettingsEditor ??= new GameSettingsEditorSettings();
+        this.Social ??= new SocialSettings();
+        this.Social.EnsureDefaults();
+        this.WindowPlacements ??= new Dictionary<string, SavedWindowPlacement>(
+            StringComparer.Ordinal);
+        this.AddonCenter ??= new AddonCenterSettings();
+        this.AddonCenter.UnassignedEnabledAddonIds ??= [];
+        this.AddonCenter.UnassignedAddonWindowPlacements ??= [];
+        this.ForgeContributions.EnsureDefaults();
+        this.WorldFind ??= new WorldFindSettings();
+        this.WorldFind.ColumnWidths ??= new Dictionary<string, int>(
+            StringComparer.Ordinal);
+
+        if (this.CurrentProfileId != null &&
+            this.Profiles.TrueForAll(
+                profile => profile.Id != this.CurrentProfileId.Value))
+        {
+            this.CurrentProfileId = null;
+        }
+
+        foreach (var slot in this.Profiles.SelectMany(profile => profile.Slots))
+        {
+            if (slot.GameResolutionWidth <= 0 ||
+                slot.GameResolutionHeight <= 0)
+            {
+                slot.GameResolutionWidth = slot.Bounds.Width;
+                slot.GameResolutionHeight = slot.Bounds.Height;
+            }
+        }
+
         foreach (var defaultPreset in defaultSlotResolutionPresets)
         {
             var existingPreset = this.SlotResolutionPresets.FirstOrDefault(preset =>
@@ -141,6 +196,27 @@ public sealed class AppSettings
                                    ?? this.SlotResolutionPresets[0];
 
             this.DefaultSlotResolutionPresetName = preferredDefault.Name;
+        }
+
+        var quickLaunchHostPreset = this.SlotResolutionPresets.FirstOrDefault(preset =>
+            string.Equals(
+                preset.Name,
+                this.QuickLaunch.HostResolutionPresetName,
+                StringComparison.Ordinal))
+            ?? this.SlotResolutionPresets.FirstOrDefault(preset =>
+                string.Equals(
+                    preset.Name,
+                    this.DefaultSlotResolutionPresetName,
+                    StringComparison.Ordinal))
+            ?? this.SlotResolutionPresets[0];
+
+        this.QuickLaunch.HostResolutionPresetName = quickLaunchHostPreset.Name;
+
+        if (this.QuickLaunch.GameResolutionWidth <= 0 ||
+            this.QuickLaunch.GameResolutionHeight <= 0)
+        {
+            this.QuickLaunch.GameResolutionWidth = quickLaunchHostPreset.Width;
+            this.QuickLaunch.GameResolutionHeight = quickLaunchHostPreset.Height;
         }
     }
 }

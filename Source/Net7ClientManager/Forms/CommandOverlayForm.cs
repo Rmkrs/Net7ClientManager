@@ -1,124 +1,620 @@
+// ReSharper disable LocalizableElement
 namespace Net7ClientManager.Forms;
 
+using System.Globalization;
 using Net7ClientManager.Core;
 using Net7ClientManager.Models;
+using Net7ClientManager.Services;
 using Net7ClientManager.Win32;
 
-public sealed class CommandOverlayForm : Form
+internal enum CommandPaletteBehavior
 {
+    Transient,
+    Persistent,
+    PositionPreview,
+}
+
+internal sealed class CommandOverlayForm : Form
+{
+    private const int HeaderHeight = 18;
+    private const int TileHeight = 34;
+    private const int TileGap = 4;
+    private const int SectionGap = 6;
+    private const int ColumnCount = 2;
+    private const int OverlayWidth = 420;
+    private const int PreviewFooterHeight = 28;
+    private const int WsExToolWindow = 0x00000080;
+    private const int WsExNoActivate = 0x08000000;
+
     private readonly ClientManager clientManager;
     private readonly FleetCommandInvocationContext invocationContext;
-    private readonly Keys commandMenuHotKey;
-    private readonly System.Windows.Forms.Timer releaseTimer = new();
+    private readonly CommandPaletteBehavior behavior;
+    private Rectangle movementBounds;
+    private readonly Action<Point>? persistentLocationChanged;
+    private readonly System.Windows.Forms.Timer presentationTimer = new();
+    private readonly Point? restoreCursorPosition;
 
-    private readonly CommandTileLabel assistMeTile = new(CommandOverlayCommand.AssistMe);
-    private readonly CommandTileLabel stopTile = new(CommandOverlayCommand.Stop);
+    private readonly List<CommandTileLabel> tiles = [];
+    private readonly List<Control> dragSurfaces = [];
 
-    private CommandOverlayCommand hoveredCommand = CommandOverlayCommand.None;
+    private Point cursorAnchorPoint;
+    private string? hoveredCommandId;
+    private DateTimeOffset nextPresentationRefreshAt;
+    private string commandSignature = string.Empty;
+    private Point dragCursorOrigin;
+    private Point dragLocationOrigin;
+    private Control? dragCaptureControl;
+    private bool dragging;
     private bool completed;
+    private bool executingPersistentCommand;
 
-    public CommandOverlayForm(
+    internal CommandOverlayForm(
         ClientManager clientManager,
         FleetCommandInvocationContext invocationContext,
-        Keys commandMenuHotKey)
+        CommandPaletteBehavior behavior = CommandPaletteBehavior.Transient,
+        Rectangle? movementBounds = null,
+        Action<Point>? persistentLocationChanged = null,
+        Point? restoreCursorPosition = null)
     {
         this.clientManager = clientManager;
         this.invocationContext = invocationContext;
-        this.commandMenuHotKey = commandMenuHotKey;
+        this.behavior = behavior;
+        this.movementBounds = movementBounds ?? Screen.PrimaryScreen?.WorkingArea ?? Rectangle.Empty;
+        this.persistentLocationChanged = persistentLocationChanged;
+        this.restoreCursorPosition = restoreCursorPosition;
 
         this.Text = "Fleet Commands";
         this.FormBorderStyle = FormBorderStyle.None;
         this.StartPosition = FormStartPosition.Manual;
-        this.TopMost = true;
+        this.TopMost = behavior != CommandPaletteBehavior.Persistent;
         this.ShowInTaskbar = false;
-        this.ClientSize = new Size(170, 74);
         this.Padding = new Padding(4);
         this.KeyPreview = true;
-        this.BackColor = Color.FromArgb(28, 28, 28);
-        this.Font = new Font(
-            SystemFonts.MessageBoxFont?.FontFamily ?? SystemFonts.DefaultFont.FontFamily,
-            9.5f,
-            FontStyle.Bold);
+        this.BackColor = MainWindowTheme.Background;
+        this.Font = MainWindowTheme.CreateHeadingFont(9.0f);
+        this.Cursor = behavior == CommandPaletteBehavior.Transient
+            ? Cursors.Hand
+            : Cursors.Default;
 
         this.BuildUi();
 
-        this.releaseTimer.Interval = 25;
-        this.releaseTimer.Tick += this.ReleaseTimer_OnTick;
+        this.presentationTimer.Interval = 25;
+        this.presentationTimer.Tick += this.PresentationTimer_OnTick;
 
         this.Deactivate += this.CommandOverlayForm_OnDeactivate;
         this.KeyDown += this.CommandOverlayForm_OnKeyDown;
         this.MouseUp += this.CommandOverlayForm_OnMouseUp;
     }
 
+    public int OwnerProcessId =>
+        this.invocationContext.ActiveClient.ProcessId;
+
+    public bool IsPersistent =>
+        this.behavior == CommandPaletteBehavior.Persistent;
+
+    public bool IsTransient =>
+        this.behavior == CommandPaletteBehavior.Transient;
+
+    protected override bool ShowWithoutActivation =>
+        this.behavior == CommandPaletteBehavior.Persistent;
+
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            var parameters = base.CreateParams;
+            parameters.ExStyle |= WsExToolWindow;
+
+            if (this.behavior == CommandPaletteBehavior.Persistent)
+            {
+                parameters.ExStyle |= WsExNoActivate;
+            }
+
+            return parameters;
+        }
+    }
+
+    public Point GetCursorAnchorPoint()
+    {
+        return this.cursorAnchorPoint;
+    }
+
+    public void UpdatePersistentPlacement(
+        Rectangle bounds,
+        Point location)
+    {
+        if (!this.IsPersistent)
+        {
+            return;
+        }
+
+        this.movementBounds = bounds;
+
+        if (!this.dragging)
+        {
+            this.Location = ClampLocation(
+                location,
+                this.Size,
+                bounds);
+        }
+    }
+
+    public bool RefreshPersistentPresentation()
+    {
+        if (!this.IsPersistent)
+        {
+            return true;
+        }
+
+        var commands = this.clientManager.GetFleetCommandDefinitions(
+            this.invocationContext);
+
+        if (!string.Equals(
+                this.commandSignature,
+                BuildCommandSignature(commands),
+                StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        this.RefreshCommandDefinitions(commands);
+        return true;
+    }
+
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
 
-        this.releaseTimer.Start();
+        if (this.behavior == CommandPaletteBehavior.Transient)
+        {
+            this.presentationTimer.Start();
+        }
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
-        this.releaseTimer.Stop();
-        this.releaseTimer.Tick -= this.ReleaseTimer_OnTick;
+        this.presentationTimer.Stop();
+        this.presentationTimer.Tick -= this.PresentationTimer_OnTick;
+        this.presentationTimer.Dispose();
 
         this.Deactivate -= this.CommandOverlayForm_OnDeactivate;
         this.KeyDown -= this.CommandOverlayForm_OnKeyDown;
         this.MouseUp -= this.CommandOverlayForm_OnMouseUp;
 
-        this.UnwireTile(this.assistMeTile);
-        this.UnwireTile(this.stopTile);
+        foreach (var tile in this.tiles)
+        {
+            this.UnwireTile(tile);
+        }
 
+        this.tiles.Clear();
+
+        foreach (var surface in this.dragSurfaces)
+        {
+            this.UnwireDragSurface(surface);
+        }
+
+        this.dragSurfaces.Clear();
         base.OnFormClosed(e);
     }
 
     private void BuildUi()
     {
-        var layout = new TableLayoutPanel
+        var commands = this.clientManager.GetFleetCommandDefinitions(this.invocationContext);
+        var layout = this.BuildLayout(commands);
+        this.commandSignature = BuildCommandSignature(commands);
+
+        var rowCount = layout.RowHeights.Count;
+        var contentHeight = layout.RowHeights.Sum() + Math.Max(0, rowCount - 1) * TileGap;
+
+        this.ClientSize = new Size(
+            OverlayWidth,
+            this.Padding.Vertical + contentHeight +
+            (this.behavior == CommandPaletteBehavior.PositionPreview
+                ? PreviewFooterHeight
+                : 0));
+
+        this.cursorAnchorPoint = this.CalculateCursorAnchorPoint(layout.Items);
+
+        var table = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 1,
-            RowCount = 2,
+            ColumnCount = ColumnCount,
+            RowCount = rowCount,
             Padding = Padding.Empty,
             Margin = Padding.Empty,
-            BackColor = Color.FromArgb(28, 28, 28),
+            BackColor = MainWindowTheme.Background,
+            Cursor = this.behavior == CommandPaletteBehavior.Transient
+                ? Cursors.Hand
+                : Cursors.Default,
         };
 
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+        table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
 
-        this.ConfigureTile(
-            this.assistMeTile,
-            "Assist Me",
-            bottomMargin: 2);
+        for (var row = 0; row < layout.RowHeights.Count; row++)
+        {
+            var rowGap = row == layout.RowHeights.Count - 1
+                ? 0
+                : TileGap;
 
-        this.ConfigureTile(
-            this.stopTile,
-            "Stop",
-            bottomMargin: 0);
+            table.RowStyles.Add(new RowStyle(
+                SizeType.Absolute,
+                layout.RowHeights[row] + rowGap));
+        }
 
-        layout.Controls.Add(this.assistMeTile, column: 0, row: 0);
-        layout.Controls.Add(this.stopTile, column: 0, row: 1);
+        foreach (var item in layout.Items)
+        {
+            Control control = item.IsHeader
+                ? this.CreateHeaderLabel(item.Label)
+                : this.CreateCommandTile(
+                    item.CommandId,
+                    item.Label,
+                    item.IsEnabled);
 
-        this.Controls.Add(layout);
+            table.Controls.Add(
+                control,
+                item.Column,
+                item.Row);
+
+            if (item.ColumnSpan > 1)
+            {
+                table.SetColumnSpan(
+                    control,
+                    item.ColumnSpan);
+            }
+        }
+
+        if (this.behavior == CommandPaletteBehavior.PositionPreview)
+        {
+            var root = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 2,
+                Margin = Padding.Empty,
+                Padding = Padding.Empty,
+                BackColor = MainWindowTheme.Background,
+            };
+
+            root.ColumnStyles.Add(
+                new ColumnStyle(SizeType.Percent, 100f));
+            root.RowStyles.Add(
+                new RowStyle(SizeType.Percent, 100f));
+            root.RowStyles.Add(
+                new RowStyle(SizeType.Absolute, PreviewFooterHeight));
+
+            var footer = new Label
+            {
+                Dock = DockStyle.Fill,
+                Margin = Padding.Empty,
+                Text = "Drag a section heading · Enter saves · Esc cancels",
+                TextAlign = ContentAlignment.MiddleCenter,
+                ForeColor = MainWindowTheme.Accent,
+                BackColor = MainWindowTheme.ElevatedPanel,
+                Font = MainWindowTheme.CreateBodyFont(8.2f),
+            };
+
+            root.Controls.Add(table, 0, 0);
+            root.Controls.Add(footer, 0, 1);
+            this.Controls.Add(root);
+        }
+        else
+        {
+            this.Controls.Add(table);
+        }
+
+        if (this.behavior != CommandPaletteBehavior.Transient)
+        {
+            this.WireDragSurface(this);
+            this.WireDragSurface(table);
+        }
     }
 
-    private void ConfigureTile(
-        CommandTileLabel tile,
-        string text,
-        int bottomMargin)
+    private CommandPaletteLayout BuildLayout(
+        IReadOnlyCollection<FleetCommandDefinition> commands)
     {
-        tile.Dock = DockStyle.Fill;
-        tile.Margin = new Padding(0, 0, 0, bottomMargin);
-        tile.Text = text;
-        tile.TextAlign = ContentAlignment.MiddleCenter;
-        tile.ForeColor = Color.White;
-        tile.BackColor = Color.FromArgb(52, 52, 52);
-        tile.Cursor = Cursors.Hand;
+        var layout = new CommandPaletteLayout();
+
+        var visibleCommands = commands
+            .Where(command => command.ShowInOverlay)
+            .ToList();
+
+        this.AddLinearCategory(
+            layout,
+            "GROUP",
+            visibleCommands
+                .Where(command => command.Category == FleetCommandCategory.Group)
+                .ToList(),
+            emptyPlaceholder: "No live pilots");
+
+        this.AddFormationCategory(layout, visibleCommands);
+
+        this.AddCombatCategory(layout, visibleCommands);
+
+        this.AddSingleSlotCategory(
+            layout,
+            "INTERACT",
+            visibleCommands.FirstOrDefault(command =>
+                command.Category == FleetCommandCategory.Interact),
+            placeholderLabel: "Interact");
+
+        this.AddSingleSlotCategory(
+            layout,
+            "MOVE",
+            visibleCommands.FirstOrDefault(command =>
+                command.Category == FleetCommandCategory.Move &&
+                string.Equals(
+                    command.Id,
+                    BuiltInFleetCommandProvider.ComeToMeCommandId,
+                    StringComparison.OrdinalIgnoreCase)),
+            placeholderLabel: "Come To Me");
+
+        return layout;
+    }
+
+    private void AddLinearCategory(
+        CommandPaletteLayout layout,
+        string title,
+        IReadOnlyList<FleetCommandDefinition> commands,
+        string emptyPlaceholder)
+    {
+        this.AddHeader(layout, title);
+
+        if (commands.Count == 0)
+        {
+            this.AddPlaceholder(
+                layout,
+                emptyPlaceholder,
+                column: 0);
+            return;
+        }
+
+        for (var index = 0; index < commands.Count; index++)
+        {
+            var command = commands[index];
+
+            if (index % ColumnCount == 0)
+            {
+                layout.RowHeights.Add(TileHeight);
+            }
+
+            layout.Items.Add(LayoutItem.Command(
+                command.Id,
+                command.Label,
+                command.IsEnabled,
+                row: layout.RowHeights.Count - 1,
+                column: index % ColumnCount));
+        }
+    }
+
+    private void AddFormationCategory(
+        CommandPaletteLayout layout,
+        IReadOnlyCollection<FleetCommandDefinition> commands)
+    {
+        this.AddHeader(layout, "FORMATION");
+
+        var formationCommands = commands
+            .Where(command => command.Category == FleetCommandCategory.Formation)
+            .ToList();
+
+        this.AddExpectedCommandOrPlaceholder(
+            layout,
+            formationCommands,
+            BuiltInFleetCommandProvider.FormationModeCommandId,
+            string.Concat(
+                "Mode: ",
+                FormatFormationMode(
+                    this.clientManager.FleetCommandSettings.FormationMode)),
+            column: 0,
+            startNewRow: true);
+        this.AddExpectedCommandOrPlaceholder(
+            layout,
+            formationCommands,
+            BuiltInFleetCommandProvider.FormationToggleCommandId,
+            "Form Up",
+            column: 1,
+            startNewRow: false);
+    }
+
+    private static string FormatFormationMode(
+        FleetFormationMode mode)
+    {
+        return mode switch
+        {
+            FleetFormationMode.Block => "Block",
+            FleetFormationMode.SlotBack => "Slot-Back",
+            FleetFormationMode.Pipe => "Pipe",
+            _ => "Block",
+        };
+    }
+
+    private void AddCombatCategory(
+        CommandPaletteLayout layout,
+        IReadOnlyCollection<FleetCommandDefinition> commands)
+    {
+        this.AddHeader(layout, "COMBAT");
+
+        var combatCommands = commands
+            .Where(command => command.Category == FleetCommandCategory.Combat)
+            .ToList();
+
+        this.AddExpectedCommandOrPlaceholder(
+            layout,
+            combatCommands,
+            BuiltInFleetCommandProvider.AssistMeCommandId,
+            "Assist Me",
+            column: 0,
+            startNewRow: true);
+        this.AddExpectedCommandOrPlaceholder(
+            layout,
+            combatCommands,
+            "ui:group-skills",
+            "Action HUD",
+            column: 1,
+            startNewRow: false);
+    }
+
+    private void AddSingleSlotCategory(
+        CommandPaletteLayout layout,
+        string title,
+        FleetCommandDefinition? command,
+        string placeholderLabel)
+    {
+        this.AddHeader(layout, title);
+
+        if (command != null)
+        {
+            layout.RowHeights.Add(TileHeight);
+            layout.Items.Add(LayoutItem.Command(
+                command.Id,
+                command.Label,
+                command.IsEnabled,
+                row: layout.RowHeights.Count - 1,
+                column: 0));
+            return;
+        }
+
+        this.AddPlaceholder(
+            layout,
+            placeholderLabel,
+            column: 0);
+    }
+
+    private void AddExpectedCommandOrPlaceholder(
+        CommandPaletteLayout layout,
+        IReadOnlyCollection<FleetCommandDefinition> commands,
+        string commandId,
+        string placeholderLabel,
+        int column,
+        bool startNewRow)
+    {
+        if (startNewRow)
+        {
+            layout.RowHeights.Add(TileHeight);
+        }
+
+        var command = commands.FirstOrDefault(candidate =>
+            string.Equals(
+                candidate.Id,
+                commandId,
+                StringComparison.OrdinalIgnoreCase));
+
+        var row = layout.RowHeights.Count - 1;
+
+        layout.Items.Add(command != null
+            ? LayoutItem.Command(
+                command.Id,
+                command.Label,
+                command.IsEnabled,
+                row,
+                column)
+            : LayoutItem.Placeholder(
+                placeholderLabel,
+                row,
+                column));
+    }
+
+    private void AddHeader(
+        CommandPaletteLayout layout,
+        string title)
+    {
+        if (layout.RowHeights.Count > 0)
+        {
+            layout.RowHeights.Add(SectionGap);
+        }
+
+        var row = layout.RowHeights.Count;
+        layout.RowHeights.Add(HeaderHeight);
+        layout.Items.Add(LayoutItem.Header(
+            title,
+            row,
+            column: 0,
+            columnSpan: ColumnCount));
+    }
+
+    private void AddPlaceholder(
+        CommandPaletteLayout layout,
+        string label,
+        int column,
+        int columnSpan = 1)
+    {
+        layout.RowHeights.Add(TileHeight);
+        layout.Items.Add(LayoutItem.Placeholder(
+            label,
+            row: layout.RowHeights.Count - 1,
+            column,
+            columnSpan));
+    }
+
+    private Point CalculateCursorAnchorPoint(
+        IReadOnlyCollection<LayoutItem> layoutItems)
+    {
+        _ = layoutItems;
+
+        // The command palette is a cursor palette. Keep the cursor in the middle
+        // of the whole overlay. Layout is deliberately heat-mapped around that
+        // center, so frequent gameplay actions live near the cursor hearth.
+        return new Point(
+            this.ClientSize.Width / 2,
+            this.ClientSize.Height / 2);
+    }
+
+    private Label CreateHeaderLabel(
+        string text)
+    {
+        var label = new Label
+        {
+            Dock = DockStyle.Fill,
+            Margin = new Padding(2, 0, TileGap, 0),
+            Text = text,
+            TextAlign = ContentAlignment.BottomLeft,
+            AutoEllipsis = true,
+            ForeColor = MainWindowTheme.MutedText,
+            BackColor = MainWindowTheme.Background,
+            Font = MainWindowTheme.CreateHeadingFont(7.8f),
+            Cursor = this.behavior == CommandPaletteBehavior.Transient
+                ? Cursors.Hand
+                : Cursors.SizeAll,
+        };
+
+        if (this.behavior != CommandPaletteBehavior.Transient)
+        {
+            this.WireDragSurface(label);
+        }
+
+        return label;
+    }
+
+    private CommandTileLabel CreateCommandTile(
+        string commandId,
+        string text,
+        bool isEnabled)
+    {
+        var tile = new CommandTileLabel(commandId, isEnabled)
+        {
+            Dock = DockStyle.Fill,
+            Margin = new Padding(0, 0, TileGap, TileGap),
+            Text = text,
+            TextAlign = ContentAlignment.MiddleCenter,
+            AutoEllipsis = true,
+            ForeColor = isEnabled
+                ? MainWindowTheme.Text
+                : MainWindowTheme.DisabledText,
+            BackColor = isEnabled
+                ? MainWindowTheme.Button
+                : MainWindowTheme.DisabledButton,
+            Cursor = this.behavior == CommandPaletteBehavior.PositionPreview
+                ? Cursors.Default
+                : Cursors.Hand,
+        };
 
         tile.MouseEnter += this.CommandTile_OnMouseEnter;
         tile.MouseLeave += this.CommandTile_OnMouseLeave;
         tile.MouseUp += this.CommandOverlayForm_OnMouseUp;
+
+        this.tiles.Add(tile);
+
+        return tile;
     }
 
     private void UnwireTile(CommandTileLabel tile)
@@ -130,98 +626,258 @@ public sealed class CommandOverlayForm : Form
 
     private void CommandTile_OnMouseEnter(object? sender, EventArgs e)
     {
-        if (sender is CommandTileLabel tile)
+        if (sender is CommandTileLabel { IsCommandEnabled: true } tile)
         {
-            this.SetHoveredCommand(tile.Command);
+            this.SetHoveredCommand(tile.CommandId);
         }
     }
 
     private void CommandTile_OnMouseLeave(object? sender, EventArgs e)
     {
-        this.SetHoveredCommand(CommandOverlayCommand.None);
+        this.SetHoveredCommand(commandId: null);
     }
 
-    private void SetHoveredCommand(CommandOverlayCommand command)
+    private void SetHoveredCommand(string? commandId)
     {
-        this.hoveredCommand = command;
+        this.hoveredCommandId = commandId;
 
-        this.SetTileState(
-            this.assistMeTile,
-            command == CommandOverlayCommand.AssistMe);
-
-        this.SetTileState(
-            this.stopTile,
-            command == CommandOverlayCommand.Stop);
+        foreach (var tile in this.tiles)
+        {
+            this.SetTileState(
+                tile,
+                tile.IsCommandEnabled &&
+                string.Equals(tile.CommandId, commandId, StringComparison.Ordinal));
+        }
     }
 
-    private void SetTileState(Label tile, bool selected)
+    private void SetTileState(CommandTileLabel tile, bool selected)
     {
+        if (!tile.IsCommandEnabled)
+        {
+            tile.BackColor = MainWindowTheme.DisabledButton;
+            tile.ForeColor = MainWindowTheme.DisabledText;
+            return;
+        }
+
         tile.BackColor = selected
-            ? Color.FromArgb(84, 112, 164)
-            : Color.FromArgb(52, 52, 52);
+            ? MainWindowTheme.ButtonHover
+            : MainWindowTheme.Button;
 
-        tile.ForeColor = Color.White;
+        tile.ForeColor = selected
+            ? MainWindowTheme.Accent
+            : MainWindowTheme.Text;
     }
 
-    private async void ReleaseTimer_OnTick(object? sender, EventArgs e)
+    private void PresentationTimer_OnTick(object? sender, EventArgs e)
     {
+        this.RefreshDynamicCommandPresentation();
+    }
+
+    public Task CompleteFromHotKeyReleaseAsync()
+    {
+        if (this.behavior != CommandPaletteBehavior.Transient ||
+            this.completed)
+        {
+            return Task.CompletedTask;
+        }
+
         if (!this.Bounds.Contains(Cursor.Position))
         {
-            await this.CompleteAsync(
-                CommandOverlayCommand.None,
-                restoreOriginalFocusAndMouse: false).ConfigureAwait(true);
-
-            return;
+            return this.CompleteAsync(
+                commandId: null,
+                restoreOriginalFocusAndMouse: false);
         }
 
-        if (this.IsAnyCommandMenuHotKeyPartDown())
+        return this.CompleteAsync(
+            this.hoveredCommandId,
+            restoreOriginalFocusAndMouse: true);
+    }
+
+    private void RefreshDynamicCommandPresentation()
+    {
+        var now = DateTimeOffset.UtcNow;
+
+        if (now < this.nextPresentationRefreshAt)
         {
             return;
         }
 
-        await this.CompleteAsync(
-            this.hoveredCommand,
-            restoreOriginalFocusAndMouse: true).ConfigureAwait(true);
+        this.nextPresentationRefreshAt = now + TimeSpan.FromMilliseconds(75);
+
+        var commands = this.clientManager
+            .GetFleetCommandDefinitions(this.invocationContext);
+
+        this.RefreshCommandDefinitions(commands);
+    }
+
+    private void RefreshCommandDefinitions(
+        IReadOnlyCollection<FleetCommandDefinition> commands)
+    {
+        var visibleCommands = new Dictionary<string, FleetCommandDefinition>(
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var command in commands.Where(command => command.ShowInOverlay))
+        {
+            visibleCommands[command.Id] = command;
+        }
+
+        foreach (var tile in this.tiles)
+        {
+            if (!visibleCommands.TryGetValue(
+                    tile.CommandId,
+                    out var command))
+            {
+                tile.IsCommandEnabled = false;
+
+                if (string.Equals(
+                        this.hoveredCommandId,
+                        tile.CommandId,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    this.hoveredCommandId = null;
+                }
+
+                this.SetTileState(tile, selected: false);
+                continue;
+            }
+
+            tile.Text = command.Label;
+            tile.IsCommandEnabled = command.IsEnabled;
+
+            if (!tile.IsCommandEnabled &&
+                string.Equals(
+                    this.hoveredCommandId,
+                    tile.CommandId,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                this.hoveredCommandId = null;
+            }
+
+            this.SetTileState(
+                tile,
+                tile.IsCommandEnabled &&
+                string.Equals(
+                    this.hoveredCommandId,
+                    tile.CommandId,
+                    StringComparison.OrdinalIgnoreCase));
+        }
     }
 
     private async void CommandOverlayForm_OnMouseUp(object? sender, MouseEventArgs e)
     {
-        if (e.Button == MouseButtons.Right)
+        if (this.dragging || this.behavior == CommandPaletteBehavior.PositionPreview)
         {
-            await this.CompleteAsync(
-                CommandOverlayCommand.None,
-                restoreOriginalFocusAndMouse: true).ConfigureAwait(true);
+            return;
+        }
+
+        if (this.behavior == CommandPaletteBehavior.Persistent)
+        {
+            if (e.Button == MouseButtons.Left && this.hoveredCommandId != null)
+            {
+                await this.ExecutePersistentCommandAsync(
+                    this.hoveredCommandId).ConfigureAwait(true);
+            }
 
             return;
         }
 
-        if (e.Button == MouseButtons.Left && this.hoveredCommand != CommandOverlayCommand.None)
+        if (e.Button == MouseButtons.Right)
         {
             await this.CompleteAsync(
-                this.hoveredCommand,
+                commandId: null,
+                restoreOriginalFocusAndMouse: true).ConfigureAwait(true);
+            return;
+        }
+
+        if (e.Button == MouseButtons.Left && this.hoveredCommandId != null)
+        {
+            await this.CompleteAsync(
+                this.hoveredCommandId,
                 restoreOriginalFocusAndMouse: true).ConfigureAwait(true);
         }
     }
 
     private async void CommandOverlayForm_OnDeactivate(object? sender, EventArgs e)
     {
+        if (this.behavior != CommandPaletteBehavior.Transient)
+        {
+            return;
+        }
+
         await this.CompleteAsync(
-            CommandOverlayCommand.None,
+            commandId: null,
             restoreOriginalFocusAndMouse: true).ConfigureAwait(true);
     }
 
     private async void CommandOverlayForm_OnKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.KeyCode == Keys.Escape)
+        if (this.behavior == CommandPaletteBehavior.PositionPreview)
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                this.DialogResult = DialogResult.OK;
+                this.Close();
+            }
+            else if (e.KeyCode == Keys.Escape)
+            {
+                this.DialogResult = DialogResult.Cancel;
+                this.Close();
+            }
+
+            return;
+        }
+
+        if (this.behavior == CommandPaletteBehavior.Transient &&
+            e.KeyCode == Keys.Escape)
         {
             await this.CompleteAsync(
-                CommandOverlayCommand.None,
+                commandId: null,
                 restoreOriginalFocusAndMouse: true).ConfigureAwait(true);
         }
     }
 
+    private async Task ExecutePersistentCommandAsync(string commandId)
+    {
+        if (this.executingPersistentCommand)
+        {
+            return;
+        }
+
+        var command = this.clientManager
+            .GetFleetCommandDefinitions(this.invocationContext)
+            .FirstOrDefault(candidate => string.Equals(
+                candidate.Id,
+                commandId,
+                StringComparison.OrdinalIgnoreCase));
+
+        if (command is not { IsEnabled: true })
+        {
+            return;
+        }
+
+        this.executingPersistentCommand = true;
+        var cursorPosition = Cursor.Position;
+
+        try
+        {
+            var restoresGameFocus = await this.clientManager.ExecuteFleetCommandAsync(
+                command,
+                this.invocationContext).ConfigureAwait(true);
+
+            if (restoresGameFocus)
+            {
+                this.RestoreOriginalFocusAndMouse(cursorPosition);
+            }
+        }
+        finally
+        {
+            this.executingPersistentCommand = false;
+            this.SetHoveredCommand(commandId: null);
+        }
+    }
+
     private async Task CompleteAsync(
-        CommandOverlayCommand command,
+        string? commandId,
         bool restoreOriginalFocusAndMouse)
     {
         if (this.completed)
@@ -230,42 +886,48 @@ public sealed class CommandOverlayForm : Form
         }
 
         this.completed = true;
-        this.releaseTimer.Stop();
+        this.presentationTimer.Stop();
+
+        var completionCursorPosition =
+            this.restoreCursorPosition ?? Cursor.Position;
 
         try
         {
-            switch (command)
+            var command = string.IsNullOrWhiteSpace(commandId)
+                ? null
+                : this.clientManager
+                    .GetFleetCommandDefinitions(this.invocationContext)
+                    .FirstOrDefault(candidate =>
+                        candidate.IsEnabled &&
+                        string.Equals(
+                            candidate.Id,
+                            commandId,
+                            StringComparison.OrdinalIgnoreCase));
+
+            if (command != null)
             {
-                case CommandOverlayCommand.AssistMe:
-                    this.Hide();
-                    await this.clientManager.AssistMeAsync(this.invocationContext).ConfigureAwait(true);
-                    return;
+                this.Hide();
 
-                case CommandOverlayCommand.Stop:
-                    this.clientManager.CancelFleetCommand();
+                var restoresGameFocus = await this.clientManager.ExecuteFleetCommandAsync(
+                    command,
+                    this.invocationContext).ConfigureAwait(true);
 
-                    if (restoreOriginalFocusAndMouse)
-                    {
-                        this.RestoreOriginalFocusAndMouse();
-                    }
+                if (restoresGameFocus)
+                {
+                    this.RestoreOriginalFocusAndMouse(completionCursorPosition);
+                }
+                else if (this.restoreCursorPosition.HasValue)
+                {
+                    _ = NativeMethods.MoveCursorToScreenPoint(
+                        completionCursorPosition);
+                }
 
-                    return;
+                return;
+            }
 
-                case CommandOverlayCommand.None:
-                    if (restoreOriginalFocusAndMouse)
-                    {
-                        this.RestoreOriginalFocusAndMouse();
-                    }
-
-                    return;
-
-                default:
-                    if (restoreOriginalFocusAndMouse)
-                    {
-                        this.RestoreOriginalFocusAndMouse();
-                    }
-
-                    return;
+            if (restoreOriginalFocusAndMouse)
+            {
+                this.RestoreOriginalFocusAndMouse(completionCursorPosition);
             }
         }
         finally
@@ -274,90 +936,202 @@ public sealed class CommandOverlayForm : Form
         }
     }
 
-    private void RestoreOriginalFocusAndMouse()
+    private void RestoreOriginalFocusAndMouse(Point screenPoint)
     {
         if (this.invocationContext.ActiveClient.GameWindowHandle == IntPtr.Zero)
         {
             return;
         }
 
+        // The palette must not play global Cursor.Show/Hide games. While the
+        // overlay is open, the Windows cursor is the right cursor. Once the
+        // overlay closes, restore the original game window and put the hardware
+        // cursor back where the command was chosen so the game owns cursor
+        // presentation again.
         NativeMethods.FocusWindow(this.invocationContext.ActiveClient.GameWindowHandle);
+        _ = NativeMethods.MoveCursorToScreenPoint(screenPoint);
+    }
 
-        if (this.invocationContext.ActiveClientMousePosition is not { } mousePosition)
+    private void WireDragSurface(Control surface)
+    {
+        if (this.dragSurfaces.Contains(surface))
         {
             return;
         }
 
-        _ = NativeMethods.MoveCursorToClientPoint(
-            this.invocationContext.ActiveClient.GameWindowHandle,
-            mousePosition.X,
-            mousePosition.Y);
+        surface.MouseDown += this.DragSurface_OnMouseDown;
+        surface.MouseMove += this.DragSurface_OnMouseMove;
+        surface.MouseUp += this.DragSurface_OnMouseUp;
+        this.dragSurfaces.Add(surface);
     }
 
-    private bool IsAnyCommandMenuHotKeyPartDown()
+    private void UnwireDragSurface(Control surface)
     {
-        var keyCode = this.commandMenuHotKey & Keys.KeyCode;
+        surface.MouseDown -= this.DragSurface_OnMouseDown;
+        surface.MouseMove -= this.DragSurface_OnMouseMove;
+        surface.MouseUp -= this.DragSurface_OnMouseUp;
+    }
 
-        if (keyCode != Keys.None && NativeMethods.IsKeyDown(keyCode))
+    private void DragSurface_OnMouseDown(object? sender, MouseEventArgs e)
+    {
+        if (e.Button != MouseButtons.Left ||
+            this.behavior == CommandPaletteBehavior.Transient)
         {
-            return true;
+            return;
         }
 
-        var requiredModifiers = this.commandMenuHotKey & Keys.Modifiers;
+        this.dragging = true;
+        this.dragCursorOrigin = Cursor.Position;
+        this.dragLocationOrigin = this.Location;
+        this.dragCaptureControl = sender as Control ?? this;
+        this.dragCaptureControl.Capture = true;
+    }
 
-        if ((requiredModifiers & Keys.Control) == Keys.Control &&
-            this.IsAnyControlKeyDown())
+    private void DragSurface_OnMouseMove(object? sender, MouseEventArgs e)
+    {
+        if (!this.dragging)
         {
-            return true;
+            return;
         }
 
-        if ((requiredModifiers & Keys.Shift) == Keys.Shift &&
-            this.IsAnyShiftKeyDown())
+        var cursor = Cursor.Position;
+        var requested = new Point(
+            this.dragLocationOrigin.X + cursor.X - this.dragCursorOrigin.X,
+            this.dragLocationOrigin.Y + cursor.Y - this.dragCursorOrigin.Y);
+
+        this.Location = ClampLocation(
+            requested,
+            this.Size,
+            this.movementBounds);
+    }
+
+    private void DragSurface_OnMouseUp(object? sender, MouseEventArgs e)
+    {
+        if (!this.dragging || e.Button != MouseButtons.Left)
         {
-            return true;
+            return;
         }
 
-        if ((requiredModifiers & Keys.Alt) == Keys.Alt &&
-            this.IsAnyAltKeyDown())
+        this.dragging = false;
+
+        if (this.dragCaptureControl != null)
         {
-            return true;
+            this.dragCaptureControl.Capture = false;
+            this.dragCaptureControl = null;
         }
 
-        return false;
+        if (this.behavior == CommandPaletteBehavior.Persistent)
+        {
+            this.persistentLocationChanged?.Invoke(this.Location);
+        }
     }
 
-    private bool IsAnyControlKeyDown()
+    private static Point ClampLocation(
+        Point requested,
+        Size size,
+        Rectangle bounds)
     {
-        return NativeMethods.IsKeyDown(Keys.ControlKey) ||
-               NativeMethods.IsKeyDown(Keys.LControlKey) ||
-               NativeMethods.IsKeyDown(Keys.RControlKey);
+        if (bounds.Width <= 0 || bounds.Height <= 0)
+        {
+            return requested;
+        }
+
+        var maximumX = Math.Max(bounds.Left, bounds.Right - size.Width);
+        var maximumY = Math.Max(bounds.Top, bounds.Bottom - size.Height);
+
+        return new Point(
+            Math.Clamp(requested.X, bounds.Left, maximumX),
+            Math.Clamp(requested.Y, bounds.Top, maximumY));
     }
 
-    private bool IsAnyShiftKeyDown()
+    private static string BuildCommandSignature(
+        IEnumerable<FleetCommandDefinition> commands)
     {
-        return NativeMethods.IsKeyDown(Keys.ShiftKey) ||
-               NativeMethods.IsKeyDown(Keys.LShiftKey) ||
-               NativeMethods.IsKeyDown(Keys.RShiftKey);
+        return string.Join(
+            "\u001F",
+            commands
+                .Where(command => command.ShowInOverlay)
+                .Select(command => string.Concat(
+                    command.Id,
+                    "\u001E",
+                    command.Category.ToString())));
     }
 
-    private bool IsAnyAltKeyDown()
+    private sealed class CommandPaletteLayout
     {
-        return NativeMethods.IsKeyDown(Keys.Menu) ||
-               NativeMethods.IsKeyDown(Keys.LMenu) ||
-               NativeMethods.IsKeyDown(Keys.RMenu);
+        public List<LayoutItem> Items { get; } = [];
+
+        public List<int> RowHeights { get; } = [];
     }
 
-    private enum CommandOverlayCommand
+    private sealed record LayoutItem(
+        string CommandId,
+        string Label,
+        int Row,
+        int Column,
+        int ColumnSpan,
+        bool IsHeader,
+        bool IsEnabled)
     {
-        None,
-        AssistMe,
-        Stop,
+        public static LayoutItem Header(
+            string label,
+            int row,
+            int column,
+            int columnSpan)
+        {
+            return new LayoutItem(
+                string.Concat("__header:", label),
+                label,
+                row,
+                column,
+                columnSpan,
+                IsHeader: true,
+                IsEnabled: false);
+        }
+
+        public static LayoutItem Command(
+            string commandId,
+            string label,
+            bool isEnabled,
+            int row,
+            int column,
+            int columnSpan = 1)
+        {
+            return new LayoutItem(
+                commandId,
+                label,
+                row,
+                column,
+                columnSpan,
+                IsHeader: false,
+                IsEnabled: isEnabled);
+        }
+
+        public static LayoutItem Placeholder(
+            string label,
+            int row,
+            int column,
+            int columnSpan = 1)
+        {
+            return new LayoutItem(
+                string.Concat("__placeholder:", row.ToString(CultureInfo.InvariantCulture), ":", column.ToString(CultureInfo.InvariantCulture)),
+                label,
+                row,
+                column,
+                columnSpan,
+                IsHeader: false,
+                IsEnabled: false);
+        }
     }
 
-    private sealed class CommandTileLabel(CommandOverlayCommand command) : Label
+    private sealed class CommandTileLabel(string commandId, bool isCommandEnabled) : Label
     {
         [System.ComponentModel.Browsable(false)]
         [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
-        public CommandOverlayCommand Command { get; } = command;
+        public string CommandId { get; } = commandId;
+
+        [System.ComponentModel.Browsable(false)]
+        [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+        public bool IsCommandEnabled { get; set; } = isCommandEnabled;
     }
 }

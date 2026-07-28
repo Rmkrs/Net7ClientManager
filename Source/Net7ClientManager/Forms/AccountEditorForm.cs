@@ -1,15 +1,16 @@
 // ReSharper disable LocalizableElement
 namespace Net7ClientManager.Forms;
 
+using Net7ClientManager.Core;
 using Net7ClientManager.Models;
 using Net7ClientManager.Services;
 
-public sealed class AccountEditorForm : Form
+public sealed class AccountEditorForm : ThemedForm
 {
     private readonly TextBox displayNameTextBox = new();
     private readonly TextBox loginNameTextBox = new();
     private readonly TextBox passwordTextBox = new();
-    private readonly CheckBox clearPasswordCheckBox = new();
+    private readonly ThemedCheckBox clearPasswordCheckBox = new();
 
     private readonly GameAccount account;
 
@@ -18,14 +19,20 @@ public sealed class AccountEditorForm : Form
         this.account = account;
 
         this.Text = string.IsNullOrWhiteSpace(account.DisplayName)
-            ? "Add Account"
-            : "Edit Account";
+            ? "Add account"
+            : "Edit account";
 
+        this.Icon = ResourceLoader.Net7ClientManagerIcon;
         this.StartPosition = FormStartPosition.CenterParent;
-        this.FormBorderStyle = FormBorderStyle.FixedDialog;
-        this.MaximizeBox = false;
-        this.MinimizeBox = false;
-        this.ClientSize = new Size(460, 245);
+        this.ShowInTaskbar = false;
+        this.ClientSize = new Size(width: 520, height: 330);
+        this.BackColor = MainWindowTheme.Background;
+        this.ForeColor = MainWindowTheme.Text;
+        this.Font = MainWindowTheme.CreateBodyFont();
+        this.ConfigureWindowChrome(
+            allowResize: false,
+            showMinimizeButton: false,
+            showMaximizeButton: false);
 
         this.BuildUi();
 
@@ -35,75 +42,89 @@ public sealed class AccountEditorForm : Form
 
     private void BuildUi()
     {
-        var root = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 2,
-            RowCount = 5,
-            Padding = new Padding(14),
-        };
+        MainWindowTheme.StyleTextBox(this.displayNameTextBox);
+        MainWindowTheme.StyleTextBox(this.loginNameTextBox);
+        MainWindowTheme.StyleTextBox(this.passwordTextBox);
 
-        root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));
-        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-
-        this.Controls.Add(root);
-
-        this.displayNameTextBox.Dock = DockStyle.Fill;
-        this.loginNameTextBox.Dock = DockStyle.Fill;
-        this.passwordTextBox.Dock = DockStyle.Fill;
+        this.displayNameTextBox.Anchor = AnchorStyles.Left | AnchorStyles.Right;
+        this.loginNameTextBox.Anchor = AnchorStyles.Left | AnchorStyles.Right;
+        this.passwordTextBox.Anchor = AnchorStyles.Left | AnchorStyles.Right;
         this.passwordTextBox.UseSystemPasswordChar = true;
-        this.passwordTextBox.PlaceholderText = string.IsNullOrEmpty(this.account.ProtectedPassword)
-            ? "Enter password"
-            : "Leave empty to keep current password";
+        this.passwordTextBox.PlaceholderText =
+            string.IsNullOrEmpty(this.account.ProtectedPassword)
+                ? "Enter password"
+                : "Leave empty to keep current password";
 
         this.clearPasswordCheckBox.Text = "Clear stored password";
-        this.clearPasswordCheckBox.Dock = DockStyle.Fill;
-
-        root.Controls.Add(this.CreateLabel("Display name"), 0, 0);
-        root.Controls.Add(this.displayNameTextBox, 1, 0);
-
-        root.Controls.Add(this.CreateLabel("Login name"), 0, 1);
-        root.Controls.Add(this.loginNameTextBox, 1, 1);
-
-        root.Controls.Add(this.CreateLabel("Password"), 0, 2);
-        root.Controls.Add(this.passwordTextBox, 1, 2);
-
-        root.Controls.Add(new Label(), 0, 3);
-        root.Controls.Add(this.clearPasswordCheckBox, 1, 3);
-
-        var buttonPanel = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            FlowDirection = FlowDirection.RightToLeft,
-        };
+        this.clearPasswordCheckBox.AutoSize = true;
+        this.clearPasswordCheckBox.Anchor = AnchorStyles.Left;
+        this.clearPasswordCheckBox.ForeColor = MainWindowTheme.Text;
 
         var saveButton = new Button
         {
             Text = "Save",
             DialogResult = DialogResult.OK,
-            Width = 90,
+            Width = 92,
+            Height = 34,
+            Margin = new Padding(left: 6, top: 0, right: 0, bottom: 0),
         };
+        MainWindowTheme.StyleButton(saveButton, primary: true);
+        saveButton.Click += this.SaveButton_OnClick;
 
         var cancelButton = new Button
         {
             Text = "Cancel",
             DialogResult = DialogResult.Cancel,
-            Width = 90,
+            Width = 92,
+            Height = 34,
+            Margin = Padding.Empty,
+        };
+        MainWindowTheme.StyleButton(cancelButton);
+
+        var root = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 5,
+            Padding = new Padding(all: 22),
+            BackColor = MainWindowTheme.Background,
         };
 
-        saveButton.Click += this.SaveButton_OnClick;
+        root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, width: 126));
+        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, width: 100));
+
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, height: 42));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, height: 42));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, height: 42));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, height: 42));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, height: 100));
+
+        root.Controls.Add(this.CreateLabel("Display name"), column: 0, row: 0);
+        root.Controls.Add(this.displayNameTextBox, column: 1, row: 0);
+
+        root.Controls.Add(this.CreateLabel("Login name"), column: 0, row: 1);
+        root.Controls.Add(this.loginNameTextBox, column: 1, row: 1);
+
+        root.Controls.Add(this.CreateLabel("Password"), column: 0, row: 2);
+        root.Controls.Add(this.passwordTextBox, column: 1, row: 2);
+
+        root.Controls.Add(this.clearPasswordCheckBox, column: 1, row: 3);
+
+        var buttonPanel = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.RightToLeft,
+            WrapContents = false,
+            Padding = new Padding(left: 0, top: 12, right: 0, bottom: 0),
+            BackColor = MainWindowTheme.Background,
+        };
 
         buttonPanel.Controls.Add(saveButton);
         buttonPanel.Controls.Add(cancelButton);
 
-        root.Controls.Add(buttonPanel, 0, 4);
-        root.SetColumnSpan(buttonPanel, 2);
+        root.Controls.Add(buttonPanel, column: 0, row: 4);
+        root.SetColumnSpan(buttonPanel, value: 2);
+        this.Controls.Add(root);
 
         this.AcceptButton = saveButton;
         this.CancelButton = cancelButton;
@@ -116,6 +137,7 @@ public sealed class AccountEditorForm : Form
             Text = text,
             Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.MiddleLeft,
+            ForeColor = MainWindowTheme.MutedText,
         };
     }
 
@@ -126,12 +148,10 @@ public sealed class AccountEditorForm : Form
 
         if (string.IsNullOrWhiteSpace(displayName))
         {
-            MessageBox.Show(
+            ThemedMessageDialog.ShowWarning(
                 this,
-                "Display name is required.",
                 "Account",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Warning);
+                "Display name is required.");
 
             this.DialogResult = DialogResult.None;
             return;
@@ -139,12 +159,10 @@ public sealed class AccountEditorForm : Form
 
         if (string.IsNullOrWhiteSpace(loginName))
         {
-            MessageBox.Show(
+            ThemedMessageDialog.ShowWarning(
                 this,
-                "Login name is required.",
                 "Account",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Warning);
+                "Login name is required.");
 
             this.DialogResult = DialogResult.None;
             return;
@@ -159,7 +177,8 @@ public sealed class AccountEditorForm : Form
         }
         else if (!string.IsNullOrEmpty(this.passwordTextBox.Text))
         {
-            this.account.ProtectedPassword = PasswordProtector.Protect(this.passwordTextBox.Text);
+            this.account.ProtectedPassword =
+                PasswordProtector.Protect(this.passwordTextBox.Text);
         }
     }
 }

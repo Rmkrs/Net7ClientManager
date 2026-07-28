@@ -6,5 +6,7 @@ public sealed class LayoutProfile
 
     public string Name { get; set; } = "Default";
 
+    public bool KeepClientsAlive { get; set; }
+
     public List<ClientSlot> Slots { get; set; } = [];
 }

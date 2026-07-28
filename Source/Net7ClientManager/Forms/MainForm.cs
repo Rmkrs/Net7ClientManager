@@ -1,16 +1,15 @@
 // ReSharper disable LocalizableElement
 namespace Net7ClientManager.Forms;
 
-using System.Globalization;
 using Net7ClientManager.Core;
 using Net7ClientManager.Models;
-using Net7ClientManager.Win32;
 
-public sealed partial class MainForm : Form
+public sealed partial class MainForm : ThemedForm
 {
     private readonly ClientManager clientManager;
-    private readonly LayoutDesignerControl layoutDesignerControl;
     private readonly System.Windows.Forms.Timer refreshTimer;
+    private readonly Dictionary<int, long> runningClientFirstSeenOrders = [];
+    private long nextRunningClientFirstSeenOrder;
 
     private ComboBox profileComboBox = null!;
     private Button addProfileButton = null!;
@@ -19,65 +18,63 @@ public sealed partial class MainForm : Form
     private Button deleteProfileButton = null!;
 
     private Button addSlotButton = null!;
-    private Button removeSlotButton = null!;
-
-    private TextBox slotNameTextBox = null!;
-    private ComboBox resolutionComboBox = null!;
-    private CheckBox autoLoginCheckBox = null!;
-    private Label inputRiskWarningLabel = null!;
-
-    private NumericUpDown leftNumeric = null!;
-    private NumericUpDown topNumeric = null!;
+    private Button editLayoutButton = null!;
+    private FlowLayoutPanel slotsFlowPanel = null!;
+    private Label slotsSummaryLabel = null!;
 
     private FlowLayoutPanel runningClientsFlowPanel = null!;
+    private Label runningClientsSummaryLabel = null!;
 
+    private ComboBox quickLaunchHostResolutionComboBox = null!;
+    private ThemedCheckBox quickLaunchMatchGameResolutionCheckBox = null!;
+    private ComboBox quickLaunchGameResolutionComboBox = null!;
     private Button startClientButton = null!;
-
-    private bool isUpdatingEditor;
-    private bool isRefreshingProfileComboBox;
-
     private Button accountsButton = null!;
-    private Button inputLabButton = null!;
-    private InputLabForm? inputLabForm;
-
-    private ComboBox accountComboBox = null!;
-    private ComboBox characterComboBox = null!;
-    private CheckBox autoEnterGameCheckBox = null!;
-
+    private Button pilotArchiveButton = null!;
+    private Button gameSettingsButton = null!;
     private Button createMissingClientsButton = null!;
     private CheckBox keepClientsAliveCheckBox = null!;
 
-    private const int CommandMenuHotKeyId = 0x4E38;
-    private bool commandMenuHotKeyRegistered;
-    private CommandOverlayForm? commandOverlayForm;
+    private bool isRefreshingProfileComboBox;
+    private bool isRefreshingProfileControls;
+    private bool isRefreshingQuickLaunchControls;
+    private QuickLaunchResolutionItem? independentQuickLaunchGameResolution;
+    private string? profileComboBoxSignature;
 
-    private readonly System.Windows.Forms.Timer commandMenuHotKeyReleaseTimer = new();
-    private bool commandMenuHotKeySuppressedUntilReleased;
+    private bool inGameOptionsOpen;
+    private int? inGameOptionsProcessId;
+    private InGameOptionsForm? inGameOptionsForm;
+    private CommandOverlayForm? commandOverlayForm;
+    private Net7ClientManager.Services.CommandPaletteKeyboardHook?
+        commandPaletteKeyboardHook;
+
+    private NavigationPlannerForm? navigationPlannerForm;
+    private GalaxyAtlasForm? galaxyAtlasForm;
+    private WorldFindForm? worldFindForm;
 
     public MainForm(ClientManager clientManager)
     {
         this.clientManager = clientManager;
 
         this.Text = "Net7 Client Manager";
-        this.Icon = ResourceLoader.EarthAndBeyondIcon;
+        this.Icon = ResourceLoader.Net7ClientManagerIcon;
         this.StartPosition = FormStartPosition.CenterScreen;
-        this.Size = new Size(width: 1280, height: 860);
-        this.MinimumSize = new Size(width: 1100, height: 760);
-
-        this.layoutDesignerControl = new LayoutDesignerControl
-        {
-            Dock = DockStyle.Fill,
-        };
-
-        this.layoutDesignerControl.SelectedSlotChanged += this.LayoutDesignerControl_OnSelectedSlotChanged;
-        this.layoutDesignerControl.SlotBoundsChanged += this.LayoutDesignerControl_OnSlotBoundsChanged;
+        this.Size = new Size(width: 1480, height: 820);
+        this.MinimumSize = new Size(width: 1120, height: 700);
+        this.BackColor = MainWindowTheme.Background;
+        this.ForeColor = MainWindowTheme.Text;
+        this.Font = MainWindowTheme.CreateBodyFont();
+        this.DoubleBuffered = true;
+        this.ConfigureWindowChrome(
+            allowResize: true,
+            showMinimizeButton: true,
+            showMaximizeButton: true);
+        this.RestoreWindowPlacement();
 
         var topPanel = this.CreateTopPanel();
-        var canvasPanel = this.CreateCanvasPanel();
-        var editorPanel = this.CreateEditorPanel();
+        var dashboardPanel = this.CreateDashboardPanel();
 
-        this.Controls.Add(canvasPanel);
-        this.Controls.Add(editorPanel);
+        this.Controls.Add(dashboardPanel);
         this.Controls.Add(topPanel);
 
         this.refreshTimer = new System.Windows.Forms.Timer
@@ -88,30 +85,32 @@ public sealed partial class MainForm : Form
         this.refreshTimer.Tick += this.RefreshTimer_OnTick;
         this.refreshTimer.Start();
 
-        this.commandMenuHotKeyReleaseTimer.Interval = 25;
-        this.commandMenuHotKeyReleaseTimer.Tick += this.CommandMenuHotKeyReleaseTimer_OnTick;
+        this.RefreshAll(refreshRuntimeFeatures: false);
 
-        this.SelectDefaultSlot();
-        this.RefreshAll();
-
-        this.RegisterCommandMenuHotKey();
-    }
-
-    protected override void WndProc(ref Message m)
-    {
-        if (m.Msg == NativeMethods.WmHotKey
-            && m.WParam.ToInt32() == CommandMenuHotKeyId)
+        if (this.clientManager.KeepClientsAlive)
         {
-            if (this.commandMenuHotKeySuppressedUntilReleased)
-            {
-                return;
-            }
-
-            this.ShowCommandOverlay();
-            return;
+            this.clientManager.CreateMissingClients(this);
         }
 
-        base.WndProc(ref m);
+        this.clientManager.NavigationPlannerRequested +=
+            this.ClientManager_OnNavigationPlannerRequested;
+
+        this.clientManager.GalaxyAtlasRequested +=
+            this.ClientManager_OnGalaxyAtlasRequested;
+
+        this.clientManager.WorldFindRequested +=
+            this.ClientManager_OnWorldFindRequested;
+
+        this.clientManager.InGameOptionsRequested +=
+            this.ClientManager_OnInGameOptionsRequested;
+
+        this.ApplyCommandPaletteRuntimeSettings();
+    }
+
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        this.SaveWindowPlacement();
+        base.OnFormClosing(e);
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)
@@ -120,13 +119,6 @@ public sealed partial class MainForm : Form
         this.refreshTimer.Tick -= this.RefreshTimer_OnTick;
         this.refreshTimer.Dispose();
 
-        this.commandMenuHotKeyReleaseTimer.Stop();
-        this.commandMenuHotKeyReleaseTimer.Tick -= this.CommandMenuHotKeyReleaseTimer_OnTick;
-        this.commandMenuHotKeyReleaseTimer.Dispose();
-
-        this.layoutDesignerControl.SelectedSlotChanged -= this.LayoutDesignerControl_OnSelectedSlotChanged;
-        this.layoutDesignerControl.SlotBoundsChanged -= this.LayoutDesignerControl_OnSlotBoundsChanged;
-
         this.profileComboBox.SelectedIndexChanged -= this.ProfileComboBox_OnSelectedIndexChanged;
         this.addProfileButton.Click -= this.AddProfileButton_OnClick;
         this.renameProfileButton.Click -= this.RenameProfileButton_OnClick;
@@ -134,192 +126,203 @@ public sealed partial class MainForm : Form
         this.deleteProfileButton.Click -= this.DeleteProfileButton_OnClick;
 
         this.addSlotButton.Click -= this.AddSlotButton_OnClick;
-        this.removeSlotButton.Click -= this.RemoveSlotButton_OnClick;
+        this.editLayoutButton.Click -= this.EditLayoutButton_OnClick;
+        this.slotsFlowPanel.SizeChanged -= this.DashboardFlowPanel_OnSizeChanged;
+        this.runningClientsFlowPanel.SizeChanged -= this.DashboardFlowPanel_OnSizeChanged;
 
-        this.resolutionComboBox.SelectedIndexChanged -= this.ResolutionComboBox_OnSelectedIndexChanged;
-        this.topNumeric.ValueChanged -= this.TopNumeric_OnValueChanged;
-        this.leftNumeric.ValueChanged -= this.LeftNumeric_OnValueChanged;
-
+        this.quickLaunchHostResolutionComboBox.SelectedIndexChanged -=
+            this.QuickLaunchHostResolutionComboBox_OnSelectedIndexChanged;
+        this.quickLaunchMatchGameResolutionCheckBox.CheckedChanged -=
+            this.QuickLaunchMatchGameResolutionCheckBox_OnCheckedChanged;
+        this.quickLaunchGameResolutionComboBox.SelectedIndexChanged -=
+            this.QuickLaunchGameResolutionComboBox_OnSelectedIndexChanged;
         this.startClientButton.Click -= this.StartClientButton_OnClick;
-
         this.accountsButton.Click -= this.AccountsButton_OnClick;
-        this.accountComboBox.SelectedIndexChanged -= this.AccountComboBox_SelectedIndexChanged;
-        this.characterComboBox.SelectedIndexChanged -= this.CharacterComboBox_SelectedIndexChanged;
+        this.pilotArchiveButton.Click -= this.PilotArchiveButton_OnClick;
+        this.gameSettingsButton.Click -= this.GameSettingsButton_OnClick;
 
-        this.inputLabButton.Click -= this.InputLabButton_OnClick;
+        this.clientManager.NavigationPlannerRequested -=
+            this.ClientManager_OnNavigationPlannerRequested;
+
+        this.clientManager.GalaxyAtlasRequested -=
+            this.ClientManager_OnGalaxyAtlasRequested;
+
+        this.clientManager.WorldFindRequested -=
+            this.ClientManager_OnWorldFindRequested;
+
+        this.clientManager.InGameOptionsRequested -=
+            this.ClientManager_OnInGameOptionsRequested;
 
         this.createMissingClientsButton.Click -= this.CreateMissingClientsButton_OnClick;
         this.keepClientsAliveCheckBox.CheckedChanged -= this.KeepClientsAliveCheckBox_OnCheckedChanged;
 
-        this.commandOverlayForm?.FormClosed -= this.CommandOverlayForm_OnFormClosed;
-        this.commandOverlayForm = null;
+        this.CloseCommandOverlay();
+        this.commandPaletteKeyboardHook?.Dispose();
+        this.commandPaletteKeyboardHook = null;
 
-        this.UnregisterCommandMenuHotKey();
+        if (this.inGameOptionsForm is { IsDisposed: false })
+        {
+            this.inGameOptionsForm.Close();
+        }
+
+        this.inGameOptionsForm = null;
 
         base.OnFormClosed(e);
     }
 
-    private void CommandMenuHotKeyReleaseTimer_OnTick(object? sender, EventArgs e)
+    private void RestoreWindowPlacement()
     {
-        if (this.IsAnyCommandMenuHotKeyPartDown())
+        var settings = this.clientManager.MainWindowSettings;
+
+        if (settings.Bounds is not { } savedBounds)
         {
             return;
         }
 
-        this.commandMenuHotKeyReleaseTimer.Stop();
-        this.commandMenuHotKeySuppressedUntilReleased = false;
+        var candidate = new Rectangle(
+            savedBounds.Left,
+            savedBounds.Top,
+            Math.Max(this.MinimumSize.Width, savedBounds.Width),
+            Math.Max(this.MinimumSize.Height, savedBounds.Height));
+
+        var savedMonitor = Screen.AllScreens.FirstOrDefault(screen =>
+            string.Equals(
+                screen.DeviceName,
+                settings.MonitorDeviceName,
+                StringComparison.OrdinalIgnoreCase));
+
+        if (savedMonitor != null)
+        {
+            candidate.Location = new Point(
+                savedMonitor.WorkingArea.Left +
+                settings.MonitorOffsetLeft,
+                savedMonitor.WorkingArea.Top +
+                settings.MonitorOffsetTop);
+
+            candidate = this.ClampWindowBoundsToWorkingArea(
+                candidate,
+                savedMonitor.WorkingArea);
+        }
+        else if (!HasAccessibleTitleBar(candidate))
+        {
+            var fallbackScreen = Screen.FromRectangle(candidate);
+            candidate = this.ClampWindowBoundsToWorkingArea(
+                candidate,
+                fallbackScreen.WorkingArea);
+        }
+
+        this.StartPosition = FormStartPosition.Manual;
+        this.Bounds = candidate;
+
+        if (settings.Maximized)
+        {
+            this.WindowState = FormWindowState.Maximized;
+        }
     }
 
-    private bool IsAnyCommandMenuHotKeyPartDown()
+    private void SaveWindowPlacement()
     {
-        var commandMenuHotKey = this.clientManager.FleetCommandSettings.CommandMenuHotKey;
-        var keyCode = commandMenuHotKey & Keys.KeyCode;
+        var bounds = this.WindowState == FormWindowState.Normal
+            ? this.Bounds
+            : this.RestoreBounds;
 
-        if (keyCode != Keys.None && NativeMethods.IsKeyDown(keyCode))
-        {
-            return true;
-        }
-
-        var requiredModifiers = commandMenuHotKey & Keys.Modifiers;
-
-        if ((requiredModifiers & Keys.Control) == Keys.Control &&
-            (
-                NativeMethods.IsKeyDown(Keys.ControlKey) ||
-                NativeMethods.IsKeyDown(Keys.LControlKey) ||
-                NativeMethods.IsKeyDown(Keys.RControlKey)
-            ))
-        {
-            return true;
-        }
-
-        if ((requiredModifiers & Keys.Shift) == Keys.Shift &&
-            (
-                NativeMethods.IsKeyDown(Keys.ShiftKey) ||
-                NativeMethods.IsKeyDown(Keys.LShiftKey) ||
-                NativeMethods.IsKeyDown(Keys.RShiftKey)
-            ))
-        {
-            return true;
-        }
-
-        if ((requiredModifiers & Keys.Alt) == Keys.Alt &&
-            (
-                NativeMethods.IsKeyDown(Keys.Menu) ||
-                NativeMethods.IsKeyDown(Keys.LMenu) ||
-                NativeMethods.IsKeyDown(Keys.RMenu)
-            ))
-        {
-            return true;
-        }
-
-        return false;
-    }
-
-    private void CommandOverlayForm_OnFormClosed(object? sender, FormClosedEventArgs e)
-    {
-        this.commandOverlayForm?.FormClosed -= this.CommandOverlayForm_OnFormClosed;
-        this.commandOverlayForm = null;
-
-        this.commandMenuHotKeySuppressedUntilReleased = true;
-        this.commandMenuHotKeyReleaseTimer.Start();
-    }
-
-    private void ShowCommandOverlay()
-    {
-        var activeClient = this.clientManager.FindForegroundHostedClient();
-
-        if (activeClient == null)
+        if (bounds.Width <= 0 || bounds.Height <= 0)
         {
             return;
         }
 
-        Point? activeClientMousePosition = null;
+        var monitor = this.WindowState == FormWindowState.Normal
+            ? Screen.FromRectangle(bounds)
+            : Screen.FromHandle(this.Handle);
+        var settings = this.clientManager.MainWindowSettings;
 
-        if (NativeMethods.TryGetCursorPositionRelativeToClient(
-                activeClient.GameWindowHandle,
-                out var mousePosition))
+        settings.Bounds = new WindowBounds
         {
-            activeClientMousePosition = mousePosition;
-        }
-
-        var invocationContext = new FleetCommandInvocationContext
-        {
-            ActiveClient = activeClient,
-            ActiveClientMousePosition = activeClientMousePosition,
+            Left = bounds.Left,
+            Top = bounds.Top,
+            Width = bounds.Width,
+            Height = bounds.Height,
         };
+        settings.MonitorDeviceName = monitor.DeviceName;
+        settings.MonitorOffsetLeft =
+            bounds.Left - monitor.WorkingArea.Left;
+        settings.MonitorOffsetTop =
+            bounds.Top - monitor.WorkingArea.Top;
+        settings.Maximized =
+            this.WindowState == FormWindowState.Maximized;
 
-        if (this.commandOverlayForm is { IsDisposed: false })
+        this.clientManager.SaveMainWindowSettings();
+    }
+
+    private Rectangle ClampWindowBoundsToWorkingArea(
+        Rectangle candidate,
+        Rectangle workingArea)
+    {
+        var width = Math.Max(
+            this.MinimumSize.Width,
+            candidate.Width);
+        var height = Math.Max(
+            this.MinimumSize.Height,
+            candidate.Height);
+
+        if (workingArea.Width >= this.MinimumSize.Width)
         {
-            this.commandOverlayForm.Close();
-            return;
+            width = Math.Min(width, workingArea.Width);
         }
 
-        this.commandOverlayForm = new CommandOverlayForm(
-            this.clientManager,
-            invocationContext,
-            this.clientManager.FleetCommandSettings.CommandMenuHotKey);
+        if (workingArea.Height >= this.MinimumSize.Height)
+        {
+            height = Math.Min(height, workingArea.Height);
+        }
 
-        this.commandOverlayForm.FormClosed += this.CommandOverlayForm_OnFormClosed;
-
-        var cursorPosition = Cursor.Position;
-        var workingArea = Screen.FromPoint(cursorPosition).WorkingArea;
-
-        var x = cursorPosition.X - this.commandOverlayForm.Width / 2;
-        var y = cursorPosition.Y - this.commandOverlayForm.Height / 2;
-
-        x = Math.Clamp(
-            x,
+        var maximumLeft = Math.Max(
             workingArea.Left,
-            workingArea.Right - this.commandOverlayForm.Width);
-
-        y = Math.Clamp(
-            y,
+            workingArea.Right - width);
+        var maximumTop = Math.Max(
             workingArea.Top,
-            workingArea.Bottom - this.commandOverlayForm.Height);
+            workingArea.Bottom - height);
 
-        this.commandOverlayForm.Location = new Point(x, y);
-        this.commandOverlayForm.Show();
-        this.commandOverlayForm.Activate();
+        return new Rectangle(
+            Math.Clamp(
+                candidate.Left,
+                workingArea.Left,
+                maximumLeft),
+            Math.Clamp(
+                candidate.Top,
+                workingArea.Top,
+                maximumTop),
+            width,
+            height);
     }
 
-    private void RegisterCommandMenuHotKey()
+    private static bool HasAccessibleTitleBar(Rectangle candidate)
     {
-        if (this.commandMenuHotKeyRegistered)
+        const int minimumVisibleWidth = 160;
+        const int titleBarHeight = 40;
+
+        var titleBarBounds = new Rectangle(
+            candidate.Left,
+            candidate.Top,
+            candidate.Width,
+            Math.Min(titleBarHeight, candidate.Height));
+
+        return Screen.AllScreens.Any(screen =>
         {
-            return;
-        }
+            var visibleBounds = Rectangle.Intersect(
+                screen.WorkingArea,
+                titleBarBounds);
 
-        this.commandMenuHotKeyRegistered = NativeMethods.RegisterGlobalHotKey(
-            this.Handle,
-            CommandMenuHotKeyId,
-            this.clientManager.FleetCommandSettings.CommandMenuHotKey);
-    }
-
-    private void UnregisterCommandMenuHotKey()
-    {
-        if (!this.commandMenuHotKeyRegistered)
-        {
-            return;
-        }
-
-        _ = NativeMethods.UnregisterGlobalHotKey(
-            this.Handle,
-            CommandMenuHotKeyId);
-
-        this.commandMenuHotKeyRegistered = false;
-    }
-
-    private void SelectDefaultSlot()
-    {
-        var firstSlot = this.clientManager.CurrentProfile.Slots.FirstOrDefault();
-
-        this.layoutDesignerControl.SelectSlot(firstSlot);
-        this.LoadSelectedSlotIntoEditor(firstSlot);
+            return visibleBounds.Width >=
+                   Math.Min(minimumVisibleWidth, candidate.Width) &&
+                   visibleBounds.Height >= titleBarBounds.Height;
+        });
     }
 
     private void StartClientButton_OnClick(object? sender, EventArgs e)
     {
-        this.clientManager.StartClientFromLauncher(this);
+        _ = this.clientManager.StartUnassignedClient(
+            this,
+            out _);
         this.RefreshAll();
     }
 
@@ -331,30 +334,47 @@ public sealed partial class MainForm : Form
 
     private void KeepClientsAliveCheckBox_OnCheckedChanged(object? sender, EventArgs e)
     {
-        this.clientManager.KeepClientsAlive = this.keepClientsAliveCheckBox.Checked;
-
-        if (this.keepClientsAliveCheckBox.Checked)
+        if (this.isRefreshingProfileControls)
         {
-            this.clientManager.CreateMissingClients(this);
+            return;
         }
 
+        this.clientManager.SetCurrentProfileKeepAlive(
+            this.keepClientsAliveCheckBox.Checked,
+            this);
         this.RefreshAll();
+    }
+
+    private void PilotArchiveButton_OnClick(object? sender, EventArgs e)
+    {
+        this.clientManager.OpenPilotArchive(this);
+    }
+
+    private void GameSettingsButton_OnClick(object? sender, EventArgs e)
+    {
+        using var form = new GameSettingsForm(
+            this.clientManager,
+            this);
+        form.ShowDialog(this);
     }
 
     private void AccountsButton_OnClick(object? sender, EventArgs e)
     {
         using var form = new AccountsForm(
-            this.clientManager.Accounts,
+            this.clientManager.ConfiguredAccounts,
             accounts =>
             {
-                this.clientManager.SaveAccounts(accounts);
-                this.ReloadAccountAndCharacterCombos();
+                this.clientManager.SaveConfiguredAccounts(accounts);
                 this.RefreshAll();
             });
+        using var windowPlacement =
+            this.clientManager.BindGlobalWindowPlacement(
+                form,
+                Net7ClientManager.Services.WindowPlacementIds.Accounts,
+                this);
 
         form.ShowDialog(this);
-
-        this.ReloadAccountAndCharacterCombos();
+        this.RefreshAll();
     }
 
     private void RefreshTimer_OnTick(object? sender, EventArgs e)
@@ -362,87 +382,162 @@ public sealed partial class MainForm : Form
         this.RefreshAll();
     }
 
-    private void RefreshAll()
+    private void RefreshAll(bool refreshRuntimeFeatures = true)
     {
-        this.layoutDesignerControl.Profile = this.clientManager.CurrentProfile;
-        this.layoutDesignerControl.Clients = this.clientManager.Clients;
-
         this.RefreshProfileComboBox();
+        this.RefreshSlots();
         this.RefreshRunningClients();
-    }
 
-    private void LayoutDesignerControl_OnSelectedSlotChanged(object? sender, SelectedSlotChangedEventArgs e)
-    {
-        this.LoadSelectedSlotIntoEditor(e.SelectedSlot);
-    }
-
-    private void LayoutDesignerControl_OnSlotBoundsChanged(object? sender, SlotBoundsChangedEventArgs e)
-    {
-        var slot = e.Slot;
-
-        this.clientManager.SaveSettings();
-        this.LoadSelectedSlotIntoEditor(slot);
-
-        var assignedClient = this.clientManager.Clients.FirstOrDefault(client => client.AssignedSlotId == slot.Id);
-        assignedClient?.HostForm?.ApplySlot(slot);
-
-        this.RefreshAll();
-    }
-
-    private void InputLabButton_OnClick(object? sender, EventArgs e)
-    {
-        if (this.inputLabForm is { IsDisposed: false })
+        if (refreshRuntimeFeatures)
         {
-            this.inputLabForm.Show();
-            this.inputLabForm.WindowState = FormWindowState.Normal;
-            this.inputLabForm.Activate();
+            this.RefreshCommandPaletteRuntime();
+            this.RefreshInGameOptionsLifecycle();
+        }
+    }
+
+    private void ClientManager_OnGalaxyAtlasRequested(
+        object? sender,
+        Net7ClientManager.Navigation.GalaxyAtlasRequestedEventArgs e)
+    {
+        if (this.IsDisposed || this.Disposing)
+        {
             return;
         }
 
-        this.inputLabForm = new InputLabForm(
+        if (this.InvokeRequired)
+        {
+            this.BeginInvoke(
+                () => this.ShowGalaxyAtlas(e.ProcessId));
+            return;
+        }
+
+        this.ShowGalaxyAtlas(e.ProcessId);
+    }
+
+    private void ShowGalaxyAtlas(int? processId)
+    {
+        if (this.galaxyAtlasForm is { IsDisposed: false })
+        {
+            this.galaxyAtlasForm.SelectProcess(processId);
+            this.galaxyAtlasForm.Show();
+            this.galaxyAtlasForm.WindowState =
+                FormWindowState.Normal;
+            this.galaxyAtlasForm.Activate();
+            return;
+        }
+
+        this.galaxyAtlasForm = new GalaxyAtlasForm(
             this.clientManager,
-            this.BuildInputLabClientDisplayName);
+            processId);
 
-        this.inputLabForm.FormClosed += (_, _) => this.inputLabForm = null;
-        this.inputLabForm.Show(this);
+        this.galaxyAtlasForm.FormClosed +=
+            (_, _) => this.galaxyAtlasForm = null;
+
+        this.galaxyAtlasForm.Show();
+        this.galaxyAtlasForm.Activate();
     }
 
-    private string BuildInputLabClientDisplayName(ClientInstance client)
+    private void ClientManager_OnWorldFindRequested(
+        object? sender,
+        Net7ClientManager.Navigation.WorldFindRequestedEventArgs e)
     {
-        var slot = this.clientManager.CurrentProfile.Slots
-            .FirstOrDefault(slot => slot.Id == client.AssignedSlotId);
+        if (this.IsDisposed || this.Disposing)
+        {
+            return;
+        }
 
-        var slotName = slot?.Name ?? "Unassigned";
-        var accountName = this.GetAccountDisplayName(slot);
+        if (this.InvokeRequired)
+        {
+            this.BeginInvoke(
+                () => this.ShowWorldFind(
+                    e.ProcessId,
+                    e.Query));
+            return;
+        }
 
-        var account = string.IsNullOrWhiteSpace(accountName)
-            ? null
-            : string.Concat(" - ", accountName);
-
-        return string.Create(CultureInfo.InvariantCulture, $"{slotName}{account} - PID {client.ProcessId} - {client.State}");
+        this.ShowWorldFind(
+            e.ProcessId,
+            e.Query);
     }
 
-    private string? GetAccountDisplayName(ClientSlot? slot)
+    private void ShowWorldFind(
+        int? processId,
+        string? query = null)
     {
-        if (slot?.AccountId == null)
+        if (this.worldFindForm is { IsDisposed: false })
         {
-            return null;
+            this.worldFindForm.SelectProcess(processId);
+            if (!string.IsNullOrWhiteSpace(query))
+            {
+                this.worldFindForm.Search(query);
+            }
+            this.worldFindForm.Show();
+
+            if (this.worldFindForm.WindowState ==
+                FormWindowState.Minimized)
+            {
+                this.worldFindForm.WindowState =
+                    FormWindowState.Normal;
+            }
+
+            this.worldFindForm.Activate();
+            return;
         }
 
-        var account = this.clientManager.FindAccount(slot.AccountId);
-
-        if (account == null)
+        this.worldFindForm = new WorldFindForm(
+            this.clientManager,
+            processId);
+        if (!string.IsNullOrWhiteSpace(query))
         {
-            return "Unknown account";
+            this.worldFindForm.Search(query);
         }
 
-        if (!string.IsNullOrWhiteSpace(account.DisplayName))
+        this.worldFindForm.FormClosed +=
+            (_, _) => this.worldFindForm = null;
+
+        this.worldFindForm.Show();
+        this.worldFindForm.Activate();
+    }
+
+    private void ClientManager_OnNavigationPlannerRequested(
+        object? sender,
+        Net7ClientManager.Navigation.NavigationPlannerRequestedEventArgs e)
+    {
+        if (this.IsDisposed || this.Disposing)
         {
-            return account.DisplayName;
+            return;
         }
 
-        return string.IsNullOrWhiteSpace(account.LoginName)
-            ? "Unnamed account"
-            : account.LoginName;
+        if (this.InvokeRequired)
+        {
+            this.BeginInvoke(
+                () => this.ShowNavigationPlanner(e.ProcessId));
+            return;
+        }
+
+        this.ShowNavigationPlanner(e.ProcessId);
+    }
+
+    private void ShowNavigationPlanner(int? processId)
+    {
+        if (this.navigationPlannerForm is { IsDisposed: false })
+        {
+            this.navigationPlannerForm.SelectProcess(processId);
+            this.navigationPlannerForm.Show();
+            this.navigationPlannerForm.WindowState =
+                FormWindowState.Normal;
+            this.navigationPlannerForm.Activate();
+            return;
+        }
+
+        this.navigationPlannerForm = new NavigationPlannerForm(
+            this.clientManager,
+            processId);
+
+        this.navigationPlannerForm.FormClosed +=
+            (_, _) => this.navigationPlannerForm = null;
+
+        this.navigationPlannerForm.Show();
+        this.navigationPlannerForm.Activate();
     }
 }

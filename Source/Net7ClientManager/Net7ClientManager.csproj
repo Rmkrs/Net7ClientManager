@@ -1,4 +1,35 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Net7ClientManager.Observations\Net7ClientManager.Observations.csproj" />
+    <ProjectReference Include="..\Net7ClientManager.Addons\Net7ClientManager.Addons.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.9" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.3" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4022.49" />
+    <PackageReference Include="Scintilla5.NET" Version="6.1.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="SkillPlanning\SkillPlannerCatalog.json" />
+    <EmbeddedResource Include="SkillPlanning\SkillBuildHullCatalog.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="BundledAddons\*.n7addon" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Update="BundledData\*.n7data" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+
+  <ItemGroup>
+    <None Remove="Resources\EB.ICO" />
+
+    <EmbeddedResource Include="Resources\EB.ICO">
+      <LogicalName>Net7ClientManager.Resources.EB.ICO</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -6,7 +37,7 @@
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
-    <ApplicationIcon>Resources\EB.ico</ApplicationIcon>
+    <ApplicationIcon>Resources\Net7ClientManager.ico</ApplicationIcon>
     <AssemblyName>Net7ClientManager</AssemblyName>
     <RootNamespace>Net7ClientManager</RootNamespace>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -15,5 +46,19 @@
     <SelfContained>true</SelfContained>
     <PublishSingleFile>false</PublishSingleFile>
   </PropertyGroup>
+
+  <!--
+    WebView2 currently contributes its WPF assembly to WinForms projects,
+    which creates a spurious WindowsBase 4.0/5.0 conflict. Remove only the
+    unused WPF reference while retaining the Core and WinForms assemblies.
+  -->
+  <Target Name="RemoveUnusedWebView2WpfReference"
+          AfterTargets="ResolvePackageAssets"
+          BeforeTargets="ResolveAssemblyReferences"
+          Condition="'$(UseWPF)' != 'true'">
+    <ItemGroup>
+      <Reference Remove="@(Reference->WithMetadataValue('FileName', 'Microsoft.Web.WebView2.Wpf'))" />
+    </ItemGroup>
+  </Target>
 
 </Project>

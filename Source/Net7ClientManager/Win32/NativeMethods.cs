@@ -4,23 +4,43 @@ namespace Net7ClientManager.Win32;
 
 using System.ComponentModel;
 using System.Runtime.InteropServices;
+using Net7ClientManager.Models;
 
 public static partial class NativeMethods
 {
     private const int GwlStyle = -16;
+    private const int GwlExStyle = -20;
 
     private const nint WsCaption = 0x00C00000;
     private const nint WsThickFrame = 0x00040000;
+    private const nint WsSysMenu = 0x00080000;
+    private const nint WsExTransparent = 0x00000020;
 
+    private const uint SwpNoSize = 0x0001;
+    private const uint SwpNoMove = 0x0002;
     private const uint SwpNoZOrder = 0x0004;
     private const uint SwpNoActivate = 0x0010;
     private const uint SwpFrameChanged = 0x0020;
 
     private const int BmClick = 0x00F5;
+    private const int PbmGetRange = 0x0407;
+    private const int PbmGetPosition = 0x0408;
 
+    private const uint SmtoAbortIfHung = 0x0002;
+    private const uint SmtoErrorOnExit = 0x0020;
+    private const uint LauncherControlMessageTimeoutMilliseconds = 250;
+
+    private const int WmSetRedraw = 0x000B;
     private const int WmKeyDown = 0x0100;
     private const int WmKeyUp = 0x0101;
     public const int WmHotKey = 0x0312;
+    private const int WmThemeChanged = 0x031A;
+
+    private const uint RdwInvalidate = 0x0001;
+    private const uint RdwErase = 0x0004;
+    private const uint RdwAllChildren = 0x0080;
+    private const uint RdwUpdateNow = 0x0100;
+    private const uint RdwFrame = 0x0400;
 
     private const int VkEscape = 0x1B;
 
@@ -34,14 +54,86 @@ public static partial class NativeMethods
 
     private const uint MouseEventLeftDown = 0x0002;
     private const uint MouseEventLeftUp = 0x0004;
+    private const uint MouseEventRightDown = 0x0008;
+    private const uint MouseEventRightUp = 0x0010;
 
+    private const uint KeyEventExtendedKey = 0x0001;
     private const uint KeyEventKeyUp = 0x0002;
+    private const uint KeyEventScanCode = 0x0008;
+    private const int KeyToggleMask = 0x0001;
+    private const uint InputKeyboard = 1;
+    private const uint MapVirtualKeyToScanCode = 0;
 
     private const int WM_NCLBUTTONDOWN = 0x00A1;
 
     private const int HTCAPTION = 0x0002;
 
     private delegate bool EnumWindowsProc(IntPtr windowHandle, IntPtr parameter);
+
+    public static void SetWindowRedraw(
+        IntPtr windowHandle,
+        bool enabled)
+    {
+        if (windowHandle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        _ = SendMessage(
+            windowHandle,
+            WmSetRedraw,
+            enabled ? new IntPtr(1) : IntPtr.Zero,
+            IntPtr.Zero);
+
+        if (!enabled)
+        {
+            return;
+        }
+
+        _ = RedrawWindow(
+            windowHandle,
+            IntPtr.Zero,
+            IntPtr.Zero,
+            RdwInvalidate |
+            RdwErase |
+            RdwAllChildren |
+            RdwUpdateNow |
+            RdwFrame);
+    }
+
+    public static bool TryApplyDarkControlTheme(IntPtr windowHandle)
+    {
+        if (windowHandle == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        var result = SetWindowTheme(
+            windowHandle,
+            "DarkMode_Explorer",
+            null);
+
+        if (result < 0)
+        {
+            return false;
+        }
+
+        _ = SendMessage(
+            windowHandle,
+            WmThemeChanged,
+            IntPtr.Zero,
+            IntPtr.Zero);
+        _ = RedrawWindow(
+            windowHandle,
+            IntPtr.Zero,
+            IntPtr.Zero,
+            RdwInvalidate |
+            RdwErase |
+            RdwAllChildren |
+            RdwUpdateNow |
+            RdwFrame);
+        return true;
+    }
 
     public static IReadOnlyList<IntPtr> GetVisibleProcessWindows(int processId)
     {
@@ -97,12 +189,33 @@ public static partial class NativeMethods
         }
     }
 
-    public static bool TryRemoveTitleBar(IntPtr windowHandle)
+    public static bool TryPrepareHostedGameWindow(IntPtr windowHandle)
     {
-        var style = GetWindowLongPtr(windowHandle, GwlStyle);
-        style &= ~(WsCaption | WsThickFrame);
+        if (windowHandle == IntPtr.Zero)
+        {
+            return false;
+        }
 
-        _ = SetWindowLongPtr(windowHandle, GwlStyle, style);
+        var style = GetWindowLongPtr(windowHandle, GwlStyle);
+
+        // The hosted client has no visible system menu. Leaving WS_SYSMENU
+        // enabled makes DefWindowProc chime for Alt+character shortcuts.
+        var hostedStyle = style & ~(WsCaption | WsThickFrame | WsSysMenu);
+
+        if (hostedStyle != style)
+        {
+            Marshal.SetLastPInvokeError(0);
+
+            var previousStyle = SetWindowLongPtr(
+                windowHandle,
+                GwlStyle,
+                hostedStyle);
+
+            if (previousStyle == 0 && Marshal.GetLastPInvokeError() != 0)
+            {
+                return false;
+            }
+        }
 
         return SetWindowPos(
             windowHandle,
@@ -111,7 +224,103 @@ public static partial class NativeMethods
             0,
             0,
             0,
-            SwpNoZOrder | SwpNoActivate | SwpFrameChanged);
+            SwpNoMove |
+            SwpNoSize |
+            SwpNoZOrder |
+            SwpNoActivate |
+            SwpFrameChanged);
+    }
+
+    public static bool TrySetWindowClickThrough(
+        IntPtr windowHandle,
+        bool clickThrough)
+    {
+        if (windowHandle == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        var style = GetWindowLongPtr(
+            windowHandle,
+            GwlExStyle);
+
+        var updatedStyle = clickThrough
+            ? style | WsExTransparent
+            : style & ~WsExTransparent;
+
+        if (updatedStyle == style)
+        {
+            return true;
+        }
+
+        Marshal.SetLastPInvokeError(0);
+
+        var previousStyle = SetWindowLongPtr(
+            windowHandle,
+            GwlExStyle,
+            updatedStyle);
+
+        if (previousStyle == 0 &&
+            Marshal.GetLastPInvokeError() != 0)
+        {
+            return false;
+        }
+
+        return SetWindowPos(
+            windowHandle,
+            IntPtr.Zero,
+            0,
+            0,
+            0,
+            0,
+            SwpNoZOrder |
+            SwpNoActivate |
+            SwpFrameChanged);
+    }
+
+    public static bool TryBringWindowToTopWithoutActivation(
+        IntPtr windowHandle)
+    {
+        if (windowHandle == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        return SetWindowPos(
+            windowHandle,
+            IntPtr.Zero,
+            0,
+            0,
+            0,
+            0,
+            SwpNoMove |
+            SwpNoSize |
+            SwpNoActivate);
+    }
+
+    public static bool TryPlaceWindowBehindWithoutActivation(
+        IntPtr windowHandle,
+        IntPtr windowInFrontHandle)
+    {
+        if (windowHandle == IntPtr.Zero ||
+            windowInFrontHandle == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        // Use a concrete sibling as the insertion point. Unlike HWND_TOP,
+        // this only adjusts the relative order inside the existing owner
+        // group and cannot promote the hosted game above other applications.
+        return SetWindowPos(
+            windowHandle,
+            windowInFrontHandle,
+            0,
+            0,
+            0,
+            0,
+            SwpNoMove |
+            SwpNoSize |
+            SwpNoActivate);
     }
 
     public static void SetWindowBounds(IntPtr windowHandle, int x, int y, int width, int height)
@@ -201,6 +410,113 @@ public static partial class NativeMethods
         _ = SetFocus(windowHandle);
     }
 
+    /// <summary>
+    /// Gives a hosted cross-process child window real keyboard focus. A plain
+    /// SetFocus call is thread-affine and can silently leave focus on a manager
+    /// form after the game window has been reparented into it.
+    /// </summary>
+    public static bool TryFocusWindowForKeyboardInput(
+        IntPtr windowHandle)
+    {
+        if (windowHandle == IntPtr.Zero ||
+            !IsWindow(windowHandle))
+        {
+            return false;
+        }
+
+        var rootWindowHandle = GetAncestor(
+            windowHandle,
+            GaRoot);
+
+        if (rootWindowHandle == IntPtr.Zero)
+        {
+            rootWindowHandle = windowHandle;
+        }
+
+        var currentThreadId = GetCurrentThreadId();
+        var targetThreadId = GetWindowThreadProcessId(
+            windowHandle,
+            out _);
+
+        var foregroundWindowHandle = GetForegroundWindow();
+        var foregroundThreadId = foregroundWindowHandle == IntPtr.Zero
+            ? 0
+            : GetWindowThreadProcessId(
+                foregroundWindowHandle,
+                out _);
+
+        var attachedToForeground = false;
+        var attachedToTarget = false;
+
+        try
+        {
+            if (foregroundThreadId != 0 &&
+                foregroundThreadId != currentThreadId)
+            {
+                attachedToForeground = AttachThreadInput(
+                    currentThreadId,
+                    foregroundThreadId,
+                    attach: true);
+
+                if (!attachedToForeground)
+                {
+                    return false;
+                }
+            }
+
+            if (targetThreadId != 0 &&
+                targetThreadId != currentThreadId &&
+                targetThreadId != foregroundThreadId)
+            {
+                attachedToTarget = AttachThreadInput(
+                    currentThreadId,
+                    targetThreadId,
+                    attach: true);
+
+                if (!attachedToTarget)
+                {
+                    return false;
+                }
+            }
+
+            if (IsIconic(rootWindowHandle))
+            {
+                _ = ShowWindow(
+                    rootWindowHandle,
+                    SwRestore);
+            }
+
+            _ = BringWindowToTop(rootWindowHandle);
+            _ = SetForegroundWindow(rootWindowHandle);
+            _ = BringWindowToTop(windowHandle);
+            _ = SetFocus(windowHandle);
+
+            var focusedWindowHandle = GetFocus();
+
+            return IsChildOrSameWindow(
+                windowHandle,
+                focusedWindowHandle);
+        }
+        finally
+        {
+            if (attachedToTarget)
+            {
+                _ = AttachThreadInput(
+                    currentThreadId,
+                    targetThreadId,
+                    attach: false);
+            }
+
+            if (attachedToForeground)
+            {
+                _ = AttachThreadInput(
+                    currentThreadId,
+                    foregroundThreadId,
+                    attach: false);
+            }
+        }
+    }
+
     public static void SendEscape(IntPtr windowHandle)
     {
         if (windowHandle == IntPtr.Zero)
@@ -212,24 +528,66 @@ public static partial class NativeMethods
         _ = PostMessage(windowHandle, WmKeyUp, new IntPtr(VkEscape), IntPtr.Zero);
     }
 
-    public static bool IsLauncherPlayButtonDisplayed(IntPtr windowHandle)
+    public static bool TryObserveLauncherWindow(
+        IntPtr windowHandle,
+        out LauncherWindowObservation observation)
     {
-        return FindLauncherPlayButton(windowHandle) != IntPtr.Zero;
+        observation = default;
+
+        if (windowHandle == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        var playButtonHandle = FindLauncherPlayButton(windowHandle);
+        var progressBarHandle = FindLauncherProgressBar(windowHandle);
+
+        var progressReadable =
+            TryReadProgressBar(
+                progressBarHandle,
+                out var progressMinimum,
+                out var progressMaximum,
+                out var progressPosition);
+
+        observation = new LauncherWindowObservation(
+            PlayButtonHandle: playButtonHandle,
+            IsPlayButtonVisible:
+                playButtonHandle != IntPtr.Zero &&
+                IsWindowVisible(playButtonHandle),
+            IsPlayButtonEnabled:
+                playButtonHandle != IntPtr.Zero &&
+                IsWindowEnabled(playButtonHandle),
+            ProgressBarHandle: progressBarHandle,
+            IsProgressReadable: progressReadable,
+            ProgressMinimum: progressMinimum,
+            ProgressMaximum: progressMaximum,
+            ProgressPosition: progressPosition);
+
+        return playButtonHandle != IntPtr.Zero ||
+               progressBarHandle != IntPtr.Zero;
     }
 
-    public static bool ClickLauncherPlayButton(IntPtr windowHandle)
+    public static bool ClickLauncherPlayButton(
+        IntPtr windowHandle)
     {
         var buttonHandle = FindLauncherPlayButton(windowHandle);
 
-        if (buttonHandle == IntPtr.Zero)
+        if (buttonHandle == IntPtr.Zero ||
+            !IsWindowVisible(buttonHandle) ||
+            !IsWindowEnabled(buttonHandle))
         {
             return false;
         }
 
         FocusWindow(windowHandle);
-        _ = SendMessage(buttonHandle, BmClick, IntPtr.Zero, IntPtr.Zero);
 
-        return true;
+        // Queue the click and observe its effect from the launcher state
+        // machine. A synchronous BM_CLICK can block N7CM inside launcher code.
+        return PostMessage(
+            buttonHandle,
+            BmClick,
+            IntPtr.Zero,
+            IntPtr.Zero);
     }
 
     public static bool IsTosWindowDisplayed(int processId)
@@ -315,18 +673,187 @@ public static partial class NativeMethods
         keybd_event((byte)key, 0, KeyEventKeyUp, UIntPtr.Zero);
     }
 
-    public static bool RegisterCaptureHotKey(IntPtr windowHandle, int id)
+    internal static bool IsCapsLockEnabled()
     {
-        return RegisterHotKey(
-            windowHandle,
-            id,
-            ModControl | ModShift,
-            (uint)Keys.C);
+        return (GetKeyState((int)Keys.CapsLock) & KeyToggleMask) != 0;
     }
 
-    public static bool UnregisterCaptureHotKey(IntPtr windowHandle, int id)
+    internal static async Task<bool> TrySetCapsLockEnabledAsync(
+        bool enabled,
+        CancellationToken cancellationToken)
     {
-        return UnregisterHotKey(windowHandle, id);
+        if (IsCapsLockEnabled() == enabled)
+        {
+            return true;
+        }
+
+        var chord = new GameKeyChord(
+            KeyData: Keys.CapsLock,
+            SourceText: nameof(Keys.CapsLock),
+            DisplayText: "Caps Lock",
+            IsExtendedKey: false);
+
+        if (!await TapKeyboardKeyAsync(
+                chord,
+                cancellationToken)
+            .ConfigureAwait(false))
+        {
+            return false;
+        }
+
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            if (IsCapsLockEnabled() == enabled)
+            {
+                return true;
+            }
+
+            await Task.Delay(
+                    TimeSpan.FromMilliseconds(20),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return IsCapsLockEnabled() == enabled;
+    }
+
+    public static bool TryGetCursorScreenPosition(
+        out Point point)
+    {
+        point = Point.Empty;
+
+        if (!GetCursorPos(out var nativePoint))
+        {
+            return false;
+        }
+
+        point = new Point(nativePoint.X, nativePoint.Y);
+        return true;
+    }
+
+    public static bool TryConvertClientPointToScreen(
+        IntPtr clientWindowHandle,
+        Point clientPoint,
+        out Point screenPoint)
+    {
+        screenPoint = Point.Empty;
+
+        if (clientWindowHandle == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        var nativePoint = new NativePoint
+        {
+            X = clientPoint.X,
+            Y = clientPoint.Y,
+        };
+
+        if (!ClientToScreen(
+                clientWindowHandle,
+                ref nativePoint))
+        {
+            return false;
+        }
+
+        screenPoint = new Point(
+            nativePoint.X,
+            nativePoint.Y);
+
+        return true;
+    }
+
+    public static bool MoveCursorToScreenPoint(Point point)
+    {
+        return SetCursorPos(point.X, point.Y);
+    }
+
+    public static void LeftButtonDownAtCurrentCursor()
+    {
+        mouse_event(
+            MouseEventLeftDown,
+            0,
+            0,
+            0,
+            UIntPtr.Zero);
+    }
+
+    public static void LeftButtonUpAtCurrentCursor()
+    {
+        mouse_event(
+            MouseEventLeftUp,
+            0,
+            0,
+            0,
+            UIntPtr.Zero);
+    }
+
+    public static void LeftClickAtCurrentCursor()
+    {
+        LeftButtonDownAtCurrentCursor();
+        LeftButtonUpAtCurrentCursor();
+    }
+
+    /// <summary>
+    /// Emits a deliberate foreground-style mouse click. Older game clients
+    /// can miss an instantaneous down/up pair, and restoring the cursor
+    /// immediately after mouse-up can move it before the client consumes the
+    /// queued input. Hold the button across at least one frame and leave the
+    /// cursor in place briefly after release.
+    /// </summary>
+    public static async Task StableLeftClickAtCurrentCursorAsync(
+        CancellationToken cancellationToken)
+    {
+        var buttonDown = false;
+
+        try
+        {
+            LeftButtonDownAtCurrentCursor();
+            buttonDown = true;
+
+            await Task.Delay(
+                    TimeSpan.FromMilliseconds(50),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            if (buttonDown)
+            {
+                LeftButtonUpAtCurrentCursor();
+            }
+        }
+
+        await Task.Delay(
+                TimeSpan.FromMilliseconds(75),
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public static void RightButtonDownAtCurrentCursor()
+    {
+        mouse_event(
+            MouseEventRightDown,
+            0,
+            0,
+            0,
+            UIntPtr.Zero);
+    }
+
+    public static void RightButtonUpAtCurrentCursor()
+    {
+        mouse_event(
+            MouseEventRightUp,
+            0,
+            0,
+            0,
+            UIntPtr.Zero);
+    }
+
+    public static void RightClickAtCurrentCursor()
+    {
+        RightButtonDownAtCurrentCursor();
+        RightButtonUpAtCurrentCursor();
     }
 
     public static bool TryGetCursorPositionRelativeToClient(
@@ -423,6 +950,482 @@ public static partial class NativeMethods
             TimeSpan.FromMilliseconds(80));
     }
 
+    public static Task<bool> TryForegroundTapKeyAsync(
+        IntPtr windowHandle,
+        Keys key)
+    {
+        return TryForegroundTapKeyAsync(
+            windowHandle,
+            key,
+            CancellationToken.None);
+    }
+
+    public static Task<bool> TryForegroundTapKeyAsync(
+        IntPtr windowHandle,
+        Keys key,
+        CancellationToken cancellationToken)
+    {
+        var chord = new GameKeyChord(
+            KeyData: key,
+            SourceText: key.ToString(),
+            DisplayText: key.ToString(),
+            IsExtendedKey: false);
+
+        return TryForegroundTapChordAsync(
+            windowHandle,
+            chord,
+            cancellationToken);
+    }
+
+    internal static async Task<bool> TryForegroundTapChordAsync(
+        IntPtr windowHandle,
+        GameKeyChord chord,
+        CancellationToken cancellationToken)
+    {
+        if (chord.KeyCode == Keys.None ||
+            !TryFocusWindowForKeyboardInput(windowHandle))
+        {
+            return false;
+        }
+
+        await Task.Delay(
+                TimeSpan.FromMilliseconds(50),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (!TryFocusWindowForKeyboardInput(windowHandle))
+        {
+            return false;
+        }
+
+        var pressedModifiers = new List<HeldKeyboardKey>(3);
+
+        try
+        {
+            if (!PressRequiredModifier(
+                    chord.Modifiers,
+                    Keys.Control,
+                    Keys.ControlKey,
+                    pressedModifiers) ||
+                !PressRequiredModifier(
+                    chord.Modifiers,
+                    Keys.Shift,
+                    Keys.ShiftKey,
+                    pressedModifiers) ||
+                !PressRequiredModifier(
+                    chord.Modifiers,
+                    Keys.Alt,
+                    Keys.Menu,
+                    pressedModifiers))
+            {
+                return false;
+            }
+
+            return await TapKeyboardKeyAsync(
+                    chord,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            ReleaseHeldKeys(pressedModifiers);
+        }
+    }
+
+    internal static async Task<bool> TryForegroundStableLeftClickWithHeldChordAsync(
+        IntPtr windowHandle,
+        Point screenPoint,
+        GameKeyChord? heldChord,
+        Func<CancellationToken, Task<bool>>? waitAfterHeldChordAsync,
+        CancellationToken cancellationToken)
+    {
+        if (windowHandle == IntPtr.Zero ||
+            !TryFocusWindowForKeyboardInput(windowHandle))
+        {
+            return false;
+        }
+
+        await Task.Delay(
+                TimeSpan.FromMilliseconds(50),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (!TryFocusWindowForKeyboardInput(windowHandle))
+        {
+            return false;
+        }
+
+        var heldKeys = new List<HeldKeyboardKey>(4);
+
+        try
+        {
+            if (heldChord != null &&
+                !PressChordDown(
+                    heldChord,
+                    heldKeys))
+            {
+                return false;
+            }
+
+            if (waitAfterHeldChordAsync != null &&
+                !await waitAfterHeldChordAsync(cancellationToken)
+                    .ConfigureAwait(false))
+            {
+                return false;
+            }
+
+            if (!MoveCursorToScreenPoint(screenPoint))
+            {
+                return false;
+            }
+
+            await StableLeftClickAtCurrentCursorAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            ReleaseHeldKeys(heldKeys);
+        }
+
+        return true;
+    }
+
+    internal static async Task<bool> TryForegroundTapChordWithHeldChordAsync(
+        IntPtr windowHandle,
+        GameKeyChord tapChord,
+        GameKeyChord? heldChord,
+        Func<CancellationToken, Task<bool>>? waitAfterHeldChordAsync,
+        CancellationToken cancellationToken)
+    {
+        if (tapChord.KeyCode == Keys.None ||
+            !TryFocusWindowForKeyboardInput(windowHandle))
+        {
+            return false;
+        }
+
+        await Task.Delay(
+                TimeSpan.FromMilliseconds(50),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (!TryFocusWindowForKeyboardInput(windowHandle))
+        {
+            return false;
+        }
+
+        var heldKeys = new List<HeldKeyboardKey>(4);
+
+        try
+        {
+            if (heldChord != null &&
+                !PressChordDown(
+                    heldChord,
+                    heldKeys))
+            {
+                return false;
+            }
+
+            if (waitAfterHeldChordAsync != null &&
+                !await waitAfterHeldChordAsync(cancellationToken)
+                    .ConfigureAwait(false))
+            {
+                return false;
+            }
+
+            if (!await TapChordAsync(
+                    tapChord,
+                    cancellationToken)
+                .ConfigureAwait(false))
+            {
+                return false;
+            }
+        }
+        finally
+        {
+            ReleaseHeldKeys(heldKeys);
+        }
+
+        return true;
+    }
+
+    private static async Task<bool> TapChordAsync(
+        GameKeyChord chord,
+        CancellationToken cancellationToken)
+    {
+        var pressedModifiers = new List<HeldKeyboardKey>(3);
+
+        try
+        {
+            if (!PressRequiredModifier(
+                    chord.Modifiers,
+                    Keys.Control,
+                    Keys.ControlKey,
+                    pressedModifiers) ||
+                !PressRequiredModifier(
+                    chord.Modifiers,
+                    Keys.Shift,
+                    Keys.ShiftKey,
+                    pressedModifiers) ||
+                !PressRequiredModifier(
+                    chord.Modifiers,
+                    Keys.Alt,
+                    Keys.Menu,
+                    pressedModifiers))
+            {
+                return false;
+            }
+
+            return await TapKeyboardKeyAsync(
+                    chord,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            ReleaseHeldKeys(pressedModifiers);
+        }
+    }
+
+    private static bool PressChordDown(
+        GameKeyChord chord,
+        ICollection<HeldKeyboardKey> pressedKeys)
+    {
+        return PressHeldModifier(
+                   chord.Modifiers,
+                   Keys.Control,
+                   Keys.ControlKey,
+                   pressedKeys) &&
+               PressHeldModifier(
+                   chord.Modifiers,
+                   Keys.Shift,
+                   Keys.ShiftKey,
+                   pressedKeys) &&
+               PressHeldModifier(
+                   chord.Modifiers,
+                   Keys.Alt,
+                   Keys.Menu,
+                   pressedKeys) &&
+               PressHeldKey(
+                   chord.KeyCode,
+                   chord.IsExtendedKey,
+                   pressedKeys);
+    }
+
+    private static bool PressHeldModifier(
+        Keys requiredModifiers,
+        Keys modifierFlag,
+        Keys modifierKey,
+        ICollection<HeldKeyboardKey> pressedKeys)
+    {
+        return (requiredModifiers & modifierFlag) != modifierFlag ||
+               PressHeldKey(
+                   modifierKey,
+                   isExtendedKey: false,
+                   pressedKeys);
+    }
+
+    private static bool PressHeldKey(
+        Keys key,
+        bool isExtendedKey,
+        ICollection<HeldKeyboardKey> pressedKeys)
+    {
+        var keyCode = NormalizePhysicalKey(key & Keys.KeyCode);
+
+        if (keyCode == Keys.None ||
+            IsKeyDown(keyCode))
+        {
+            return true;
+        }
+
+        if (!TryCreateKeyboardInput(
+                keyCode,
+                isExtendedKey,
+                keyUp: false,
+                out var pressedKey))
+        {
+            return false;
+        }
+
+        if (!SendKeyboardInput(pressedKey))
+        {
+            return false;
+        }
+
+        pressedKeys.Add(pressedKey);
+        return true;
+    }
+
+    private static void ReleaseHeldKeys(
+        IReadOnlyList<HeldKeyboardKey> heldKeys)
+    {
+        for (var index = heldKeys.Count - 1;
+             index >= 0;
+             index--)
+        {
+            var key = heldKeys[index];
+            _ = SendKeyboardInput(
+                key with
+                {
+                    Flags = key.Flags | KeyEventKeyUp,
+                });
+        }
+    }
+
+    private static async Task<bool> TapKeyboardKeyAsync(
+        GameKeyChord chord,
+        CancellationToken cancellationToken)
+    {
+        var keyCode = NormalizePhysicalKey(chord.KeyCode);
+
+        if (!TryCreateKeyboardInput(
+                keyCode,
+                chord.IsExtendedKey,
+                keyUp: false,
+                out var keyDown) ||
+            !SendKeyboardInput(keyDown))
+        {
+            return false;
+        }
+
+        try
+        {
+            await Task.Delay(
+                    TimeSpan.FromMilliseconds(80),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            _ = SendKeyboardInput(
+                keyDown with
+                {
+                    Flags = keyDown.Flags | KeyEventKeyUp,
+                });
+        }
+
+        return true;
+    }
+
+    private static bool PressRequiredModifier(
+        Keys requiredModifiers,
+        Keys modifierFlag,
+        Keys modifierKey,
+        ICollection<HeldKeyboardKey> pressedModifiers)
+    {
+        if ((requiredModifiers & modifierFlag) != modifierFlag)
+        {
+            return true;
+        }
+
+        return PressHeldKey(
+            modifierKey,
+            isExtendedKey: false,
+            pressedModifiers);
+    }
+
+    private static bool TryCreateKeyboardInput(
+        Keys key,
+        bool isExtendedKey,
+        bool keyUp,
+        out HeldKeyboardKey keyboardKey)
+    {
+        keyboardKey = default;
+        var keyCode = NormalizePhysicalKey(key & Keys.KeyCode);
+
+        if (keyCode == Keys.None)
+        {
+            return false;
+        }
+
+        var scanCode = MapVirtualKey(
+            (uint)keyCode,
+            MapVirtualKeyToScanCode);
+
+        if (scanCode == 0 ||
+            scanCode > ushort.MaxValue)
+        {
+            return false;
+        }
+
+        var flags = KeyEventScanCode;
+
+        if (isExtendedKey || IsExtendedPhysicalKey(keyCode))
+        {
+            flags |= KeyEventExtendedKey;
+        }
+
+        if (keyUp)
+        {
+            flags |= KeyEventKeyUp;
+        }
+
+        keyboardKey = new HeldKeyboardKey(
+            (ushort)scanCode,
+            flags);
+        return true;
+    }
+
+    private static bool SendKeyboardInput(HeldKeyboardKey key)
+    {
+        var inputs = new[]
+        {
+            new NativeInput
+            {
+                Type = InputKeyboard,
+                Data = new NativeInputUnion
+                {
+                    Keyboard = new NativeKeyboardInput
+                    {
+                        VirtualKey = 0,
+                        ScanCode = key.ScanCode,
+                        Flags = key.Flags,
+                        Time = 0,
+                        ExtraInfo = UIntPtr.Zero,
+                    },
+                },
+            },
+        };
+
+        return SendInput(
+                   (uint)inputs.Length,
+                   inputs,
+                   Marshal.SizeOf<NativeInput>()) == (uint)inputs.Length;
+    }
+
+    private static Keys NormalizePhysicalKey(Keys key)
+    {
+        return key switch
+        {
+            Keys.ControlKey => Keys.LControlKey,
+            Keys.ShiftKey => Keys.LShiftKey,
+            Keys.Menu => Keys.LMenu,
+            _ => key,
+        };
+    }
+
+    private static bool IsExtendedPhysicalKey(Keys key)
+    {
+        return key is
+            Keys.RControlKey or
+            Keys.RMenu or
+            Keys.Insert or
+            Keys.Delete or
+            Keys.Home or
+            Keys.End or
+            Keys.PageUp or
+            Keys.PageDown or
+            Keys.Left or
+            Keys.Right or
+            Keys.Up or
+            Keys.Down or
+            Keys.NumLock or
+            Keys.Divide;
+    }
+
+    private readonly record struct HeldKeyboardKey(
+        ushort ScanCode,
+        uint Flags);
+
     public static IntPtr GetForegroundWindowHandle()
     {
         return GetForegroundWindow();
@@ -484,13 +1487,121 @@ public static partial class NativeMethods
         return (GetAsyncKeyState((int)(key & Keys.KeyCode)) & 0x8000) != 0;
     }
 
-    private static IntPtr FindLauncherPlayButton(IntPtr windowHandle)
+    private static IntPtr FindLauncherPlayButton(
+        IntPtr windowHandle)
     {
-        return FindWindowEx(
+        var buttonHandle = FindWindowEx(
             windowHandle,
             IntPtr.Zero,
-            "WindowsForms10.BUTTON.app.0.2004eee",
-            "&Play");
+            className: null,
+            windowTitle: "&Play");
+
+        return buttonHandle != IntPtr.Zero
+            ? buttonHandle
+            : FindWindowEx(
+                windowHandle,
+                IntPtr.Zero,
+                className: null,
+                windowTitle: "Play");
+    }
+
+    private static IntPtr FindLauncherProgressBar(
+        IntPtr windowHandle)
+    {
+        // Spy++ confirms LaunchNet7 v2.2.0 exposes a direct WinForms wrapper
+        // around the standard msctls_progress32 control. Match the stable
+        // native class fragment rather than the runtime-specific suffix.
+        var childHandle = IntPtr.Zero;
+
+        while (true)
+        {
+            childHandle = FindWindowEx(
+                windowHandle,
+                childHandle,
+                className: null,
+                windowTitle: null);
+
+            if (childHandle == IntPtr.Zero)
+            {
+                return IntPtr.Zero;
+            }
+
+            string className;
+
+            try
+            {
+                className = GetWindowClassName(childHandle);
+            }
+            catch (Win32Exception)
+            {
+                continue;
+            }
+
+            if (className.Contains(
+                    "msctls_progress32",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return childHandle;
+            }
+        }
+    }
+
+    private static bool TryReadProgressBar(
+        IntPtr progressBarHandle,
+        out int minimum,
+        out int maximum,
+        out int position)
+    {
+        minimum = 0;
+        maximum = 0;
+        position = 0;
+
+        if (progressBarHandle == IntPtr.Zero ||
+            !TrySendMessageWithTimeout(
+                progressBarHandle,
+                PbmGetRange,
+                new IntPtr(1),
+                IntPtr.Zero,
+                out var minimumResult) ||
+            !TrySendMessageWithTimeout(
+                progressBarHandle,
+                PbmGetRange,
+                IntPtr.Zero,
+                IntPtr.Zero,
+                out var maximumResult) ||
+            !TrySendMessageWithTimeout(
+                progressBarHandle,
+                PbmGetPosition,
+                IntPtr.Zero,
+                IntPtr.Zero,
+                out var positionResult))
+        {
+            return false;
+        }
+
+        minimum = minimumResult.ToInt32();
+        maximum = maximumResult.ToInt32();
+        position = positionResult.ToInt32();
+        return true;
+    }
+
+    private static bool TrySendMessageWithTimeout(
+        IntPtr windowHandle,
+        int message,
+        IntPtr wParam,
+        IntPtr lParam,
+        out IntPtr result)
+    {
+        result = IntPtr.Zero;
+
+        return SendMessageTimeout(
+                   windowHandle,
+                   message,
+                   wParam,
+                   lParam,
+                   SmtoAbortIfHung | SmtoErrorOnExit,
+                   LauncherControlMessageTimeoutMilliseconds,
+                   out result) != IntPtr.Zero;
     }
 
     private static IntPtr FindTosAgreeButton(IntPtr windowHandle)
@@ -556,6 +1667,35 @@ public static partial class NativeMethods
         }
     }
 
+    public readonly record struct LauncherWindowObservation(
+        IntPtr PlayButtonHandle,
+        bool IsPlayButtonVisible,
+        bool IsPlayButtonEnabled,
+        IntPtr ProgressBarHandle,
+        bool IsProgressReadable,
+        int ProgressMinimum,
+        int ProgressMaximum,
+        int ProgressPosition)
+    {
+        public bool HasPlayButton =>
+            this.PlayButtonHandle != IntPtr.Zero;
+
+        public bool HasProgressBar =>
+            this.ProgressBarHandle != IntPtr.Zero;
+
+        public bool IsProgressComplete =>
+            this.IsProgressReadable &&
+            this.ProgressMaximum > this.ProgressMinimum &&
+            this.ProgressPosition >= this.ProgressMaximum;
+
+        public bool IsReady =>
+            this.HasPlayButton &&
+            this.IsPlayButtonVisible &&
+            this.IsPlayButtonEnabled &&
+            this.HasProgressBar &&
+            this.IsProgressComplete;
+    }
+
     [StructLayout(LayoutKind.Auto)]
     public readonly record struct WindowBounds(int Left, int Top, int Width, int Height);
 
@@ -577,6 +1717,33 @@ public static partial class NativeMethods
     {
         public int X;
         public int Y;
+    }
+
+    [StructLayout(LayoutKind.Explicit, Size = 40)]
+    private struct NativeInput
+    {
+        [FieldOffset(0)]
+        public uint Type;
+
+        [FieldOffset(8)]
+        public NativeInputUnion Data;
+    }
+
+    [StructLayout(LayoutKind.Explicit, Size = 32)]
+    private struct NativeInputUnion
+    {
+        [FieldOffset(0)]
+        public NativeKeyboardInput Keyboard;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeKeyboardInput
+    {
+        public ushort VirtualKey;
+        public ushort ScanCode;
+        public uint Flags;
+        public uint Time;
+        public UIntPtr ExtraInfo;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -619,6 +1786,15 @@ public static partial class NativeMethods
         public uint PanningHeight;
     }
 
+    [LibraryImport(
+        "uxtheme.dll",
+        EntryPoint = "SetWindowTheme",
+        StringMarshalling = StringMarshalling.Utf16)]
+    private static partial int SetWindowTheme(
+        IntPtr windowHandle,
+        string? subApplicationName,
+        string? subIdentifierList);
+
     [LibraryImport("user32.dll", EntryPoint = "EnumWindows", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool EnumWindows(EnumWindowsProc enumProc, IntPtr parameter);
@@ -626,6 +1802,10 @@ public static partial class NativeMethods
     [LibraryImport("user32.dll", EntryPoint = "IsWindowVisible", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool IsWindowVisible(IntPtr windowHandle);
+
+    [LibraryImport("user32.dll", EntryPoint = "IsWindowEnabled")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool IsWindowEnabled(IntPtr windowHandle);
 
     [LibraryImport("user32.dll", EntryPoint = "GetWindowThreadProcessId", SetLastError = true)]
     private static partial uint GetWindowThreadProcessId(IntPtr windowHandle, out int processId);
@@ -683,6 +1863,16 @@ public static partial class NativeMethods
         IntPtr wParam,
         IntPtr lParam);
 
+    [LibraryImport("user32.dll", EntryPoint = "SendMessageTimeoutW", SetLastError = true)]
+    private static partial IntPtr SendMessageTimeout(
+        IntPtr windowHandle,
+        int message,
+        IntPtr wParam,
+        IntPtr lParam,
+        uint flags,
+        uint timeoutMilliseconds,
+        out IntPtr result);
+
     [LibraryImport("user32.dll", EntryPoint = "PostMessageW", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool PostMessage(
@@ -695,8 +1885,32 @@ public static partial class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool SetForegroundWindow(IntPtr windowHandle);
 
+    [LibraryImport("user32.dll", EntryPoint = "RedrawWindow", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool RedrawWindow(
+        IntPtr windowHandle,
+        IntPtr updateRectangle,
+        IntPtr updateRegion,
+        uint flags);
+
     [LibraryImport("user32.dll", EntryPoint = "SetFocus")]
     private static partial IntPtr SetFocus(IntPtr windowHandle);
+
+    [LibraryImport("user32.dll", EntryPoint = "GetFocus")]
+    private static partial IntPtr GetFocus();
+
+    [LibraryImport("user32.dll", EntryPoint = "GetKeyState")]
+    private static partial short GetKeyState(int virtualKey);
+
+    [LibraryImport("user32.dll", EntryPoint = "AttachThreadInput", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool AttachThreadInput(
+        uint attachThreadId,
+        uint attachToThreadId,
+        [MarshalAs(UnmanagedType.Bool)] bool attach);
+
+    [LibraryImport("kernel32.dll", EntryPoint = "GetCurrentThreadId")]
+    private static partial uint GetCurrentThreadId();
 
     [LibraryImport("user32.dll", EntryPoint = "GetAncestor")]
     private static partial IntPtr GetAncestor(IntPtr windowHandle, uint flags);
@@ -744,6 +1958,17 @@ public static partial class NativeMethods
         uint data,
         UIntPtr extraInfo);
 
+    [LibraryImport("user32.dll", EntryPoint = "MapVirtualKeyW")]
+    private static partial uint MapVirtualKey(
+        uint code,
+        uint mapType);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern uint SendInput(
+        uint inputCount,
+        [In] NativeInput[] inputs,
+        int inputSize);
+
     [LibraryImport("user32.dll", EntryPoint = "keybd_event")]
     private static partial void keybd_event(
         byte virtualKey,
@@ -785,3 +2010,5 @@ public static partial class NativeMethods
     [DllImport("user32.dll")]
     private static extern short GetAsyncKeyState(int vKey);
 }
+
+

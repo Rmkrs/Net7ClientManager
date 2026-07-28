@@ -1,0 +1,492 @@
+{
+  "schemaVersion": 1,
+  "revision": "net7-planner-2026-07-19",
+  "professions": [
+    {
+      "professionIndex": 0,
+      "hulls": [
+        {
+          "overallLevel": 0,
+          "hullPoints": 18,
+          "weaponSlots": 2,
+          "deviceSlots": 1,
+          "cargoSlots": 23
+        },
+        {
+          "overallLevel": 10,
+          "hullPoints": 70,
+          "weaponSlots": 2,
+          "deviceSlots": 2,
+          "cargoSlots": 25
+        },
+        {
+          "overallLevel": 30,
+          "hullPoints": 280,
+          "weaponSlots": 3,
+          "deviceSlots": 2,
+          "cargoSlots": 27
+        },
+        {
+          "overallLevel": 50,
+          "hullPoints": 1100,
+          "weaponSlots": 3,
+          "deviceSlots": 3,
+          "cargoSlots": 29
+        },
+        {
+          "overallLevel": 75,
+          "hullPoints": 4500,
+          "weaponSlots": 4,
+          "deviceSlots": 3,
+          "cargoSlots": 31
+        },
+        {
+          "overallLevel": 100,
+          "hullPoints": 18000,
+          "weaponSlots": 4,
+          "deviceSlots": 4,
+          "cargoSlots": 33
+        },
+        {
+          "overallLevel": 135,
+          "hullPoints": 72000,
+          "weaponSlots": 5,
+          "deviceSlots": 4,
+          "cargoSlots": 35
+        }
+      ]
+    },
+    {
+      "professionIndex": 1,
+      "hulls": [
+        {
+          "overallLevel": 0,
+          "hullPoints": 13,
+          "weaponSlots": 1,
+          "deviceSlots": 2,
+          "cargoSlots": 28
+        },
+        {
+          "overallLevel": 10,
+          "hullPoints": 50,
+          "weaponSlots": 1,
+          "deviceSlots": 3,
+          "cargoSlots": 30
+        },
+        {
+          "overallLevel": 30,
+          "hullPoints": 210,
+          "weaponSlots": 2,
+          "deviceSlots": 3,
+          "cargoSlots": 32
+        },
+        {
+          "overallLevel": 50,
+          "hullPoints": 850,
+          "weaponSlots": 2,
+          "deviceSlots": 4,
+          "cargoSlots": 34
+        },
+        {
+          "overallLevel": 75,
+          "hullPoints": 3400,
+          "weaponSlots": 3,
+          "deviceSlots": 4,
+          "cargoSlots": 36
+        },
+        {
+          "overallLevel": 100,
+          "hullPoints": 13400,
+          "weaponSlots": 3,
+          "deviceSlots": 5,
+          "cargoSlots": 38
+        },
+        {
+          "overallLevel": 135,
+          "hullPoints": 56000,
+          "weaponSlots": 4,
+          "deviceSlots": 5,
+          "cargoSlots": 40
+        }
+      ]
+    },
+    {
+      "professionIndex": 2,
+      "hulls": [
+        {
+          "overallLevel": 0,
+          "hullPoints": 12,
+          "weaponSlots": 1,
+          "deviceSlots": 2,
+          "cargoSlots": 25
+        },
+        {
+          "overallLevel": 10,
+          "hullPoints": 48,
+          "weaponSlots": 1,
+          "deviceSlots": 3,
+          "cargoSlots": 27
+        },
+        {
+          "overallLevel": 30,
+          "hullPoints": 210,
+          "weaponSlots": 2,
+          "deviceSlots": 3,
+          "cargoSlots": 29
+        },
+        {
+          "overallLevel": 50,
+          "hullPoints": 850,
+          "weaponSlots": 2,
+          "deviceSlots": 4,
+          "cargoSlots": 31
+        },
+        {
+          "overallLevel": 75,
+          "hullPoints": 3300,
+          "weaponSlots": 3,
+          "deviceSlots": 4,
+          "cargoSlots": 33
+        },
+        {
+          "overallLevel": 100,
+          "hullPoints": 13200,
+          "weaponSlots": 3,
+          "deviceSlots": 5,
+          "cargoSlots": 35
+        },
+        {
+          "overallLevel": 135,
+          "hullPoints": 48000,
+          "weaponSlots": 4,
+          "deviceSlots": 5,
+          "cargoSlots": 37
+        }
+      ]
+    },
+    {
+      "professionIndex": 3,
+      "hulls": [
+        {
+          "overallLevel": 0,
+          "hullPoints": 16,
+          "weaponSlots": 2,
+          "deviceSlots": 1,
+          "cargoSlots": 18
+        },
+        {
+          "overallLevel": 10,
+          "hullPoints": 65,
+          "weaponSlots": 2,
+          "deviceSlots": 2,
+          "cargoSlots": 20
+        },
+        {
+          "overallLevel": 30,
+          "hullPoints": 260,
+          "weaponSlots": 3,
+          "deviceSlots": 2,
+          "cargoSlots": 22
+        },
+        {
+          "overallLevel": 50,
+          "hullPoints": 1000,
+          "weaponSlots": 3,
+          "deviceSlots": 3,
+          "cargoSlots": 24
+        },
+        {
+          "overallLevel": 75,
+          "hullPoints": 4100,
+          "weaponSlots": 4,
+          "deviceSlots": 3,
+          "cargoSlots": 26
+        },
+        {
+          "overallLevel": 100,
+          "hullPoints": 16500,
+          "weaponSlots": 4,
+          "deviceSlots": 4,
+          "cargoSlots": 28
+        },
+        {
+          "overallLevel": 135,
+          "hullPoints": 66300,
+          "weaponSlots": 5,
+          "deviceSlots": 4,
+          "cargoSlots": 30
+        }
+      ]
+    },
+    {
+      "professionIndex": 4,
+      "hulls": [
+        {
+          "overallLevel": 0,
+          "hullPoints": 12,
+          "weaponSlots": 1,
+          "deviceSlots": 2,
+          "cargoSlots": 22
+        },
+        {
+          "overallLevel": 10,
+          "hullPoints": 50,
+          "weaponSlots": 1,
+          "deviceSlots": 3,
+          "cargoSlots": 24
+        },
+        {
+          "overallLevel": 30,
+          "hullPoints": 200,
+          "weaponSlots": 2,
+          "deviceSlots": 3,
+          "cargoSlots": 26
+        },
+        {
+          "overallLevel": 50,
+          "hullPoints": 800,
+          "weaponSlots": 2,
+          "deviceSlots": 4,
+          "cargoSlots": 28
+        },
+        {
+          "overallLevel": 75,
+          "hullPoints": 3200,
+          "weaponSlots": 3,
+          "deviceSlots": 4,
+          "cargoSlots": 30
+        },
+        {
+          "overallLevel": 100,
+          "hullPoints": 13000,
+          "weaponSlots": 3,
+          "deviceSlots": 5,
+          "cargoSlots": 32
+        },
+        {
+          "overallLevel": 135,
+          "hullPoints": 55000,
+          "weaponSlots": 4,
+          "deviceSlots": 5,
+          "cargoSlots": 34
+        }
+      ]
+    },
+    {
+      "professionIndex": 5,
+      "hulls": [
+        {
+          "overallLevel": 0,
+          "hullPoints": 11,
+          "weaponSlots": 1,
+          "deviceSlots": 2,
+          "cargoSlots": 18
+        },
+        {
+          "overallLevel": 10,
+          "hullPoints": 45,
+          "weaponSlots": 1,
+          "deviceSlots": 3,
+          "cargoSlots": 20
+        },
+        {
+          "overallLevel": 30,
+          "hullPoints": 170,
+          "weaponSlots": 2,
+          "deviceSlots": 3,
+          "cargoSlots": 22
+        },
+        {
+          "overallLevel": 50,
+          "hullPoints": 680,
+          "weaponSlots": 2,
+          "deviceSlots": 4,
+          "cargoSlots": 24
+        },
+        {
+          "overallLevel": 75,
+          "hullPoints": 2700,
+          "weaponSlots": 2,
+          "deviceSlots": 5,
+          "cargoSlots": 26
+        },
+        {
+          "overallLevel": 100,
+          "hullPoints": 11000,
+          "weaponSlots": 3,
+          "deviceSlots": 5,
+          "cargoSlots": 28
+        },
+        {
+          "overallLevel": 135,
+          "hullPoints": 42000,
+          "weaponSlots": 3,
+          "deviceSlots": 6,
+          "cargoSlots": 30
+        }
+      ]
+    },
+    {
+      "professionIndex": 6,
+      "hulls": [
+        {
+          "overallLevel": 0,
+          "hullPoints": 20,
+          "weaponSlots": 2,
+          "deviceSlots": 1,
+          "cargoSlots": 16
+        },
+        {
+          "overallLevel": 10,
+          "hullPoints": 80,
+          "weaponSlots": 3,
+          "deviceSlots": 1,
+          "cargoSlots": 18
+        },
+        {
+          "overallLevel": 30,
+          "hullPoints": 320,
+          "weaponSlots": 3,
+          "deviceSlots": 2,
+          "cargoSlots": 20
+        },
+        {
+          "overallLevel": 50,
+          "hullPoints": 1300,
+          "weaponSlots": 4,
+          "deviceSlots": 2,
+          "cargoSlots": 22
+        },
+        {
+          "overallLevel": 75,
+          "hullPoints": 5100,
+          "weaponSlots": 5,
+          "deviceSlots": 2,
+          "cargoSlots": 24
+        },
+        {
+          "overallLevel": 100,
+          "hullPoints": 20500,
+          "weaponSlots": 5,
+          "deviceSlots": 3,
+          "cargoSlots": 26
+        },
+        {
+          "overallLevel": 135,
+          "hullPoints": 82000,
+          "weaponSlots": 6,
+          "deviceSlots": 3,
+          "cargoSlots": 28
+        }
+      ]
+    },
+    {
+      "professionIndex": 7,
+      "hulls": [
+        {
+          "overallLevel": 0,
+          "hullPoints": 14,
+          "weaponSlots": 2,
+          "deviceSlots": 1,
+          "cargoSlots": 20
+        },
+        {
+          "overallLevel": 10,
+          "hullPoints": 65,
+          "weaponSlots": 2,
+          "deviceSlots": 2,
+          "cargoSlots": 22
+        },
+        {
+          "overallLevel": 30,
+          "hullPoints": 260,
+          "weaponSlots": 3,
+          "deviceSlots": 2,
+          "cargoSlots": 24
+        },
+        {
+          "overallLevel": 50,
+          "hullPoints": 1000,
+          "weaponSlots": 3,
+          "deviceSlots": 3,
+          "cargoSlots": 26
+        },
+        {
+          "overallLevel": 75,
+          "hullPoints": 4000,
+          "weaponSlots": 4,
+          "deviceSlots": 3,
+          "cargoSlots": 28
+        },
+        {
+          "overallLevel": 100,
+          "hullPoints": 17000,
+          "weaponSlots": 5,
+          "deviceSlots": 3,
+          "cargoSlots": 30
+        },
+        {
+          "overallLevel": 135,
+          "hullPoints": 66300,
+          "weaponSlots": 5,
+          "deviceSlots": 4,
+          "cargoSlots": 32
+        }
+      ]
+    },
+    {
+      "professionIndex": 8,
+      "hulls": [
+        {
+          "overallLevel": 0,
+          "hullPoints": 13,
+          "weaponSlots": 2,
+          "deviceSlots": 1,
+          "cargoSlots": 18
+        },
+        {
+          "overallLevel": 10,
+          "hullPoints": 50,
+          "weaponSlots": 2,
+          "deviceSlots": 2,
+          "cargoSlots": 20
+        },
+        {
+          "overallLevel": 30,
+          "hullPoints": 210,
+          "weaponSlots": 3,
+          "deviceSlots": 2,
+          "cargoSlots": 22
+        },
+        {
+          "overallLevel": 50,
+          "hullPoints": 850,
+          "weaponSlots": 3,
+          "deviceSlots": 3,
+          "cargoSlots": 24
+        },
+        {
+          "overallLevel": 75,
+          "hullPoints": 3500,
+          "weaponSlots": 3,
+          "deviceSlots": 4,
+          "cargoSlots": 26
+        },
+        {
+          "overallLevel": 100,
+          "hullPoints": 13700,
+          "weaponSlots": 4,
+          "deviceSlots": 4,
+          "cargoSlots": 28
+        },
+        {
+          "overallLevel": 135,
+          "hullPoints": 55000,
+          "weaponSlots": 4,
+          "deviceSlots": 5,
+          "cargoSlots": 30
+        }
+      ]
+    }
+  ]
+}

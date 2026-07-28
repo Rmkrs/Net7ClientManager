@@ -1,0 +1,3582 @@
+{
+  "schemaVersion": 1,
+  "revision": "net7-planner-capture-2026-07-19",
+  "professions": [
+    {
+      "index": 0,
+      "raceIndex": 0,
+      "professionIndex": 0,
+      "tag": "te",
+      "raceName": "Terran",
+      "professionName": "Enforcer"
+    },
+    {
+      "index": 1,
+      "raceIndex": 0,
+      "professionIndex": 1,
+      "tag": "tt",
+      "raceName": "Terran",
+      "professionName": "Trader"
+    },
+    {
+      "index": 2,
+      "raceIndex": 0,
+      "professionIndex": 2,
+      "tag": "ts",
+      "raceName": "Terran",
+      "professionName": "Scout"
+    },
+    {
+      "index": 3,
+      "raceIndex": 1,
+      "professionIndex": 0,
+      "tag": "jd",
+      "raceName": "Jenquai",
+      "professionName": "Defender"
+    },
+    {
+      "index": 4,
+      "raceIndex": 1,
+      "professionIndex": 1,
+      "tag": "js",
+      "raceName": "Jenquai",
+      "professionName": "Seeker"
+    },
+    {
+      "index": 5,
+      "raceIndex": 1,
+      "professionIndex": 2,
+      "tag": "je",
+      "raceName": "Jenquai",
+      "professionName": "Explorer"
+    },
+    {
+      "index": 6,
+      "raceIndex": 2,
+      "professionIndex": 0,
+      "tag": "pw",
+      "raceName": "Progen",
+      "professionName": "Warrior"
+    },
+    {
+      "index": 7,
+      "raceIndex": 2,
+      "professionIndex": 1,
+      "tag": "pp",
+      "raceName": "Progen",
+      "professionName": "Privateer"
+    },
+    {
+      "index": 8,
+      "raceIndex": 2,
+      "professionIndex": 2,
+      "tag": "ps",
+      "raceName": "Progen",
+      "professionName": "Sentinel"
+    }
+  ],
+  "groups": [
+    {
+      "name": "Weapons",
+      "skillIds": [
+        1,
+        34,
+        40
+      ]
+    },
+    {
+      "name": "Active",
+      "skillIds": [
+        12,
+        15,
+        19,
+        23,
+        24,
+        42,
+        60,
+        31,
+        46,
+        47,
+        56,
+        53,
+        25,
+        33,
+        37,
+        48,
+        22,
+        50,
+        52,
+        54,
+        0,
+        39,
+        26,
+        27,
+        51,
+        2,
+        3,
+        44,
+        43
+      ]
+    },
+    {
+      "name": "Passive",
+      "skillIds": [
+        16,
+        36,
+        49,
+        17,
+        35,
+        41,
+        13
+      ]
+    },
+    {
+      "name": "Special",
+      "skillIds": [
+        11,
+        14
+      ]
+    },
+    {
+      "name": "Build",
+      "skillIds": [
+        4,
+        5,
+        6,
+        8,
+        9,
+        10,
+        59
+      ]
+    },
+    {
+      "name": "Tech",
+      "skillIds": [
+        18,
+        20,
+        45,
+        55
+      ]
+    }
+  ],
+  "skills": [
+    {
+      "id": 0,
+      "name": "Afterburn",
+      "description": "The Afterburn skill is used to greatly increase movement speed for short durations.",
+      "category": "combat",
+      "minimumRank": 0,
+      "group": "Active",
+      "professionRules": [
+        {
+          "professionIndex": 2,
+          "maximumRank": 5,
+          "requirementCurve": "non",
+          "learnLevel": 5
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Enables the Afterburn ability."
+        },
+        {
+          "rank": 2,
+          "description": "Increases the speed obtained when Afterburn is activated."
+        },
+        {
+          "rank": 3,
+          "description": "Increases the speed obtained when Afterburn is activated."
+        },
+        {
+          "rank": 4,
+          "description": "Increases the speed obtained when Afterburn is activated."
+        },
+        {
+          "rank": 5,
+          "description": "Increases the speed obtained when Afterburn is activated."
+        },
+        {
+          "rank": 6,
+          "description": "Increases the speed obtained when Afterburn is activated."
+        },
+        {
+          "rank": 7,
+          "description": "Increases the speed obtained when Afterburn is activated."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "name": "Beam Weapon",
+      "description": "Allows use of beam weapons of a level equal to or below the skill level, and increases damage with beam weapons by +25% per level.",
+      "category": "combat",
+      "minimumRank": 1,
+      "group": "Weapons",
+      "professionRules": [
+        {
+          "professionIndex": 0,
+          "maximumRank": 8,
+          "requirementCurve": "sw",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 1,
+          "maximumRank": 8,
+          "requirementCurve": "sw",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 2,
+          "maximumRank": 8,
+          "requirementCurve": "sw",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 3,
+          "maximumRank": 9,
+          "requirementCurve": "pw",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 4,
+          "maximumRank": 9,
+          "requirementCurve": "pw",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 5,
+          "maximumRank": 9,
+          "requirementCurve": "pw",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 6,
+          "maximumRank": 8,
+          "requirementCurve": "sw",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 7,
+          "maximumRank": 8,
+          "requirementCurve": "sw",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 8,
+          "maximumRank": 8,
+          "requirementCurve": "sw",
+          "learnLevel": 0
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Allows the use of level 1 beam weapons."
+        },
+        {
+          "rank": 2,
+          "description": "+25% damage, improves accuracy, and allows the use of level 2 beam weapons."
+        },
+        {
+          "rank": 3,
+          "description": "+50% damage, improves accuracy, and allows the use of level 3 beam weapons."
+        },
+        {
+          "rank": 4,
+          "description": "+75% damage, improves accuracy, and allows the use of level 4 beam weapons."
+        },
+        {
+          "rank": 5,
+          "description": "+100% damage, improves accuracy, and allows the use of level 5 beam weapons."
+        },
+        {
+          "rank": 6,
+          "description": "+125% damage, improves accuracy, and allows the use of level 6 beam weapons."
+        },
+        {
+          "rank": 7,
+          "description": "+150% damage, improves accuracy, and allows the use of level 7 beam weapons."
+        },
+        {
+          "rank": 8,
+          "description": "+175% damage, improves accuracy, and allows the use of level 8 beam weapons."
+        },
+        {
+          "rank": 9,
+          "description": "+200% damage, improves accuracy, and allows the use of level 9 beam weapons."
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Befriend",
+      "description": "Befriend abilities can be used to make NPCs friendly or keep them from attacking.",
+      "category": "trade",
+      "minimumRank": 0,
+      "group": "Active",
+      "professionRules": [
+        {
+          "professionIndex": 1,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 11
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Enables the Befriend ability."
+        },
+        {
+          "rank": 2,
+          "description": "Improves success rates and increases range to 5250 units."
+        },
+        {
+          "rank": 3,
+          "description": "Improves success rates, increases range to 5500 units, and enables the Improved Befriend ability."
+        },
+        {
+          "rank": 4,
+          "description": "Improves success rates and increases range to 5750 units."
+        },
+        {
+          "rank": 5,
+          "description": "Improves success rates, increases range to 6000 units, and enables the Entrance ability."
+        },
+        {
+          "rank": 6,
+          "description": "Improves success rates, increases range to 6250 units, and enables the Soothe ability."
+        },
+        {
+          "rank": 7,
+          "description": "Improves success rates, increases range to 6500 units, and enables the Area Soothe ability."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "Biorepression",
+      "description": "Biorepression abilities can be used to slow the rate of fire, reduce skill usage, and temporarily disable the weapons of organic targets.",
+      "category": "combat",
+      "minimumRank": 0,
+      "group": "Active",
+      "professionRules": [
+        {
+          "professionIndex": 0,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 15
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Reduces the firing rate of all weapons possessed by an organic target."
+        },
+        {
+          "rank": 2,
+          "description": "Further decreases the firing rate of all weapons possessed by an organic target, increases duration, and extends range to 1250 units."
+        },
+        {
+          "rank": 3,
+          "description": "Reduces the firing rate of all weapons possessed by an organic target, lowers the probability that the target will use skills it possesses, increases duration, and extends range to 1500 units."
+        },
+        {
+          "rank": 4,
+          "description": "Further decreases the firing rate of all weapons possessed by an organic target, further lowers the probability that the target will uses skills, increases duration, and extends range to 1750 units."
+        },
+        {
+          "rank": 5,
+          "description": "Reduces the firing rate of all weapons possessed by organic entities within the area of effect, increases duration, and extends range to 2000 units."
+        },
+        {
+          "rank": 6,
+          "description": "Reduces the firing rate of all weapons possessed by organic entities within the area of effect, lowers the probability that the entities will use skills they possess, increases duration, and extends range to 2250 units."
+        },
+        {
+          "rank": 7,
+          "description": "Attempts to temporarily disable a single weapon possessed by an organic target, increases duration, and extends range to 2500 units. Entities with a single active weapon are more difficult to effect."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "Build Components",
+      "description": "Allows analysis and manufacture of component items of a level equal to or below the skill level.",
+      "category": "trade",
+      "minimumRank": 0,
+      "group": "Build",
+      "professionRules": [
+        {
+          "professionIndex": 1,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 10
+        },
+        {
+          "professionIndex": 4,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 15
+        },
+        {
+          "professionIndex": 7,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 15
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Allows the analysis and manufacture of level 1 components."
+        },
+        {
+          "rank": 2,
+          "description": "Allows the analysis and manufacture of level 2 components."
+        },
+        {
+          "rank": 3,
+          "description": "Allows the analysis and manufacture of level 3 components."
+        },
+        {
+          "rank": 4,
+          "description": "Allows the analysis and manufacture of level 4 components."
+        },
+        {
+          "rank": 5,
+          "description": "Allows the analysis and manufacture of level 5 components."
+        },
+        {
+          "rank": 6,
+          "description": "Allows the analysis and manufacture of level 6 and level 7 components."
+        },
+        {
+          "rank": 7,
+          "description": "Allows the analysis and manufacture of level 8 and level 9 components."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "name": "Build Devices",
+      "description": "Allows analysis and manufacture of devices of a level equal to or below the skill level, and increases the quality of manufactured devices.",
+      "category": "trade",
+      "minimumRank": 0,
+      "group": "Build",
+      "professionRules": [
+        {
+          "professionIndex": 1,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 2,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 10
+        },
+        {
+          "professionIndex": 3,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 30
+        },
+        {
+          "professionIndex": 4,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 20
+        },
+        {
+          "professionIndex": 5,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 8,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 10
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Allows analysis and manufacture of level 1 devices."
+        },
+        {
+          "rank": 2,
+          "description": "Allows analysis and manufacture of level 2 devices."
+        },
+        {
+          "rank": 3,
+          "description": "Allows analysis and manufacture of level 3 devices."
+        },
+        {
+          "rank": 4,
+          "description": "Allows analysis and manufacture of level 4 devices."
+        },
+        {
+          "rank": 5,
+          "description": "Allows analysis and manufacture of level 5 devices."
+        },
+        {
+          "rank": 6,
+          "description": "Allows analysis and manufacture of level 6 and level 7 devices."
+        },
+        {
+          "rank": 7,
+          "description": "Allows analysis and manufacture of level 8 and level 9 devices."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "name": "Build Engines",
+      "description": "Allows analysis and manufacture of engines of a level equal to or below the skill level, and increases the quality of manufactured engines.",
+      "category": "trade",
+      "minimumRank": 0,
+      "group": "Build",
+      "professionRules": [
+        {
+          "professionIndex": 0,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 45
+        },
+        {
+          "professionIndex": 1,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 35
+        },
+        {
+          "professionIndex": 2,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 25
+        },
+        {
+          "professionIndex": 4,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 15
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Allows analysis and manufacture of level 1 engines."
+        },
+        {
+          "rank": 2,
+          "description": "Allows analysis and manufacture of level 2 engines."
+        },
+        {
+          "rank": 3,
+          "description": "Allows analysis and manufacture of level 3 engines."
+        },
+        {
+          "rank": 4,
+          "description": "Allows analysis and manufacture of level 4 engines."
+        },
+        {
+          "rank": 5,
+          "description": "Allows analysis and manufacture of level 5 engines."
+        },
+        {
+          "rank": 6,
+          "description": "Allows analysis and manufacture of level 6 and level 7 engines."
+        },
+        {
+          "rank": 7,
+          "description": "Allows analysis and manufacture of level 8 and level 9 engines."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "name": "Build Reactors",
+      "description": "Allows analysis and manufacture of reactors of a level equal to or below the skill level, and increases the quality of manufactured reactors.",
+      "category": "trade",
+      "minimumRank": 0,
+      "group": "Build",
+      "professionRules": [
+        {
+          "professionIndex": 4,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 60
+        },
+        {
+          "professionIndex": 5,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 40
+        },
+        {
+          "professionIndex": 7,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 30
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Allows analysis and manufacture of level 1 reactors."
+        },
+        {
+          "rank": 2,
+          "description": "Allows analysis and manufacture of level 2 reactors."
+        },
+        {
+          "rank": 3,
+          "description": "Allows analysis and manufacture of level 3 reactors."
+        },
+        {
+          "rank": 4,
+          "description": "Allows analysis and manufacture of level 4 reactors."
+        },
+        {
+          "rank": 5,
+          "description": "Allows analysis and manufacture of level 5 reactors."
+        },
+        {
+          "rank": 6,
+          "description": "Allows analysis and manufacture of level 6 and level 7 reactors."
+        },
+        {
+          "rank": 7,
+          "description": "Allows analysis and manufacture of level 8 and level 9 reactors."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "name": "Build Shields",
+      "description": "Allows analysis and manufacture of shields of a level equal to or below the skill level, and increases the quality of manufactured shields.",
+      "category": "trade",
+      "minimumRank": 0,
+      "group": "Build",
+      "professionRules": [
+        {
+          "professionIndex": 1,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 7,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 10
+        },
+        {
+          "professionIndex": 8,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 35
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Allows analysis and manufacture of level 1 shields."
+        },
+        {
+          "rank": 2,
+          "description": "Allows analysis and manufacture of level 2 shields."
+        },
+        {
+          "rank": 3,
+          "description": "Allows analysis and manufacture of level 3 shields."
+        },
+        {
+          "rank": 4,
+          "description": "Allows analysis and manufacture of level 4 shields."
+        },
+        {
+          "rank": 5,
+          "description": "Allows analysis and manufacture of level 5 shields."
+        },
+        {
+          "rank": 6,
+          "description": "Allows analysis and manufacture of level 6 and level 7 shields."
+        },
+        {
+          "rank": 7,
+          "description": "Allows analysis and manufacture of level 8 and level 9 shields."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "name": "Build Weapons",
+      "description": "Allows analysis and manufacture of weapons and ammunition of a level equal to or below the skill level, and increases the quality of manufactured items.",
+      "category": "trade",
+      "minimumRank": 0,
+      "group": "Build",
+      "professionRules": [
+        {
+          "professionIndex": 0,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 1,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 3,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 25
+        },
+        {
+          "professionIndex": 4,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 15
+        },
+        {
+          "professionIndex": 6,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 10
+        },
+        {
+          "professionIndex": 7,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 0
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Allows analysis and manufacture of level 1 weapons and ammunition."
+        },
+        {
+          "rank": 2,
+          "description": "Allows analysis and manufacture of level 2 weapons and ammunition."
+        },
+        {
+          "rank": 3,
+          "description": "Allows analysis and manufacture of level 3 weapons and ammunition."
+        },
+        {
+          "rank": 4,
+          "description": "Allows analysis and manufacture of level 4 weapons and ammunition."
+        },
+        {
+          "rank": 5,
+          "description": "Allows analysis and manufacture of level 5 weapons and ammunition."
+        },
+        {
+          "rank": 6,
+          "description": "Allows analysis and manufacture of level 6 and level 7 weapons and ammunition."
+        },
+        {
+          "rank": 7,
+          "description": "Allows analysis and manufacture of level 8 and level 9 weapons and ammunition."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "name": "Call Forward",
+      "description": "Call Forward abilities are used to reclaim skill points.",
+      "category": "total",
+      "minimumRank": 0,
+      "group": "Special",
+      "professionRules": [
+        {
+          "professionIndex": 8,
+          "maximumRank": 1,
+          "requirementCurve": "non",
+          "learnLevel": 135
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Enables the Call Forward ability."
+        },
+        {
+          "rank": 2,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 3,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 4,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 5,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 6,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 7,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "name": "Cloak",
+      "description": "Cloaking abilities are used to mask the ship's presence, making it difficult or impossible for enemies to locate.",
+      "category": "explore",
+      "minimumRank": 0,
+      "group": "Active",
+      "professionRules": [
+        {
+          "professionIndex": 3,
+          "maximumRank": 5,
+          "requirementCurve": "non",
+          "learnLevel": 10
+        },
+        {
+          "professionIndex": 4,
+          "maximumRank": 5,
+          "requirementCurve": "non",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 5,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 8
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Enables the Cloak ability."
+        },
+        {
+          "rank": 2,
+          "description": "Reduces the amount of time required to cloak to 6 seconds."
+        },
+        {
+          "rank": 3,
+          "description": "Reduces the amount of time required to cloak to 5 seconds, and enables the Advanced Cloak ability."
+        },
+        {
+          "rank": 4,
+          "description": "Reduces the amount of time required to cloak to 4 seconds."
+        },
+        {
+          "rank": 5,
+          "description": "Reduces the amount of time required to cloak to 3 seconds, and enables the Combat Cloak ability."
+        },
+        {
+          "rank": 6,
+          "description": "Enables the Group Stealth ability."
+        },
+        {
+          "rank": 7,
+          "description": "Enables the Group Cloak ability."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "name": "Combat Trance",
+      "description": "Combat Trance imparts various combat bonuses that automatically take effect when the ship is not moving.",
+      "category": "combat",
+      "minimumRank": 0,
+      "group": "Passive",
+      "professionRules": [
+        {
+          "professionIndex": 6,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 10
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Automatically grants a bonus to projectile weapon accuracy whenever the ship is not moving. Bonuses will remain for 3 seconds after the ship begins to move."
+        },
+        {
+          "rank": 2,
+          "description": "Increases projectile weapon accuracy bonus. Bonuses will remain for 6 seconds after the ship begins to move."
+        },
+        {
+          "rank": 3,
+          "description": "Increases projectile weapon accuracy bonus and automatically grants +13 damage resistance bonuses when the ship is not moving. Bonuses will remain for 9 seconds after the ship begins to move."
+        },
+        {
+          "rank": 4,
+          "description": "Increases weapon accuracy and damage resistance bonuses. Bonuses will remain for 12 seconds after the ship begins to move."
+        },
+        {
+          "rank": 5,
+          "description": "Increases projectile weapon accuracy and damage resistance bonuses, and automatically grants a bonus to beam weapon accuracy whenever the ship is not moving. Bonuses will remain for 15 seconds after the ship begins to move."
+        },
+        {
+          "rank": 6,
+          "description": "Increases weapon accuracy and damage resistance bonuses, and increases reactor recharge rates when the ship is not moving. Bonuses will remain for 18 seconds after the ship begins to move."
+        },
+        {
+          "rank": 7,
+          "description": "Increases all previous combat trance bonuses and automatically increases shield regeneration rates when the ship is not moving. Bonuses will remain for 21 seconds after the ship begins to move."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "name": "Compulsory Contemplation",
+      "description": "Compulsory Contemplation abilities confuse a single target.",
+      "category": "total",
+      "minimumRank": 0,
+      "group": "Special",
+      "professionRules": [
+        {
+          "professionIndex": 5,
+          "maximumRank": 1,
+          "requirementCurve": "non",
+          "learnLevel": 135
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Enables the Compulsory Contemplation ability."
+        },
+        {
+          "rank": 2,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 3,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 4,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 5,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 6,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 7,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "name": "Create Wormhole",
+      "description": "Create Wormhole abilities provide rapid transport to various locations throughout the galaxy.",
+      "category": "explore",
+      "minimumRank": 0,
+      "group": "Active",
+      "professionRules": [
+        {
+          "professionIndex": 5,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 15
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Enables the Kailaasa Gate ability."
+        },
+        {
+          "rank": 2,
+          "description": "Enables the Jupiter Gate ability."
+        },
+        {
+          "rank": 3,
+          "description": "Enables the Swooping Eagle Gate ability."
+        },
+        {
+          "rank": 4,
+          "description": "Enables the Valkyrie Twins Gate ability."
+        },
+        {
+          "rank": 5,
+          "description": "Enables the Asteroid Belt Beta Gate ability."
+        },
+        {
+          "rank": 6,
+          "description": "Enables the Carpenter Gate ability."
+        },
+        {
+          "rank": 7,
+          "description": "Enables the Endriago Gate ability."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "name": "Critical Targeting",
+      "description": "The Critical Targeting skill passively increases the chance that any attack will critically damage the target.",
+      "category": "combat",
+      "minimumRank": 0,
+      "group": "Passive",
+      "professionRules": [
+        {
+          "professionIndex": 0,
+          "maximumRank": 5,
+          "requirementCurve": "non",
+          "learnLevel": 20
+        },
+        {
+          "professionIndex": 3,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 6,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 10
+        },
+        {
+          "professionIndex": 7,
+          "maximumRank": 5,
+          "requirementCurve": "non",
+          "learnLevel": 40
+        },
+        {
+          "professionIndex": 8,
+          "maximumRank": 5,
+          "requirementCurve": "non",
+          "learnLevel": 45
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Increases the chance of successfully critically damaging opponents in combat by 10%."
+        },
+        {
+          "rank": 2,
+          "description": "Increases the chance of successfully critically damaging opponents in combat by 20%."
+        },
+        {
+          "rank": 3,
+          "description": "Increases the chance of successfully critically damaging opponents in combat by 30%."
+        },
+        {
+          "rank": 4,
+          "description": "Increases the chance of successfully critically damaging opponents in combat by 40%."
+        },
+        {
+          "rank": 5,
+          "description": "Increases the chance of successfully critically damaging opponents in combat by 50%."
+        },
+        {
+          "rank": 6,
+          "description": "Increases the chance of successfully critically damaging opponents in combat by 60%."
+        },
+        {
+          "rank": 7,
+          "description": "Increases the chance of successfully critically damaging opponents in combat by 70%."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "name": "Damage Control",
+      "description": "The Damage Control increases hull effectiveness.  This increases the amount of damage your hull can sustain.",
+      "category": "combat",
+      "minimumRank": 0,
+      "group": "Passive",
+      "professionRules": [
+        {
+          "professionIndex": 0,
+          "maximumRank": 5,
+          "requirementCurve": "non",
+          "learnLevel": 25
+        },
+        {
+          "professionIndex": 6,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 9
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Increases hull effectiveness by 100%."
+        },
+        {
+          "rank": 2,
+          "description": "Increases hull effectiveness by 125%."
+        },
+        {
+          "rank": 3,
+          "description": "Increases hull effectiveness by 150%."
+        },
+        {
+          "rank": 4,
+          "description": "Increases hull effectiveness by 175%."
+        },
+        {
+          "rank": 5,
+          "description": "Increases hull effectiveness by 200%."
+        },
+        {
+          "rank": 6,
+          "description": "Increases hull effectiveness by 225%."
+        },
+        {
+          "rank": 7,
+          "description": "Increases hull effectiveness by 250%."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "name": "Device Tech",
+      "description": "Allows use of devices of a level equal to or below the skill level.",
+      "category": "total",
+      "minimumRank": 1,
+      "group": "Tech",
+      "professionRules": [
+        {
+          "professionIndex": 0,
+          "maximumRank": 8,
+          "requirementCurve": "st",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 1,
+          "maximumRank": 8,
+          "requirementCurve": "st",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 2,
+          "maximumRank": 9,
+          "requirementCurve": "pt",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 3,
+          "maximumRank": 9,
+          "requirementCurve": "pt",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 4,
+          "maximumRank": 9,
+          "requirementCurve": "pt",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 5,
+          "maximumRank": 9,
+          "requirementCurve": "pt",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 6,
+          "maximumRank": 8,
+          "requirementCurve": "st",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 7,
+          "maximumRank": 8,
+          "requirementCurve": "st",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 8,
+          "maximumRank": 9,
+          "requirementCurve": "pt",
+          "learnLevel": 0
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Allows the use of level 1 devices."
+        },
+        {
+          "rank": 2,
+          "description": "Allows the use of level 2 devices."
+        },
+        {
+          "rank": 3,
+          "description": "Allows the use of level 3 devices."
+        },
+        {
+          "rank": 4,
+          "description": "Allows the use of level 4 devices."
+        },
+        {
+          "rank": 5,
+          "description": "Allows the use of level 5 devices."
+        },
+        {
+          "rank": 6,
+          "description": "Allows the use of level 6 devices."
+        },
+        {
+          "rank": 7,
+          "description": "Allows the use of level 7 devices."
+        },
+        {
+          "rank": 8,
+          "description": "Allows the use of level 8 devices."
+        },
+        {
+          "rank": 9,
+          "description": "Allows the use of level 9 devices."
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "name": "Energy Leech",
+      "description": "This ability drains a portion of an enemy's or group of enemies' energy.  At higher levels, this skill transfers some of that drained energy to the player's or a player group's energy banks.",
+      "category": "combat",
+      "minimumRank": 0,
+      "group": "Active",
+      "professionRules": [
+        {
+          "professionIndex": 3,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 0
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Drains energy from an enemy target."
+        },
+        {
+          "rank": 2,
+          "description": "Improves amount of drain on a single target and extends range to 1250 units."
+        },
+        {
+          "rank": 3,
+          "description": "Improves amount of drain on a single target, converts a percentage of that into energy for the player, and extends range to 1500 units."
+        },
+        {
+          "rank": 4,
+          "description": "Improves amount of drain and extends range to 1750 units."
+        },
+        {
+          "rank": 5,
+          "description": "Improves amount of energy drain on a single target, converts a percentage of that into energy for the player and their group, and extends range to 2000 units."
+        },
+        {
+          "rank": 6,
+          "description": "Improves amount of energy drain in a spherical area of effect of 1500 units surrounding the player, converts a percentage of that into energy for the player, and extends range to 2250 units."
+        },
+        {
+          "rank": 7,
+          "description": "Improves amount of energy drain in a spherical area of effect of 3000 units surrounding the player, converts a percentage of that into energy for the player and their group, and extends range to 2500 units."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "name": "Engine Tech",
+      "description": "Allows use of engines of a level equal to or below the skill level.",
+      "category": "total",
+      "minimumRank": 1,
+      "group": "Tech",
+      "professionRules": [
+        {
+          "professionIndex": 0,
+          "maximumRank": 9,
+          "requirementCurve": "pt",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 1,
+          "maximumRank": 9,
+          "requirementCurve": "pt",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 2,
+          "maximumRank": 9,
+          "requirementCurve": "pt",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 3,
+          "maximumRank": 8,
+          "requirementCurve": "st",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 4,
+          "maximumRank": 8,
+          "requirementCurve": "st",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 5,
+          "maximumRank": 8,
+          "requirementCurve": "st",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 6,
+          "maximumRank": 8,
+          "requirementCurve": "st",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 7,
+          "maximumRank": 8,
+          "requirementCurve": "st",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 8,
+          "maximumRank": 8,
+          "requirementCurve": "st",
+          "learnLevel": 0
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Allows the use of level 1 engines."
+        },
+        {
+          "rank": 2,
+          "description": "Allows the use of level 2 engines."
+        },
+        {
+          "rank": 3,
+          "description": "Allows the use of level 3 engines."
+        },
+        {
+          "rank": 4,
+          "description": "Allows the use of level 4 engines."
+        },
+        {
+          "rank": 5,
+          "description": "Allows the use of level 5 engines."
+        },
+        {
+          "rank": 6,
+          "description": "Allows the use of level 6 engines."
+        },
+        {
+          "rank": 7,
+          "description": "Allows the use of level 7 engines."
+        },
+        {
+          "rank": 8,
+          "description": "Allows the use of level 8 engines."
+        },
+        {
+          "rank": 9,
+          "description": "Allows the use of level 9 engines."
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "name": "Enrage",
+      "description": "Enrage abilities can be used to anger enemies, forcing them to attack regardless of the situation.",
+      "category": "explore",
+      "minimumRank": 0,
+      "group": "Active",
+      "professionRules": [
+        {
+          "professionIndex": 0,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 6,
+          "maximumRank": 5,
+          "requirementCurve": "non",
+          "learnLevel": 35
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Enables the Anger ability."
+        },
+        {
+          "rank": 2,
+          "description": "Improves effect power and increases range to 5250 units."
+        },
+        {
+          "rank": 3,
+          "description": "Improves effect power, increases range to 5500 units, and enables the Cause Aggression ability."
+        },
+        {
+          "rank": 4,
+          "description": "Improves effect power and increases range to 5750 units."
+        },
+        {
+          "rank": 5,
+          "description": "Improves effect power, increases range to 6000 units, and enables the Enrage ability."
+        },
+        {
+          "rank": 6,
+          "description": "Improves effect power, increases range to 6250 units, and enables the Anger Group ability."
+        },
+        {
+          "rank": 7,
+          "description": "Improves effect power, increases range to 6500 units, and enables the Enrage Group ability."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "name": "Environment Shield",
+      "description": "Environment Shield abilities are used to protect targets from dangerous environmental effects, such as gravitational shears or radiation.",
+      "category": "explore",
+      "minimumRank": 0,
+      "group": "Active",
+      "professionRules": [
+        {
+          "professionIndex": 5,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 45
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Enables the Environment Barrier ability."
+        },
+        {
+          "rank": 2,
+          "description": "Extends duration and increases range to 2750 units."
+        },
+        {
+          "rank": 3,
+          "description": "Extends duration, increases range to 3000 units, and enables the Lesser Environment Shield ability."
+        },
+        {
+          "rank": 4,
+          "description": "Extends duration and increases range to 3250 units."
+        },
+        {
+          "rank": 5,
+          "description": "Extends duration of Environment Barrier and Lesser Environment Shield abilities, increases range to 3500 units, and enables the Environment Shield ability."
+        },
+        {
+          "rank": 6,
+          "description": "Extends duration, increases range to 3750 units, and enables the Greater Environment Shield ability."
+        },
+        {
+          "rank": 7,
+          "description": "Extends duration, increases range to 4000 units, and enables the Ultra Environment Shield ability."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "name": "Fold Space",
+      "description": "Fold Space abilities are used to quickly teleport short distances, often to evade danger.",
+      "category": "explore",
+      "minimumRank": 0,
+      "group": "Active",
+      "professionRules": [
+        {
+          "professionIndex": 3,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 4,
+          "maximumRank": 5,
+          "requirementCurve": "non",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 5,
+          "maximumRank": 5,
+          "requirementCurve": "non",
+          "learnLevel": 8
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Enables the Teleport Self ability."
+        },
+        {
+          "rank": 2,
+          "description": "Teleportation range is increased to 5300 units."
+        },
+        {
+          "rank": 3,
+          "description": "Increases teleportation range to 5600 units and enables the Teleport Enemy ability."
+        },
+        {
+          "rank": 4,
+          "description": "Increases teleportation range to 5900 units."
+        },
+        {
+          "rank": 5,
+          "description": "Increases teleportation range to 6200 units and enables the Teleport Friend ability."
+        },
+        {
+          "rank": 6,
+          "description": "Increases teleportation range to 6500 units and enables the Directional Teleport ability."
+        },
+        {
+          "rank": 7,
+          "description": "Increases teleportation range to 6800 units and enables the Area Teleport ability."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "name": "Gravity Link",
+      "description": "Gravity Link abilities can be used to slow or immobilize enemies.",
+      "category": "combat",
+      "minimumRank": 0,
+      "group": "Active",
+      "professionRules": [
+        {
+          "professionIndex": 6,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 8,
+          "maximumRank": 5,
+          "requirementCurve": "non",
+          "learnLevel": 0
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Enables the Mass Field ability."
+        },
+        {
+          "rank": 2,
+          "description": "Improves ability powers and increases range to 5250 units."
+        },
+        {
+          "rank": 3,
+          "description": "Improves ability powers, increases range to 5500 units, and enables the Gravity Field ability."
+        },
+        {
+          "rank": 4,
+          "description": "Improves effect power and increases range to 5750 units."
+        },
+        {
+          "rank": 5,
+          "description": "Improves ability powers, increases range to 6000 units, and enables the Immobilization Field ability."
+        },
+        {
+          "rank": 6,
+          "description": "Improves ability powers, increases range to 6250 units, and enables the Area Mass Field ability."
+        },
+        {
+          "rank": 7,
+          "description": "Improves ability powers, increases range to 6500 units, and enables the Area Immobilization Field ability."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "name": "Hacking",
+      "description": "Hacking abilities can be used to temporarily disable a target's shields, reactor, engine, weapons or devices.",
+      "category": "combat",
+      "minimumRank": 0,
+      "group": "Active",
+      "professionRules": [
+        {
+          "professionIndex": 0,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 2,
+          "maximumRank": 5,
+          "requirementCurve": "non",
+          "learnLevel": 25
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Enables the Hack Systems ability."
+        },
+        {
+          "rank": 2,
+          "description": "Improves hacking success rates and extends range to 1250 units."
+        },
+        {
+          "rank": 3,
+          "description": "Improves hacking success rates, extends range to 1500 units, and enables the Hack Weapons ability."
+        },
+        {
+          "rank": 4,
+          "description": "Improves hacking success rates and extends range to 1750 units."
+        },
+        {
+          "rank": 5,
+          "description": "Improves success rates, extends range to 2000 units, and enables the Multi-Hack ability."
+        },
+        {
+          "rank": 6,
+          "description": "Improves hacking success rates, extends range to 2250 units, and enables the Area System Hack ability."
+        },
+        {
+          "rank": 7,
+          "description": "Improves hacking success rates, extends range to 2500 units, and enables the Area Multi-Hack ability."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "name": "Hull Patch",
+      "description": "Hull Patch abilities are used to repair damaged ship hulls.",
+      "category": "combat",
+      "minimumRank": 0,
+      "group": "Active",
+      "professionRules": [
+        {
+          "professionIndex": 1,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 25
+        },
+        {
+          "professionIndex": 2,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 20
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Enables the Patch Hull ability."
+        },
+        {
+          "rank": 2,
+          "description": "Increases the rate of hull repair."
+        },
+        {
+          "rank": 3,
+          "description": "Enables the Repair Hull ability."
+        },
+        {
+          "rank": 4,
+          "description": "Increases the rate of hull repair and extends range to 3250 units."
+        },
+        {
+          "rank": 5,
+          "description": "Increases the rate of hull repair, extends range to 3500 units, and enables the Combat Hull Repair ability."
+        },
+        {
+          "rank": 6,
+          "description": "Increases the rate of hull repair, extends range to 3750 units, and enables the Area Hull Repair ability."
+        },
+        {
+          "rank": 7,
+          "description": "Increases the rate of hull repair, extends range to 4000 units, and enables the Improved Area Hull Repair ability."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "name": "Jumpstart",
+      "description": "The Jumpstart skill is used to resuscitate incapacitated players.",
+      "category": "explore",
+      "minimumRank": 0,
+      "group": "Active",
+      "professionRules": [
+        {
+          "professionIndex": 2,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 20
+        },
+        {
+          "professionIndex": 5,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 20
+        },
+        {
+          "professionIndex": 8,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 20
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Enables the Jumpstart ability."
+        },
+        {
+          "rank": 2,
+          "description": "Increases range to 1250, improves success chances, increases the amount of hull repair performed in the jumpstart process, and reduces experience debt from last death by 14%."
+        },
+        {
+          "rank": 3,
+          "description": "Increases range to 1500, improves success chances, increases the amount of hull repair performed in the jumpstart process, and reduces experience debt from last death by 21%."
+        },
+        {
+          "rank": 4,
+          "description": "Increases range to 1750, improves success chances, increases the amount of hull repair performed in the jumpstart process, and reduces experience debt from last death by 28%."
+        },
+        {
+          "rank": 5,
+          "description": "Increases range to 2000, improves success chances, increases the amount of hull repair performed in the jumpstart process, and reduces experience debt from last death by 35%."
+        },
+        {
+          "rank": 6,
+          "description": "Increases range to 2250, improves success chances, increases the amount of hull repair performed in the jumpstart process, and reduces experience debt from last death by 42%."
+        },
+        {
+          "rank": 7,
+          "description": "Increases range to 2500, improves success chances, increases the amount of hull repair performed in the jumpstart process, and reduces experience debt from last death by 49%."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "name": "Menace",
+      "description": "Menace abilities can be used to frighten enemies, causing them to flee.",
+      "category": "explore",
+      "minimumRank": 0,
+      "group": "Active",
+      "professionRules": [
+        {
+          "professionIndex": 7,
+          "maximumRank": 5,
+          "requirementCurve": "non",
+          "learnLevel": 20
+        },
+        {
+          "professionIndex": 8,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 15
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Enables the Intimidate Ability."
+        },
+        {
+          "rank": 2,
+          "description": "Improves ability powers and increases range to 2750 units."
+        },
+        {
+          "rank": 3,
+          "description": "Improves ability powers, increases range to 3000 units, and enables the Scare ability."
+        },
+        {
+          "rank": 4,
+          "description": "Improves ability powers and increases range to 3250 units."
+        },
+        {
+          "rank": 5,
+          "description": "Improves ability powers, increases range to 3500 units, and enables the Terrify ability."
+        },
+        {
+          "rank": 6,
+          "description": "Improves ability powers, increases range to 3750 units, and enables the Area Intimidation ability."
+        },
+        {
+          "rank": 7,
+          "description": "Improves ability powers, increases range to 4000 units, and enables the Area Terrify ability."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 34,
+      "name": "Missile Weapon",
+      "description": "Allows use of missile weapons of a level equal to or below the skill level, and increases damage with missile weapons by +25% per level.",
+      "category": "combat",
+      "minimumRank": 0,
+      "group": "Weapons",
+      "professionRules": [
+        {
+          "professionIndex": 0,
+          "maximumRank": 9,
+          "requirementCurve": "pw",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 1,
+          "maximumRank": 9,
+          "requirementCurve": "pw",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 2,
+          "maximumRank": 9,
+          "requirementCurve": "pw",
+          "learnLevel": 5
+        },
+        {
+          "professionIndex": 3,
+          "maximumRank": 8,
+          "requirementCurve": "sw",
+          "learnLevel": 20
+        },
+        {
+          "professionIndex": 6,
+          "maximumRank": 8,
+          "requirementCurve": "sw",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 7,
+          "maximumRank": 8,
+          "requirementCurve": "sw",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 8,
+          "maximumRank": 8,
+          "requirementCurve": "sw",
+          "learnLevel": 0
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Allows the use of level 1 missile weapons."
+        },
+        {
+          "rank": 2,
+          "description": "+25% damage, improves accuracy, and allows the use of level 2 missile weapons."
+        },
+        {
+          "rank": 3,
+          "description": "+50% damage and allows the use of level 3 missile weapons."
+        },
+        {
+          "rank": 4,
+          "description": "+75% and allows the use of level 4 missile weapons."
+        },
+        {
+          "rank": 5,
+          "description": "+100% damage and allows the use of level 5 missile weapons."
+        },
+        {
+          "rank": 6,
+          "description": "+125% damage and allows the use of level 6 missile weapons."
+        },
+        {
+          "rank": 7,
+          "description": "+150% damage and allows the use of level 7 missile weapons."
+        },
+        {
+          "rank": 8,
+          "description": "+175% damage and allows the use of level 8 missile weapons."
+        },
+        {
+          "rank": 9,
+          "description": "+200% damage and allows the use of level 9 missile weapons."
+        }
+      ]
+    },
+    {
+      "id": 35,
+      "name": "Navigate",
+      "description": "The Navigate skill imparts various bonuses that aid travel.",
+      "category": "explore",
+      "minimumRank": 0,
+      "group": "Passive",
+      "professionRules": [
+        {
+          "professionIndex": 1,
+          "maximumRank": 5,
+          "requirementCurve": "non",
+          "learnLevel": 40
+        },
+        {
+          "professionIndex": 2,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 15
+        },
+        {
+          "professionIndex": 5,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 15
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Reduces energy used when activating warp by 20%."
+        },
+        {
+          "rank": 2,
+          "description": "Reduces energy used when activating warp by 30%."
+        },
+        {
+          "rank": 3,
+          "description": "Reduces energy used when activating warp by 40% and reduces warp initialization and recovery time by 10%."
+        },
+        {
+          "rank": 4,
+          "description": "Reduces energy used when activating warp by 50% and reduces warp initialization and recovery time by 15%."
+        },
+        {
+          "rank": 5,
+          "description": "Reduces energy used when activating warp by 60%, reduces warp initialization and recovery time by 20%, and increases maximum base speed by 70."
+        },
+        {
+          "rank": 6,
+          "description": "Reduces energy used when activating warp by 70%, reduces warp initialization and recovery time by 25%, increases maximum base speed by 100, and increases warp speed by 400."
+        },
+        {
+          "rank": 7,
+          "description": "Reduces energy used when activating warp by 80%, reduces warp initialization and recovery time by 30%, increases maximum base speed by 130, and increases warp speed by 700. Ship has a 50% chance of successfully warping while in a gravity well."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 36,
+      "name": "Negotiate",
+      "description": "The Negotiate skill allows negotiation of reduced prices or increased profits when interacting with NPC vendors.",
+      "category": "trade",
+      "minimumRank": 0,
+      "group": "Passive",
+      "professionRules": [
+        {
+          "professionIndex": 0,
+          "maximumRank": 5,
+          "requirementCurve": "non",
+          "learnLevel": 25
+        },
+        {
+          "professionIndex": 1,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 2,
+          "maximumRank": 5,
+          "requirementCurve": "non",
+          "learnLevel": 25
+        },
+        {
+          "professionIndex": 4,
+          "maximumRank": 5,
+          "requirementCurve": "non",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 7,
+          "maximumRank": 5,
+          "requirementCurve": "non",
+          "learnLevel": 0
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Increases funds received when selling goods."
+        },
+        {
+          "rank": 2,
+          "description": "Increases the power of negotiation effects."
+        },
+        {
+          "rank": 3,
+          "description": "Allows negotiation to occur when purchasing items, effectively reducing prices paid."
+        },
+        {
+          "rank": 4,
+          "description": "Increases the power of negotiation effects."
+        },
+        {
+          "rank": 5,
+          "description": "Allows negotiation for the costs of services such as manufacturing and refining. Any discounts received are automatically factored in when a cost is presented."
+        },
+        {
+          "rank": 6,
+          "description": "Increases the power of negotiation effects."
+        },
+        {
+          "rank": 7,
+          "description": "Increases rewards received for mission completion."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 37,
+      "name": "Power Down",
+      "description": "Power Down abilities are used to fool enemies by making the ship appear incapacitated, often causing enemies to break off attacks.",
+      "category": "combat",
+      "minimumRank": 0,
+      "group": "Active",
+      "professionRules": [
+        {
+          "professionIndex": 8,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 6
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Enables the Power Down ability."
+        },
+        {
+          "rank": 2,
+          "description": "Increases power down success chances."
+        },
+        {
+          "rank": 3,
+          "description": "Increases success chances and enables the Advanced Power Down ability."
+        },
+        {
+          "rank": 4,
+          "description": "Increases power down success chances."
+        },
+        {
+          "rank": 5,
+          "description": "Increases success chances and enables the Advanced Power Down 2 ability."
+        },
+        {
+          "rank": 6,
+          "description": "Increases success chances and enables the Advanced Power Down 3 ability."
+        },
+        {
+          "rank": 7,
+          "description": "Increases success chances and enables the Advanced Power Down 4 ability."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 39,
+      "name": "Nullfactor Field",
+      "description": "Surrounds the Scout's Ship with a field of exotic particles which counteract environmental hazards (Radiation, EM interference, Gravitic Shear, Gravity Wells), converting the energy into a slight increase in reactor recharge rate. This effect is applied to all group members being in formation and does not stack with Environment Shield. [b]The player must manually deactivate the field which will take the reactor offline for between 5 and 20 seconds[/b].",
+      "category": "total",
+      "minimumRank": 0,
+      "group": "Active",
+      "professionRules": [
+        {
+          "professionIndex": 2,
+          "maximumRank": 5,
+          "requirementCurve": "non",
+          "learnLevel": 45
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Nullifies Environmental Effects. 2% reactor capacity energy cost. Increases Reactor Recharge rate by 2%"
+        },
+        {
+          "rank": 2,
+          "description": "Nullifies Environmental Effects. 4% reactor capacity energy cost. Increases Reactor Recharge rate by 4%"
+        },
+        {
+          "rank": 3,
+          "description": "Nullifies Environmental Effects. 6% reactor capacity energy cost. Increases Reactor Recharge rate by 6%"
+        },
+        {
+          "rank": 4,
+          "description": "Nullifies Environmental Effects. 8% reactor capacity energy cost. Increases Reactor Recharge rate by 8%"
+        },
+        {
+          "rank": 5,
+          "description": "Nullifies Environmental Effects. 10% reactor capacity energy cost. Increases Reactor Recharge rate by 10%"
+        },
+        {
+          "rank": 6,
+          "description": "Maximum Level Attained."
+        }
+      ]
+    },
+    {
+      "id": 40,
+      "name": "Projectile Weapon",
+      "description": "Allows use of projectile weapons of a level equal to or below the skill level, and increases damage with projectile weapons by +25% per level.",
+      "category": "combat",
+      "minimumRank": 0,
+      "group": "Weapons",
+      "professionRules": [
+        {
+          "professionIndex": 0,
+          "maximumRank": 8,
+          "requirementCurve": "sw",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 3,
+          "maximumRank": 8,
+          "requirementCurve": "sw",
+          "learnLevel": 11
+        },
+        {
+          "professionIndex": 4,
+          "maximumRank": 8,
+          "requirementCurve": "sw",
+          "learnLevel": 20
+        },
+        {
+          "professionIndex": 5,
+          "maximumRank": 8,
+          "requirementCurve": "sw",
+          "learnLevel": 25
+        },
+        {
+          "professionIndex": 6,
+          "maximumRank": 9,
+          "requirementCurve": "pw",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 7,
+          "maximumRank": 9,
+          "requirementCurve": "pw",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 8,
+          "maximumRank": 9,
+          "requirementCurve": "pw",
+          "learnLevel": 0
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Allows the use of level 1 projectile weapons."
+        },
+        {
+          "rank": 2,
+          "description": "+25% damage, improves accuracy, and allows the use of level 2 projectile weapons."
+        },
+        {
+          "rank": 3,
+          "description": "+50% damage, improves accuracy, and allows the use of level 3 projectile weapons."
+        },
+        {
+          "rank": 4,
+          "description": "+75% damage, improves accuracy, and allows the use of level 4 projectile weapons."
+        },
+        {
+          "rank": 5,
+          "description": "+100% damage, improves accuracy, and allows the use of level 5 projectile weapons."
+        },
+        {
+          "rank": 6,
+          "description": "+125% damage, improves accuracy, and allows the use of level 6 projectile weapons."
+        },
+        {
+          "rank": 7,
+          "description": "+150% damage, improves accuracy, and allows the use of level 7 projectile weapons."
+        },
+        {
+          "rank": 8,
+          "description": "+175% damage, improves accuracy, and allows the use of level 8 projectile weapons."
+        },
+        {
+          "rank": 9,
+          "description": "+200% damage, improves accuracy, and allows the use of level 9 projectile weapons."
+        }
+      ]
+    },
+    {
+      "id": 41,
+      "name": "Prospect",
+      "description": "The Prospect skill allows retrieval of valuable resources from objects such as asteroids, gas clouds, and hulks.  This skill is activated using a action button that will appear when a prospectable object is targeted.",
+      "category": "explore",
+      "minimumRank": 0,
+      "group": "Passive",
+      "professionRules": [
+        {
+          "professionIndex": 2,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 5,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 8,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 0
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Enables the Prospect ability and allows refining of Tech 1 ores."
+        },
+        {
+          "rank": 2,
+          "description": "Reduces the amount of time and energy required to prospect and extends range to 1250 units. Enables the refining of Tech 2 ores."
+        },
+        {
+          "rank": 3,
+          "description": "Reduces the amount of time and energy required to prospect and extends range to 1500 units. Enables the refining of Tech 3 ores."
+        },
+        {
+          "rank": 4,
+          "description": "Reduces the amount of time and energy required to prospect and extends range to 1750 units. Enables the refining of Tech 4 ores."
+        },
+        {
+          "rank": 5,
+          "description": "Reduces the amount of time and energy required to prospect and extends range to 2000 units. Enables the refining of Tech 5 ores."
+        },
+        {
+          "rank": 6,
+          "description": "Reduces the amount of time and energy required to prospect and extends range to 2250 units. Enables the refining of Tech 6 and 7 ores."
+        },
+        {
+          "rank": 7,
+          "description": "Reduces the amount of time and energy required to prospect and extends range to 2500 units. Enables the refining of Tech 8 and 9 ores."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 42,
+      "name": "Psionic Shield",
+      "description": "Psionic Shield abilities create a temporary shield around any ship that absorbs damage and improves resistance to special attacks.",
+      "category": "combat",
+      "minimumRank": 0,
+      "group": "Active",
+      "professionRules": [
+        {
+          "professionIndex": 3,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 0
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Enables the Psionic Barrier ability."
+        },
+        {
+          "rank": 2,
+          "description": "Psionic Barriers can absorb 60 damage and range is increased to 2750 units."
+        },
+        {
+          "rank": 3,
+          "description": "Enables the Lesser Psionic Shield ability and increases range to 3000 units."
+        },
+        {
+          "rank": 4,
+          "description": "Increases range to 3250 units and increases the protection provided by abilities."
+        },
+        {
+          "rank": 5,
+          "description": "Enables the Psionic Shield ability and increases range to 3500 units."
+        },
+        {
+          "rank": 6,
+          "description": "Enables the Greater Psionic Shield ability and increases range to 3750 units."
+        },
+        {
+          "rank": 7,
+          "description": "Enables the Psionic Invulnerability ability and increases range to 4000 units."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 43,
+      "name": "Reactor Optimization",
+      "description": "The Reactor Optimization ability allows players to temporarily increase their Reactor Capacity and Reactor Regeneration Rate.",
+      "category": "combat",
+      "minimumRank": 0,
+      "group": "Active",
+      "professionRules": [
+        {
+          "professionIndex": 4,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 0
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Enables the  Reactor Boost ability."
+        },
+        {
+          "rank": 2,
+          "description": "Increases the Reactor Capacity of a player by 10%. Ability may only be applied to skill user."
+        },
+        {
+          "rank": 3,
+          "description": "Enables the  Reactor Surge ability. Ability may only be applied to skill user."
+        },
+        {
+          "rank": 4,
+          "description": "Increases the amount of Reactor Capacity by 15%. Ability may only be applied to skill user."
+        },
+        {
+          "rank": 5,
+          "description": "Enables the Reactor Extension ability with a range of up to 3500 units."
+        },
+        {
+          "rank": 6,
+          "description": "Enables the Reactor Augmentation ability and increases range to 3750 units."
+        },
+        {
+          "rank": 7,
+          "description": "Enables the Reactor Optimization ability and increases range to 4000 units."
+        }
+      ]
+    },
+    {
+      "id": 44,
+      "name": "Rally",
+      "description": "Rally abilities are used to provide various combat bonuses to all group members simultaneously.",
+      "category": "combat",
+      "minimumRank": 0,
+      "group": "Active",
+      "professionRules": [
+        {
+          "professionIndex": 0,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 20
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Enables the Damage Tactics ability."
+        },
+        {
+          "rank": 2,
+          "description": "Improves rally bonuses and increases range to 5250 units."
+        },
+        {
+          "rank": 3,
+          "description": "Improves rally bonuses, increases range to 5500 units, and enables the Defense Tactics ability."
+        },
+        {
+          "rank": 4,
+          "description": "Improves rally bonuses and increases range to 5750 units."
+        },
+        {
+          "rank": 5,
+          "description": "Improves rally bonuses, increases range to 6000 units, and enables the Firing Tactics ability."
+        },
+        {
+          "rank": 6,
+          "description": "Improves rally bonuses and increases range to 6250 units."
+        },
+        {
+          "rank": 7,
+          "description": "Improves rally bonuses, increases range to 6500 units, and enables the Stealth Tactics ability."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 45,
+      "name": "Reactor Tech",
+      "description": "Allows use of reactors of a level equal to or below the skill level.",
+      "category": "total",
+      "minimumRank": 1,
+      "group": "Tech",
+      "professionRules": [
+        {
+          "professionIndex": 0,
+          "maximumRank": 8,
+          "requirementCurve": "st",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 1,
+          "maximumRank": 8,
+          "requirementCurve": "st",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 2,
+          "maximumRank": 8,
+          "requirementCurve": "st",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 3,
+          "maximumRank": 9,
+          "requirementCurve": "pt",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 4,
+          "maximumRank": 9,
+          "requirementCurve": "pt",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 5,
+          "maximumRank": 9,
+          "requirementCurve": "pt",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 6,
+          "maximumRank": 9,
+          "requirementCurve": "pt",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 7,
+          "maximumRank": 9,
+          "requirementCurve": "pt",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 8,
+          "maximumRank": 8,
+          "requirementCurve": "st",
+          "learnLevel": 0
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Allows the use of level 1 reactors."
+        },
+        {
+          "rank": 2,
+          "description": "Allows the use of level 2 reactors."
+        },
+        {
+          "rank": 3,
+          "description": "Allows the use of level 3 reactors."
+        },
+        {
+          "rank": 4,
+          "description": "Allows the use of level 4 reactors."
+        },
+        {
+          "rank": 5,
+          "description": "Allows the use of level 5 reactors."
+        },
+        {
+          "rank": 6,
+          "description": "Allows the use of level 6 reactors."
+        },
+        {
+          "rank": 7,
+          "description": "Allows the use of level 7 reactors."
+        },
+        {
+          "rank": 8,
+          "description": "Allows the use of level 8 reactors."
+        },
+        {
+          "rank": 9,
+          "description": "Allows the use of level 9 reactors."
+        }
+      ]
+    },
+    {
+      "id": 46,
+      "name": "Recharge Shields",
+      "description": "Recharge Shields abilities are used to quickly recharge shield energy levels.",
+      "category": "combat",
+      "minimumRank": 0,
+      "group": "Active",
+      "professionRules": [
+        {
+          "professionIndex": 1,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 4,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 7,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 0
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Enables the Regenerate Shields ability."
+        },
+        {
+          "rank": 2,
+          "description": "Increases the amount of shield recharge provided by all abilities."
+        },
+        {
+          "rank": 3,
+          "description": "Enables the Recharge Shields ability."
+        },
+        {
+          "rank": 4,
+          "description": "Increases the amount of shield recharge provided by all abilities and increases range to 3250 units."
+        },
+        {
+          "rank": 5,
+          "description": "Enables the Combat Shield Recharge ability and increases range to 3500 units."
+        },
+        {
+          "rank": 6,
+          "description": "Enables the Area Shield Recharge ability and increases range to 3750 units."
+        },
+        {
+          "rank": 7,
+          "description": "Enables the Improved Area Recharge ability and increases range to 4000 units."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 47,
+      "name": "Repair Equipment",
+      "description": "The Repair Equipment skill can be used to repair damaged or destroyed equipment, restoring normal operation.",
+      "category": "trade",
+      "minimumRank": 0,
+      "group": "Active",
+      "professionRules": [
+        {
+          "professionIndex": 0,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 20
+        },
+        {
+          "professionIndex": 3,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 20
+        },
+        {
+          "professionIndex": 6,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 20
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Enables the Regenerate Equipment ability."
+        },
+        {
+          "rank": 2,
+          "description": "Increases the equipment repair rate."
+        },
+        {
+          "rank": 3,
+          "description": "Increases equipment repair rate and enables the Repair Equipment ability."
+        },
+        {
+          "rank": 4,
+          "description": "Improves the equipment repair rate and increases range to 3250 units."
+        },
+        {
+          "rank": 5,
+          "description": "Improves equipment repair rate, increases range to 3500 units, and enables the Combat Equipment Repair ability."
+        },
+        {
+          "rank": 6,
+          "description": "Improves equipment repair rate, increases range to 3750 units, and enables the Area Equipment Repair ability."
+        },
+        {
+          "rank": 7,
+          "description": "Improves equipment repair rate, increases range to 4000 units, and enables the Improved Area Repair ability."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 48,
+      "name": "Repulsor Field",
+      "description": "Repulsor Field abilities generate feedback that returns energy damage to the original source of incoming damage. At higher levels the damaged returned increases.  The affected damage types for all levels are: Chemical, EMP, Energy, Explosive, Impact, Plasma",
+      "category": "explore",
+      "minimumRank": 0,
+      "group": "Active",
+      "professionRules": [
+        {
+          "professionIndex": 8,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 0
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Generates feedback damage when skill user is struck by affected damage types. Ability may only be applied to skill user."
+        },
+        {
+          "rank": 2,
+          "description": "Increases maximum feedback amount and duration."
+        },
+        {
+          "rank": 3,
+          "description": "Generates feedback damage when skill user is struck by affected damage types, increases feedback amount, maximum feedback amount, and duration. Ability may be applied to skill user or other characters."
+        },
+        {
+          "rank": 4,
+          "description": "Increases maximum feedback amount and duration."
+        },
+        {
+          "rank": 5,
+          "description": "Generates feedback damage when skill user is struck by affected damage types, increases feedback amount, maximum feedback amount, and duration. Ability may be applied to skill user or other characters."
+        },
+        {
+          "rank": 6,
+          "description": "Generates feedback damage when skill user is struck by affected damage types, increases maximum feedback amount, and duration. Ability may be applied to skill user or other characters."
+        },
+        {
+          "rank": 7,
+          "description": "Generates feedback damage when skill user is struck by affected damage types, increases maximum feedback amount, and duration. Ability may be applied to skill user or other characters."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 49,
+      "name": "Scan",
+      "description": "The Scan skill grants passive bonuses that increase object detection distance and allow targeting of cloaked objects.",
+      "category": "explore",
+      "minimumRank": 0,
+      "group": "Passive",
+      "professionRules": [
+        {
+          "professionIndex": 2,
+          "maximumRank": 5,
+          "requirementCurve": "non",
+          "learnLevel": 40
+        },
+        {
+          "professionIndex": 3,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 40
+        },
+        {
+          "professionIndex": 4,
+          "maximumRank": 5,
+          "requirementCurve": "non",
+          "learnLevel": 35
+        },
+        {
+          "professionIndex": 5,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 35
+        },
+        {
+          "professionIndex": 8,
+          "maximumRank": 5,
+          "requirementCurve": "non",
+          "learnLevel": 40
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Increases the range of the ship's scanners by 1000 units."
+        },
+        {
+          "rank": 2,
+          "description": "Increases the range of the ship's scanners by 1250 units."
+        },
+        {
+          "rank": 3,
+          "description": "Increases the range of the ship's scanners by 1500 units and allows detection of cloaked objects."
+        },
+        {
+          "rank": 4,
+          "description": "Increases the range of the ship's scanners by 1750 units and improves the chance that cloaked objects will be revealed."
+        },
+        {
+          "rank": 5,
+          "description": "Increases the range of the ship's scanners by 2000 units. When a cloaked object is detected, all group members can see it."
+        },
+        {
+          "rank": 6,
+          "description": "Increases the range of the ship's scanners by 2250 units and improves the chance that cloaked objects will be revealed."
+        },
+        {
+          "rank": 7,
+          "description": "Increases the range of the ship's scanners by 2500 units, and automatically shares all scanning information with group members."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 50,
+      "name": "Self Destruct",
+      "description": "Self Destruct abilities temporarily incapacitate the ship but cause tremendous damage to all surrounding enemies.  When self destruct is utilized, the ship loses all shield and reactor energy, and is temporarily unable to perform any action.",
+      "category": "combat",
+      "minimumRank": 0,
+      "group": "Active",
+      "professionRules": [
+        {
+          "professionIndex": 6,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 40
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Enables the Self Destruct I ability."
+        },
+        {
+          "rank": 2,
+          "description": "Improves damage output and increases damage radius to 1250 units."
+        },
+        {
+          "rank": 3,
+          "description": "Enables the Self Destruct II ability and increases damage radius to 1500 units."
+        },
+        {
+          "rank": 4,
+          "description": "Improves damage output and increases damage radius to 1750 units."
+        },
+        {
+          "rank": 5,
+          "description": "Enables the Self Destruct III ability and increases damage radius to 2000 units."
+        },
+        {
+          "rank": 6,
+          "description": "Enables the Self Destruct IV ability and increases damage radius to 2250 units."
+        },
+        {
+          "rank": 7,
+          "description": "Enables the Self Destruct V ability and increases damage radius to 2500 units."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 51,
+      "name": "Shield Charging",
+      "description": "The Shield Charging ability allows players to temporarily increase their Shield Capacity, Shield Regeneration Rate and Damage Resistances.",
+      "category": "combat",
+      "minimumRank": 0,
+      "group": "Active",
+      "professionRules": [
+        {
+          "professionIndex": 1,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 0
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Enables the Supercharge Shields ability."
+        },
+        {
+          "rank": 2,
+          "description": "Increases the Shield Capacity of a player by 10%. Ability may only be applied to skill user."
+        },
+        {
+          "rank": 3,
+          "description": "Enables the Ultracharge Shields ability. Ability may only be applied to skill user."
+        },
+        {
+          "rank": 4,
+          "description": "Increases the amount of Shield Capacity by 15%. Ability may only be applied to skill user."
+        },
+        {
+          "rank": 5,
+          "description": "Enables the Supercharge Target ability with a range of up to 3500 units."
+        },
+        {
+          "rank": 6,
+          "description": "Enables the Ultracharge Target ability and increases range to 3750 units."
+        },
+        {
+          "rank": 7,
+          "description": "Enables the Megacharge Shields ability and increases range to 4000 units."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 52,
+      "name": "Shield Inversion",
+      "description": "Shield Inversion abilities allow the shield to be used as a short-range weapon, inflicting heavy damage but depleting shield energy.",
+      "category": "combat",
+      "minimumRank": 0,
+      "group": "Active",
+      "professionRules": [
+        {
+          "professionIndex": 6,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 7,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 35
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Enables the Shield Ram ability."
+        },
+        {
+          "rank": 2,
+          "description": "Increases range to 1250 units."
+        },
+        {
+          "rank": 3,
+          "description": "Enables the Shield Spike ability and increases range to 1500 units."
+        },
+        {
+          "rank": 4,
+          "description": "Increases range to 1750 units."
+        },
+        {
+          "rank": 5,
+          "description": "Enables the Shield Burn ability and increases range to 2000 units."
+        },
+        {
+          "rank": 6,
+          "description": "Enables the Shield Flare ability and increases range to 2250 units."
+        },
+        {
+          "rank": 7,
+          "description": "Enables the Shield Nova ability and increases range to 2500 units."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 53,
+      "name": "Shield Leech",
+      "description": "This ability drains a portion of an enemy's or group of enemies' shields.  At higher levels, this skill transfers some of those drained shields to the player's or a player group's energy banks.",
+      "category": "explore",
+      "minimumRank": 0,
+      "group": "Active",
+      "professionRules": [
+        {
+          "professionIndex": 5,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 0
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Drains shields from an enemy target."
+        },
+        {
+          "rank": 2,
+          "description": "Improves amount of drain on a single target and extends range to 1250 units."
+        },
+        {
+          "rank": 3,
+          "description": "Improves amount of drain on a single target, converts a percentage of that into energy for the player, and extends range to 1500 units."
+        },
+        {
+          "rank": 4,
+          "description": "Improves amount of drain and extends range to 1750 units."
+        },
+        {
+          "rank": 5,
+          "description": "Improves amount of shield drain on a single target, converts a percentage of that into energy for the player and their group, and extends range to 2000 units."
+        },
+        {
+          "rank": 6,
+          "description": "Improves amount of shield drain in a spherical area of effect of 1500 units surrounding the player, converts a percentage of that into energy for the player, and extends range to 2250 units."
+        },
+        {
+          "rank": 7,
+          "description": "Improves amount of shield drain in a spherical area of effect of 3000 units surrounding the player, converts a percentage of that into energy for the player and their group, and extends range to 2500 units."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 54,
+      "name": "Shield Sap",
+      "description": "Shield Sap abilities drain a portion of a target's or group of targets shields. At higher levels a fraction of the drained shield energy is transferred to the shields of the skill user or the skill user's group.",
+      "category": "combat",
+      "minimumRank": 0,
+      "group": "Active",
+      "professionRules": [
+        {
+          "professionIndex": 6,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 0
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Drains shield energy from a single target."
+        },
+        {
+          "rank": 2,
+          "description": "Increases amount of shield energy drained, and extends range to 1250 units."
+        },
+        {
+          "rank": 3,
+          "description": "Drains shield energy from a single target, transfers a portion to the skill user's shield, and extends range to 1500 units."
+        },
+        {
+          "rank": 4,
+          "description": "Increases amount of shield energy drained, increases amount transferred to skill user, and extends range to 1750 units."
+        },
+        {
+          "rank": 5,
+          "description": "Drains shield energy from a single target, transfers a fraction of the drained shield energy to each member of the skill user's group, and extends range to 2000 units."
+        },
+        {
+          "rank": 6,
+          "description": "Drains shield energy from all targets within 1500 units of the primary target, transfers a portion to the skill user's shield, and extends range to 2250 units."
+        },
+        {
+          "rank": 7,
+          "description": "Drains shield energy from all targets within 3000 units of the primary target, transfers a portion of the drained shield energy to each member of the skill user's group, and extends range to 2500 units."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 55,
+      "name": "Shield Tech",
+      "description": "Allows use of shields of a level equal to or below the skill level.",
+      "category": "total",
+      "minimumRank": 1,
+      "group": "Tech",
+      "professionRules": [
+        {
+          "professionIndex": 0,
+          "maximumRank": 9,
+          "requirementCurve": "pt",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 1,
+          "maximumRank": 9,
+          "requirementCurve": "pt",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 2,
+          "maximumRank": 8,
+          "requirementCurve": "st",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 3,
+          "maximumRank": 8,
+          "requirementCurve": "st",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 4,
+          "maximumRank": 8,
+          "requirementCurve": "st",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 5,
+          "maximumRank": 8,
+          "requirementCurve": "st",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 6,
+          "maximumRank": 9,
+          "requirementCurve": "pt",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 7,
+          "maximumRank": 9,
+          "requirementCurve": "pt",
+          "learnLevel": 0
+        },
+        {
+          "professionIndex": 8,
+          "maximumRank": 9,
+          "requirementCurve": "pt",
+          "learnLevel": 0
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Allows the use of level 1 shields."
+        },
+        {
+          "rank": 2,
+          "description": "Allows the use of level 2 shields."
+        },
+        {
+          "rank": 3,
+          "description": "Allows the use of level 3 shields."
+        },
+        {
+          "rank": 4,
+          "description": "Allows the use of level 4 shields."
+        },
+        {
+          "rank": 5,
+          "description": "Allows the use of level 5 shields."
+        },
+        {
+          "rank": 6,
+          "description": "Allows the use of level 6 shields."
+        },
+        {
+          "rank": 7,
+          "description": "Allows the use of level 7 shields."
+        },
+        {
+          "rank": 8,
+          "description": "Allows the use of level 8 shields."
+        },
+        {
+          "rank": 9,
+          "description": "Allows the use of level 9 shields."
+        }
+      ]
+    },
+    {
+      "id": 56,
+      "name": "Summon",
+      "description": "Summon abilities are used to teleport friends or enemies to the current location.",
+      "category": "combat",
+      "minimumRank": 0,
+      "group": "Active",
+      "professionRules": [
+        {
+          "professionIndex": 3,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 0
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Enables the Summon Enemy ability."
+        },
+        {
+          "rank": 2,
+          "description": "Increases teleportation range to 5250 units."
+        },
+        {
+          "rank": 3,
+          "description": "Increases teleportation range to 5500 units and enables the Summon Friend ability."
+        },
+        {
+          "rank": 4,
+          "description": "Increases teleportation range to 5750 units."
+        },
+        {
+          "rank": 5,
+          "description": "Increases teleportation range to 6000 units and enables the Summon Group ability."
+        },
+        {
+          "rank": 6,
+          "description": "Increases teleportation range to 6250 units and enables the Summon Enemy Group ability."
+        },
+        {
+          "rank": 7,
+          "description": "Increases teleportation range to 6500 units and enables the Return Friend ability."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    },
+    {
+      "id": 59,
+      "name": "Build Ammunition",
+      "description": "Enabled the build ammunition ability",
+      "category": "trade",
+      "minimumRank": 0,
+      "group": "Build",
+      "professionRules": [
+        {
+          "professionIndex": 2,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 30
+        },
+        {
+          "professionIndex": 8,
+          "maximumRank": 7,
+          "requirementCurve": "non",
+          "learnLevel": 30
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Enables building ammo L1"
+        },
+        {
+          "rank": 2,
+          "description": "Enables building ammo L2"
+        },
+        {
+          "rank": 3,
+          "description": "Enables building ammo L3"
+        },
+        {
+          "rank": 4,
+          "description": "Enables building ammo L4"
+        },
+        {
+          "rank": 5,
+          "description": "Enables building ammo L5"
+        },
+        {
+          "rank": 6,
+          "description": "Enables building ammo L6+L7"
+        },
+        {
+          "rank": 7,
+          "description": "Enables building ammo L8+L9"
+        },
+        {
+          "rank": 8,
+          "description": "Maximum Level Attained."
+        },
+        {
+          "rank": 9,
+          "description": "Im a bug, report me!"
+        }
+      ]
+    },
+    {
+      "id": 60,
+      "name": "Extended Wormhole",
+      "description": "Create extended Wormhole abilities provide rapid transport to various locations throughout the galaxy.",
+      "category": "total",
+      "minimumRank": 0,
+      "group": "Active",
+      "professionRules": [
+        {
+          "professionIndex": 5,
+          "maximumRank": 3,
+          "requirementCurve": "EX",
+          "learnLevel": 75
+        }
+      ],
+      "ranks": [
+        {
+          "rank": 1,
+          "description": "Enables the Witberg Gate"
+        },
+        {
+          "rank": 2,
+          "description": "Enables the Vishaos Cove Gate"
+        },
+        {
+          "rank": 3,
+          "description": "Enables the Venus Gate"
+        },
+        {
+          "rank": 4,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 5,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 6,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 7,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 8,
+          "description": "I am a bug. Please report me."
+        },
+        {
+          "rank": 9,
+          "description": "I am a bug. Please report me."
+        }
+      ]
+    }
+  ]
+}

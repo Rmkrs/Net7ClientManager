@@ -12,7 +12,10 @@ public sealed class ClientDockingService
             return false;
         }
 
-        _ = NativeMethods.TryRemoveTitleBar(gameWindowHandle);
+        if (!NativeMethods.TryPrepareHostedGameWindow(gameWindowHandle))
+        {
+            return false;
+        }
 
         if (!this.IsValidWindow(gameWindowHandle) || !this.IsValidWindow(hostWindowHandle))
         {

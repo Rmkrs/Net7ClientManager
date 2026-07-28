@@ -1,0 +1,15 @@
+# Repository text files use CRLF in the working tree.
+* text=auto eol=crlf
+
+# Preserve Unix line endings for shell scripts, should we add any.
+*.sh text eol=lf
+
+# Binary files must never be line-ending normalized.
+*.ico  binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.zip  binary
+*.n7addon binary
+*.n7data  binary

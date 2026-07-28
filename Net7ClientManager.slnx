@@ -1,5 +1,7 @@
 <Solution>
   <Folder Name="/Source/">
+    <Project Path="Source/Net7ClientManager.Addons/Net7ClientManager.Addons.csproj" />
+    <Project Path="Source/Net7ClientManager.Observations/Net7ClientManager.Observations.csproj" />
     <Project Path="Source/Net7ClientManager/Net7ClientManager.csproj" />
   </Folder>
 </Solution>

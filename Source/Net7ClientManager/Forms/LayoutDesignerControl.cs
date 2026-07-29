@@ -141,7 +141,7 @@ public sealed class LayoutDesignerControl : Control
         this.FitToView();
     }
 
-    public WindowBounds CreateDefaultSlotBounds()
+    public Rectangle GetDefaultSlotScreenBounds()
     {
         var monitors = this.GetDisplayMonitors();
 
@@ -149,11 +149,15 @@ public sealed class LayoutDesignerControl : Control
                       ?? FirstOrNull(monitors, monitor => monitor.IsPrimary)
                       ?? FirstOrNull(monitors, _ => true);
 
-        var monitorBounds = monitor?.RealBounds
-                            ?? Screen.PrimaryScreen?.Bounds
-                            ?? SystemInformation.VirtualScreen;
+        return monitor?.RealBounds
+               ?? Screen.PrimaryScreen?.Bounds
+               ?? SystemInformation.VirtualScreen;
+    }
 
-        return SlotPlacementDefaults.CreateForScreen(monitorBounds);
+    public WindowBounds CreateDefaultSlotBounds()
+    {
+        return SlotPlacementDefaults.CreateForScreen(
+            this.GetDefaultSlotScreenBounds());
     }
 
     private void FitToView()

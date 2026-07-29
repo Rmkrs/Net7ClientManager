@@ -13,12 +13,25 @@ public sealed class AccountEditorForm : ThemedForm
     private readonly ThemedCheckBox clearPasswordCheckBox = new();
 
     private readonly GameAccount account;
+    private readonly AccountEditorGuidanceTarget guidanceTarget;
 
     public AccountEditorForm(GameAccount account)
+        : this(
+            account,
+            AccountEditorGuidanceTarget.None,
+            isNew: false)
+    {
+    }
+
+    internal AccountEditorForm(
+        GameAccount account,
+        AccountEditorGuidanceTarget guidanceTarget,
+        bool isNew = false)
     {
         this.account = account;
+        this.guidanceTarget = guidanceTarget;
 
-        this.Text = string.IsNullOrWhiteSpace(account.DisplayName)
+        this.Text = isNew
             ? "Add account"
             : "Edit account";
 
@@ -38,6 +51,25 @@ public sealed class AccountEditorForm : ThemedForm
 
         this.displayNameTextBox.Text = account.DisplayName;
         this.loginNameTextBox.Text = account.LoginName;
+    }
+
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+
+        var target = this.guidanceTarget switch
+        {
+            AccountEditorGuidanceTarget.LoginName =>
+                this.loginNameTextBox,
+            AccountEditorGuidanceTarget.Password =>
+                this.passwordTextBox,
+            _ => null,
+        };
+
+        if (target != null)
+        {
+            this.BeginInvoke(() => ControlGuidancePulse.Start(target));
+        }
     }
 
     private void BuildUi()

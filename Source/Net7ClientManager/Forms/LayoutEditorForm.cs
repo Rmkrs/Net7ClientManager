@@ -270,8 +270,13 @@ internal sealed class LayoutEditorForm : ThemedForm
         object? sender,
         EventArgs e)
     {
-        var preset = this.clientManager.DefaultSlotResolutionPreset;
-        var bounds = this.layoutDesignerControl.CreateDefaultSlotBounds();
+        var screenBounds =
+            this.layoutDesignerControl.GetDefaultSlotScreenBounds();
+        var preset = SlotPlacementDefaults.SelectBestFitResolution(
+            this.clientManager.SlotResolutionPresets,
+            this.clientManager.DefaultSlotResolutionPreset,
+            screenBounds);
+        var bounds = SlotPlacementDefaults.CreateForScreen(screenBounds);
 
         bounds.Width = preset.Width;
         bounds.Height = preset.Height;

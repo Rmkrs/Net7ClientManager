@@ -45,6 +45,8 @@ public sealed partial class MainForm
         root.Controls.Add(this.CreateTopCardsPanel(), column: 0, row: 1);
 
         this.accountsButton.Click += this.AccountsButton_OnClick;
+        this.autoLoginReadinessButton.Click +=
+            this.AutoLoginReadinessButton_OnClick;
         this.pilotArchiveButton.Click += this.PilotArchiveButton_OnClick;
         this.gameSettingsButton.Click += this.GameSettingsButton_OnClick;
         this.profileComboBox.SelectedIndexChanged +=
@@ -71,7 +73,22 @@ public sealed partial class MainForm
 
     private Control CreateTopTitlePanel()
     {
-        var titlePanel = new Panel
+        var titlePanel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+            BackColor = MainWindowTheme.Header,
+        };
+
+        titlePanel.ColumnStyles.Add(
+            new ColumnStyle(SizeType.Percent, width: 100));
+        titlePanel.ColumnStyles.Add(
+            new ColumnStyle(SizeType.AutoSize));
+        titlePanel.RowStyles.Add(
+            new RowStyle(SizeType.Percent, height: 100));
+
+        var identityPanel = new Panel
         {
             Dock = DockStyle.Fill,
         };
@@ -93,8 +110,72 @@ public sealed partial class MainForm
             Location = new Point(x: 1, y: 28),
         };
 
-        titlePanel.Controls.Add(titleLabel);
-        titlePanel.Controls.Add(subtitleLabel);
+        identityPanel.Controls.Add(titleLabel);
+        identityPanel.Controls.Add(subtitleLabel);
+
+        var assistantPanel = new TableLayoutPanel
+        {
+            AutoSize = true,
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+            Margin = Padding.Empty,
+            BackColor = MainWindowTheme.Header,
+        };
+        assistantPanel.ColumnStyles.Add(
+            new ColumnStyle(SizeType.Absolute, width: 208));
+        assistantPanel.ColumnStyles.Add(
+            new ColumnStyle(SizeType.Absolute, width: 142));
+        assistantPanel.RowStyles.Add(
+            new RowStyle(SizeType.Percent, height: 100));
+
+        var assistantTextPanel = new Panel
+        {
+            Dock = DockStyle.Fill,
+        };
+
+        var assistantTitleLabel = new Label
+        {
+            AutoSize = true,
+            ForeColor = MainWindowTheme.Text,
+            Font = MainWindowTheme.CreateHeadingFont(size: 9.5f),
+            Text = "Auto-login setup",
+            Location = new Point(x: 0, y: 2),
+        };
+
+        var assistantSubtitleLabel = new Label
+        {
+            AutoSize = true,
+            ForeColor = MainWindowTheme.MutedText,
+            Text = "Find the next missing step.",
+            Location = new Point(x: 0, y: 24),
+        };
+
+        assistantTextPanel.Controls.Add(assistantTitleLabel);
+        assistantTextPanel.Controls.Add(assistantSubtitleLabel);
+
+        this.autoLoginReadinessButton = new Button
+        {
+            Text = "Check setup",
+            Width = 132,
+            Height = 32,
+            Anchor = AnchorStyles.Right,
+            Margin = new Padding(left: 10, top: 4, right: 0, bottom: 4),
+            AccessibleDescription =
+                "Check whether the selected profile is ready for automatic login and character selection.",
+        };
+        MainWindowTheme.StyleButton(
+            this.autoLoginReadinessButton,
+            primary: true);
+
+        assistantPanel.Controls.Add(assistantTextPanel, column: 0, row: 0);
+        assistantPanel.Controls.Add(
+            this.autoLoginReadinessButton,
+            column: 1,
+            row: 0);
+
+        titlePanel.Controls.Add(identityPanel, column: 0, row: 0);
+        titlePanel.Controls.Add(assistantPanel, column: 1, row: 0);
 
         return titlePanel;
     }

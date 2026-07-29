@@ -659,6 +659,11 @@ public sealed partial class MainForm
         object? sender,
         EventArgs e)
     {
+        this.AddSlot(SlotEditorGuidanceTarget.None);
+    }
+
+    private void AddSlot(SlotEditorGuidanceTarget guidanceTarget)
+    {
         var profile = this.clientManager.ActiveProfile;
 
         if (profile == null)
@@ -666,8 +671,13 @@ public sealed partial class MainForm
             return;
         }
 
-        var preset = this.clientManager.DefaultSlotResolutionPreset;
-        var bounds = SlotPlacementDefaults.CreateForPrimaryScreen();
+        var screenBounds = Screen.PrimaryScreen?.Bounds
+                           ?? SystemInformation.VirtualScreen;
+        var preset = SlotPlacementDefaults.SelectBestFitResolution(
+            this.clientManager.SlotResolutionPresets,
+            this.clientManager.DefaultSlotResolutionPreset,
+            screenBounds);
+        var bounds = SlotPlacementDefaults.CreateForScreen(screenBounds);
 
         bounds.Width = preset.Width;
         bounds.Height = preset.Height;
@@ -686,7 +696,8 @@ public sealed partial class MainForm
         using var form = new SlotEditorForm(
             this.clientManager,
             slot,
-            isNew: true);
+            isNew: true,
+            guidanceTarget: guidanceTarget);
 
         if (form.ShowDialog(this) != DialogResult.OK)
         {
@@ -700,6 +711,13 @@ public sealed partial class MainForm
 
     private void EditSlot(ClientSlot slot)
     {
+        this.EditSlot(slot, SlotEditorGuidanceTarget.None);
+    }
+
+    private void EditSlot(
+        ClientSlot slot,
+        SlotEditorGuidanceTarget guidanceTarget)
+    {
         if (this.clientManager.ActiveProfile == null)
         {
             return;
@@ -707,7 +725,8 @@ public sealed partial class MainForm
 
         using var form = new SlotEditorForm(
             this.clientManager,
-            slot);
+            slot,
+            guidanceTarget: guidanceTarget);
 
         if (form.ShowDialog(this) != DialogResult.OK)
         {

@@ -24,14 +24,18 @@ internal sealed class SlotEditorForm : ThemedForm
 
     private ResolutionPresetItem? independentGameResolution;
     private bool isRefreshing;
+    private readonly SlotEditorGuidanceTarget guidanceTarget;
 
     public SlotEditorForm(
         ClientManager clientManager,
         ClientSlot slot,
-        bool isNew = false)
+        bool isNew = false,
+        SlotEditorGuidanceTarget guidanceTarget =
+            SlotEditorGuidanceTarget.None)
     {
         this.clientManager = clientManager;
         this.slot = slot;
+        this.guidanceTarget = guidanceTarget;
 
         this.Text = isNew
             ? "Add client slot"
@@ -174,6 +178,26 @@ internal sealed class SlotEditorForm : ThemedForm
         this.Controls.Add(root);
 
         this.LoadSlot();
+    }
+
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+
+        Control? target = this.guidanceTarget switch
+        {
+            SlotEditorGuidanceTarget.Account => this.accountComboBox,
+            SlotEditorGuidanceTarget.Character => this.characterComboBox,
+            SlotEditorGuidanceTarget.AutoLogin => this.autoLoginCheckBox,
+            SlotEditorGuidanceTarget.AutoEnterGame =>
+                this.autoEnterGameCheckBox,
+            _ => null,
+        };
+
+        if (target != null)
+        {
+            this.BeginInvoke(() => ControlGuidancePulse.Start(target));
+        }
     }
 
     private Control CreateHeader()

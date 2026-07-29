@@ -47,7 +47,7 @@ public sealed class AppSettings
 
     public bool HasProfiles => this.Profiles.Count > 0;
 
-    public string DefaultSlotResolutionPresetName { get; set; } = "1280×720";
+    public string DefaultSlotResolutionPresetName { get; set; } = "1920×1080";
 
     public List<SlotResolutionPreset> SlotResolutionPresets { get; set; } = [];
 
@@ -189,10 +189,14 @@ public sealed class AppSettings
         .Select(item => item.Preset)];
 
         if (string.IsNullOrWhiteSpace(this.DefaultSlotResolutionPresetName)
+            || string.Equals(
+                this.DefaultSlotResolutionPresetName,
+                "1280×720",
+                StringComparison.Ordinal)
             || this.SlotResolutionPresets.TrueForAll(preset => !string.Equals(preset.Name, this.DefaultSlotResolutionPresetName, StringComparison.Ordinal)))
         {
             var preferredDefault = this.SlotResolutionPresets.FirstOrDefault(preset =>
-                                       string.Equals(preset.Name, "1280×720", StringComparison.Ordinal))
+                                       string.Equals(preset.Name, "1920×1080", StringComparison.Ordinal))
                                    ?? this.SlotResolutionPresets[0];
 
             this.DefaultSlotResolutionPresetName = preferredDefault.Name;

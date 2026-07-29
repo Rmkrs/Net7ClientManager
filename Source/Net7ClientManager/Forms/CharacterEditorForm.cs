@@ -27,10 +27,19 @@ public sealed class CharacterEditorForm : ThemedForm
     private readonly ComboBox professionComboBox = new();
 
     private readonly GameCharacter character;
+    private readonly bool guideCharacterName;
 
     public CharacterEditorForm(GameCharacter character)
+        : this(character, guideCharacterName: false)
+    {
+    }
+
+    internal CharacterEditorForm(
+        GameCharacter character,
+        bool guideCharacterName)
     {
         this.character = character;
+        this.guideCharacterName = guideCharacterName;
 
         this.Text = string.Create(
             CultureInfo.InvariantCulture,
@@ -63,6 +72,17 @@ public sealed class CharacterEditorForm : ThemedForm
 
         this.professionComboBox.SelectedItem =
             selectedProfession ?? professionOptions[0];
+    }
+
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+
+        if (this.guideCharacterName)
+        {
+            this.BeginInvoke(
+                () => ControlGuidancePulse.Start(this.nameTextBox));
+        }
     }
 
     private void BuildUi()

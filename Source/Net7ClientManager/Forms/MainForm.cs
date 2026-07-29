@@ -30,6 +30,7 @@ public sealed partial class MainForm : ThemedForm
     private ComboBox quickLaunchGameResolutionComboBox = null!;
     private Button startClientButton = null!;
     private Button accountsButton = null!;
+    private Button autoLoginReadinessButton = null!;
     private Button pilotArchiveButton = null!;
     private Button gameSettingsButton = null!;
     private Button createMissingClientsButton = null!;
@@ -138,6 +139,8 @@ public sealed partial class MainForm : ThemedForm
             this.QuickLaunchGameResolutionComboBox_OnSelectedIndexChanged;
         this.startClientButton.Click -= this.StartClientButton_OnClick;
         this.accountsButton.Click -= this.AccountsButton_OnClick;
+        this.autoLoginReadinessButton.Click -=
+            this.AutoLoginReadinessButton_OnClick;
         this.pilotArchiveButton.Click -= this.PilotArchiveButton_OnClick;
         this.gameSettingsButton.Click -= this.GameSettingsButton_OnClick;
 

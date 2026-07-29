@@ -27,25 +27,45 @@ internal static class SlotPlacementDefaults
     public static WindowBounds CreateForScreen(
         Rectangle screenBounds)
     {
-        var inset = Math.Min(
-            40,
-            Math.Max(16, screenBounds.Width / 20));
-
         var width = Math.Min(
-            1280,
-            Math.Max(640, screenBounds.Width / 2));
+            1920,
+            Math.Max(640, screenBounds.Width));
 
         var height = Math.Min(
-            720,
-            Math.Max(480, screenBounds.Height / 2));
+            1080,
+            Math.Max(480, screenBounds.Height));
 
         return new WindowBounds
         {
-            Left = screenBounds.Left + inset,
-            Top = screenBounds.Top + inset,
+            Left = screenBounds.Left,
+            Top = screenBounds.Top,
             Width = width,
             Height = height,
         };
+    }
+
+    public static SlotResolutionPreset SelectBestFitResolution(
+        IReadOnlyList<SlotResolutionPreset> presets,
+        SlotResolutionPreset preferredPreset,
+        Rectangle screenBounds)
+    {
+        if (FitsScreen(preferredPreset, screenBounds))
+        {
+            return preferredPreset;
+        }
+
+        return presets
+                   .Where(preset => FitsScreen(preset, screenBounds))
+                   .OrderByDescending(preset =>
+                       (long)preset.Width * preset.Height)
+                   .ThenByDescending(preset => preset.Width)
+                   .ThenByDescending(preset => preset.Height)
+                   .FirstOrDefault()
+               ?? presets
+                   .OrderBy(preset =>
+                       (long)preset.Width * preset.Height)
+                   .FirstOrDefault()
+               ?? preferredPreset;
     }
 
     public static WindowBounds CreateForPrimaryScreen()
@@ -54,5 +74,13 @@ internal static class SlotPlacementDefaults
                            ?? SystemInformation.VirtualScreen;
 
         return CreateForScreen(screenBounds);
+    }
+
+    private static bool FitsScreen(
+        SlotResolutionPreset preset,
+        Rectangle screenBounds)
+    {
+        return preset.Width <= screenBounds.Width &&
+               preset.Height <= screenBounds.Height;
     }
 }

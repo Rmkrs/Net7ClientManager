@@ -24,11 +24,27 @@ public sealed class AccountsForm : ThemedForm
     private GameAccount? selectedAccount;
     private int selectedCharacterSlotNumber = 1;
     private readonly Action<IReadOnlyList<GameAccount>> saveAccounts;
+    private readonly AccountsGuidanceRequest? guidanceRequest;
+    private bool guidanceApplied;
 
-    public AccountsForm(IReadOnlyList<GameAccount> accounts, Action<IReadOnlyList<GameAccount>> saveAccounts)
+    public AccountsForm(
+        IReadOnlyList<GameAccount> accounts,
+        Action<IReadOnlyList<GameAccount>> saveAccounts)
+        : this(accounts, saveAccounts, guidanceRequest: null)
+    {
+    }
+
+    internal AccountsForm(
+        IReadOnlyList<GameAccount> accounts,
+        Action<IReadOnlyList<GameAccount>> saveAccounts,
+        AccountsGuidanceRequest? guidanceRequest)
     {
         this.accounts = CloneAccounts(accounts);
         this.saveAccounts = saveAccounts;
+        this.guidanceRequest = guidanceRequest;
+        this.selectedAccount = guidanceRequest?.AccountId is { } accountId
+            ? this.accounts.FirstOrDefault(account => account.Id == accountId)
+            : null;
 
         this.Text = "Accounts";
         this.Icon = ResourceLoader.Net7ClientManagerIcon;
@@ -50,6 +66,50 @@ public sealed class AccountsForm : ThemedForm
         this.NormalizeAccountSortOrder();
 
         this.ResizeEnd += this.AccountsForm_Resize;
+    }
+
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+
+        if (this.guidanceApplied || this.guidanceRequest == null)
+        {
+            return;
+        }
+
+        this.guidanceApplied = true;
+        this.BeginInvoke(() => this.ApplyGuidanceRequest());
+    }
+
+    private void ApplyGuidanceRequest()
+    {
+        if (this.guidanceRequest == null ||
+            this.IsDisposed ||
+            this.Disposing)
+        {
+            return;
+        }
+
+        var completed = this.guidanceRequest.Action switch
+        {
+            AccountsGuidanceAction.AddAccount =>
+                this.AddAccount(AccountEditorGuidanceTarget.LoginName),
+            AccountsGuidanceAction.EditAccountLogin =>
+                this.EditSelectedAccount(
+                    AccountEditorGuidanceTarget.LoginName),
+            AccountsGuidanceAction.EditAccountPassword =>
+                this.EditSelectedAccount(
+                    AccountEditorGuidanceTarget.Password),
+            AccountsGuidanceAction.AddCharacter =>
+                this.GuideCharacterSetup(),
+            _ => false,
+        };
+
+        if (completed)
+        {
+            this.DialogResult = DialogResult.OK;
+            this.Close();
+        }
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)
@@ -649,16 +709,24 @@ public sealed class AccountsForm : ThemedForm
 
     private void AddAccountButton_OnClick(object? sender, EventArgs e)
     {
+        _ = this.AddAccount(AccountEditorGuidanceTarget.None);
+    }
+
+    private bool AddAccount(AccountEditorGuidanceTarget guidanceTarget)
+    {
         var account = new GameAccount
         {
             DisplayName = "New Account",
         };
 
-        using var editor = new AccountEditorForm(account);
+        using var editor = new AccountEditorForm(
+            account,
+            guidanceTarget,
+            isNew: true);
 
         if (editor.ShowDialog(this) != DialogResult.OK)
         {
-            return;
+            return false;
         }
 
         this.accounts.Add(account);
@@ -668,26 +736,36 @@ public sealed class AccountsForm : ThemedForm
         this.ReloadAccounts();
         this.ReloadCharacters();
         this.UpdateButtonState();
+        return true;
     }
 
     private void EditAccountButton_OnClick(object? sender, EventArgs e)
     {
+        _ = this.EditSelectedAccount(AccountEditorGuidanceTarget.None);
+    }
+
+    private bool EditSelectedAccount(
+        AccountEditorGuidanceTarget guidanceTarget)
+    {
         if (this.selectedAccount == null)
         {
-            return;
+            return false;
         }
 
-        using var editor = new AccountEditorForm(this.selectedAccount);
+        using var editor = new AccountEditorForm(
+            this.selectedAccount,
+            guidanceTarget);
 
         if (editor.ShowDialog(this) != DialogResult.OK)
         {
-            return;
+            return false;
         }
 
         this.SaveAccounts();
         this.ReloadAccounts();
         this.ReloadCharacters();
         this.UpdateButtonState();
+        return true;
     }
 
     private void DeleteAccountButton_OnClick(object? sender, EventArgs e)
@@ -722,9 +800,25 @@ public sealed class AccountsForm : ThemedForm
 
     private void EditCharacterButton_OnClick(object? sender, EventArgs e)
     {
+        _ = this.EditSelectedCharacter(guideCharacterName: false);
+    }
+
+    private bool GuideCharacterSetup()
+    {
         if (this.selectedAccount == null)
         {
-            return;
+            return false;
+        }
+
+        ControlGuidancePulse.Start(this.editCharacterButton);
+        return false;
+    }
+
+    private bool EditSelectedCharacter(bool guideCharacterName)
+    {
+        if (this.selectedAccount == null)
+        {
+            return false;
         }
 
         var character = this.selectedAccount.Characters
@@ -734,11 +828,13 @@ public sealed class AccountsForm : ThemedForm
                             CharacterSlotNumber = this.selectedCharacterSlotNumber,
                         };
 
-        using var editor = new CharacterEditorForm(character);
+        using var editor = new CharacterEditorForm(
+            character,
+            guideCharacterName);
 
         if (editor.ShowDialog(this) != DialogResult.OK)
         {
-            return;
+            return false;
         }
 
         this.selectedAccount.Characters.RemoveAll(existing =>
@@ -753,6 +849,7 @@ public sealed class AccountsForm : ThemedForm
         this.ReloadAccounts();
         this.ReloadCharacters();
         this.UpdateButtonState();
+        return true;
     }
 
     private void DeleteCharacterButton_OnClick(object? sender, EventArgs e)

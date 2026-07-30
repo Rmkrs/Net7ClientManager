@@ -95,6 +95,7 @@ public sealed partial class ClientHostForm : Form
     private readonly Action<ClientInstance, IWin32Window> openPilotArchiveRequested;
     private readonly Action<ClientInstance, IWin32Window> openSocialRequested;
     private readonly Action<ClientInstance, IWin32Window> openAddonsRequested;
+    private readonly Action<ClientInstance, IWin32Window> openHelpCenterRequested;
     private readonly Action<ClientInstance, IWin32Window>
         openInGameOptionsRequested;
     private readonly Func<
@@ -132,6 +133,7 @@ public sealed partial class ClientHostForm : Form
     private readonly List<AddonUiCommand> pendingUiCommands = [];
 
     private AddonOverlayForm? addonOverlayForm;
+    private HostedClientMenuTourForm? hostedClientMenuTourForm;
     private MissionWikiWebViewForm? missionWikiWebViewForm;
     private MissionWikiControlForm? missionWikiControlForm;
     private JobTerminalRouteControlForm? jobTerminalRouteControlForm;
@@ -200,6 +202,7 @@ public sealed partial class ClientHostForm : Form
         Action<ClientInstance, IWin32Window> openPilotArchiveRequested,
         Action<ClientInstance, IWin32Window> openSocialRequested,
         Action<ClientInstance, IWin32Window> openAddonsRequested,
+        Action<ClientInstance, IWin32Window> openHelpCenterRequested,
         Action<ClientInstance, IWin32Window> openInGameOptionsRequested,
         Func<
             MissionWikiLocationHint,
@@ -230,6 +233,7 @@ public sealed partial class ClientHostForm : Form
         this.openPilotArchiveRequested = openPilotArchiveRequested;
         this.openSocialRequested = openSocialRequested;
         this.openAddonsRequested = openAddonsRequested;
+        this.openHelpCenterRequested = openHelpCenterRequested;
         this.openInGameOptionsRequested =
             openInGameOptionsRequested;
         this.resolveMissionWikiDestination =
@@ -1131,6 +1135,8 @@ public sealed partial class ClientHostForm : Form
     {
         if (disposing)
         {
+            this.CloseHostedClientMenuTour();
+
             this.titleStatusTimer.Stop();
             this.titleStatusTimer.Tick -= this.TitleStatusTimer_OnTick;
             this.titleStatusTimer.Dispose();
@@ -1175,6 +1181,9 @@ public sealed partial class ClientHostForm : Form
                 this.addonOverlayForm.ManageAddonsRequested -=
                     this.AddonOverlayForm_OnManageAddonsRequested;
 
+                this.addonOverlayForm.HelpCenterRequested -=
+                    this.AddonOverlayForm_OnHelpCenterRequested;
+
                 this.addonOverlayForm.InGameOptionsRequested -=
                     this.AddonOverlayForm_OnInGameOptionsRequested;
 
@@ -1210,6 +1219,14 @@ public sealed partial class ClientHostForm : Form
         {
             Dock = DockStyle.Top,
             Height = TitleBarHeight,
+            ShowHelpButton = false,
+            HelpTopicId = HelpTopicIds.InGameTools,
+            HelpProcessIdProvider = () => this.clientInstance.ProcessId,
+            HelpOverride = () =>
+            {
+                this.ShowHostedClientTour();
+                return true;
+            },
         };
     }
 
@@ -1438,6 +1455,9 @@ public sealed partial class ClientHostForm : Form
         this.addonOverlayForm.ManageAddonsRequested +=
             this.AddonOverlayForm_OnManageAddonsRequested;
 
+        this.addonOverlayForm.HelpCenterRequested +=
+            this.AddonOverlayForm_OnHelpCenterRequested;
+
         this.addonOverlayForm.InGameOptionsRequested +=
             this.AddonOverlayForm_OnInGameOptionsRequested;
 
@@ -1486,6 +1506,13 @@ public sealed partial class ClientHostForm : Form
 
         var canPresent =
             !this.addonTransitioning;
+
+        this.titleBar.ShowHelpButton = inGame && canPresent;
+
+        if (!inGame || !canPresent)
+        {
+            this.CloseHostedClientMenuTour();
+        }
 
         if (this.addonOverlayForm == null ||
             this.addonOverlayForm.IsDisposed ||
@@ -2003,6 +2030,182 @@ public sealed partial class ClientHostForm : Form
         {
             this.skillBuildBoardForm.Activate();
         }
+    }
+
+    internal bool ShowBuildBoardForHelp(bool openForge)
+    {
+        if (!this.skillBuildBoardPresentation.HasBuildContext ||
+            this.skillBuildBoardPresentation.Baseline == null)
+        {
+            return false;
+        }
+
+        this.ShowBuildBoard();
+        var form = this.skillBuildBoardForm;
+
+        if (form == null || form.IsDisposed)
+        {
+            return false;
+        }
+
+        form.BeginInvoke(() =>
+        {
+            if (openForge)
+            {
+                form.ShowForgeHelpTour();
+            }
+            else
+            {
+                form.ShowHelpTour();
+            }
+        });
+
+        return true;
+    }
+
+    private void ShowHostedClientTour()
+    {
+        if (this.IsDisposed ||
+            this.Disposing ||
+            this.addonLifecycleState != ClientLifecycleState.InGame ||
+            this.addonTransitioning)
+        {
+            return;
+        }
+
+        if (this.WindowState == FormWindowState.Minimized)
+        {
+            this.WindowState = FormWindowState.Normal;
+        }
+
+        this.Show();
+        this.BringToFront();
+        this.Activate();
+        this.EnsureAddonOverlay();
+        this.SyncAddonOverlay();
+
+        this.CloseHostedClientMenuTour();
+
+        var steps = new HostedClientMenuTourStep[]
+        {
+            new(
+                "menu",
+                OpenMenu: false,
+                "Open the Client Manager menu",
+                "The flashing Client Manager tab appears only after your character is fully in game. Select it whenever you want Client Manager tools without leaving Earth & Beyond."),
+            new(
+                "help",
+                OpenMenu: true,
+                "Help & Assistance",
+                "Open the full Help Center to discover features, read focused explanations, or run setup checks for this client."),
+            new(
+                "options",
+                OpenMenu: true,
+                "Options",
+                "Choose how Client Manager behaves for this hosted client, including overlays, histories, tooltips, and other in-game helpers."),
+            new(
+                "atlas",
+                OpenMenu: true,
+                "Galaxy Atlas",
+                "Explore the galaxy visually, inspect systems and destinations, follow pilots, and send a selected location straight to Navigation."),
+            new(
+                "finder",
+                OpenMenu: true,
+                "Galaxy Finder",
+                "Search for places, NPCs, mobs, harvestables, equipment, components, recipes, vendors, and other useful sources."),
+            new(
+                "social",
+                OpenMenu: true,
+                "Social",
+                "Control your online presence, choose how precisely your location is shared, find a guild, or advertise guild recruitment."),
+            new(
+                "archive",
+                OpenMenu: true,
+                "Pilot Archive",
+                "Review the saved equipment, inventory, vault, missions, reputation, activity, and combat history collected for your pilots."),
+            new(
+                "builds",
+                OpenMenu: true,
+                "Builds",
+                "Open your build workspace to compare planned equipment and skills with the pilot currently using this client."),
+            new(
+                "contributions",
+                OpenMenu: true,
+                "Forge Contributions",
+                "Choose whether this installation shares supported discoveries with the community Forge dataset, and review exactly what is shared."),
+            new(
+                "addons",
+                OpenMenu: true,
+                "Addon Center and addon controls",
+                "Discover and manage addons in the Addon Center. Installed addons can also add their own windows and visibility switches beneath the main menu entries."),
+        };
+
+        this.hostedClientMenuTourForm = new HostedClientMenuTourForm(
+            this,
+            steps,
+            this.PrepareHostedClientMenuTourStep,
+            this.HostedClientMenuTour_OnClosed);
+        this.hostedClientMenuTourForm.StartTour();
+    }
+
+    private void PrepareHostedClientMenuTourStep(
+        HostedClientMenuTourStep step)
+    {
+        this.EnsureAddonOverlay();
+        this.SyncAddonOverlay();
+        _ = this.ShowBuiltInMenuGuidance(
+            step.MenuItem,
+            step.OpenMenu,
+            TimeSpan.FromMinutes(5));
+    }
+
+    private void HostedClientMenuTour_OnClosed()
+    {
+        this.hostedClientMenuTourForm = null;
+        this.addonOverlayForm?.CloseBuiltInMenuGuidance();
+
+        if (!this.IsDisposed && !this.Disposing)
+        {
+            this.Activate();
+        }
+    }
+
+    private void CloseHostedClientMenuTour()
+    {
+        var form = this.hostedClientMenuTourForm;
+        this.hostedClientMenuTourForm = null;
+
+        if (form != null && !form.IsDisposed)
+        {
+            form.Close();
+            form.Dispose();
+        }
+
+        this.addonOverlayForm?.CloseBuiltInMenuGuidance();
+    }
+
+    internal bool ShowBuiltInMenuGuidance(
+        string item,
+        bool openMenu = true,
+        TimeSpan? duration = null)
+    {
+        if (this.addonOverlayForm?.ShowBuiltInMenuGuidance(
+                item,
+                openMenu,
+                duration) != true)
+        {
+            return false;
+        }
+
+        if (this.WindowState == FormWindowState.Minimized)
+        {
+            this.WindowState = FormWindowState.Normal;
+        }
+
+        this.Show();
+        this.BringToFront();
+        this.Activate();
+        return true;
     }
 
     private void EnsureBuildBoardForm()
@@ -3150,6 +3353,15 @@ public sealed partial class ClientHostForm : Form
             this);
     }
 
+    private void AddonOverlayForm_OnHelpCenterRequested(
+        object? sender,
+        EventArgs e)
+    {
+        this.openHelpCenterRequested(
+            this.clientInstance,
+            this);
+    }
+
     private void AddonOverlayForm_OnManageAddonsRequested(
         object? sender,
         EventArgs e)
@@ -3157,6 +3369,26 @@ public sealed partial class ClientHostForm : Form
         this.openAddonsRequested(
             this.clientInstance,
             this);
+    }
+
+    internal bool TryGetAddonMenuToggleState(
+        string addonId,
+        out bool isChecked)
+    {
+        isChecked = false;
+
+        return this.addonOverlayForm?.TryGetAddonMenuToggleState(
+            addonId,
+            out isChecked) == true;
+    }
+
+    internal bool ShowAddonMenuToggleGuidance(string addonId)
+    {
+        this.EnsureAddonOverlay();
+        this.SyncAddonOverlay();
+
+        return this.addonOverlayForm?.ShowAddonMenuToggleGuidance(
+            addonId) == true;
     }
 
     private void AddonOverlayForm_OnInGameOptionsRequested(

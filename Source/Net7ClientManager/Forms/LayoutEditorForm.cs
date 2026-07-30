@@ -32,6 +32,8 @@ internal sealed class LayoutEditorForm : ThemedForm
             allowResize: true,
             showMinimizeButton: true,
             showMaximizeButton: true);
+        this.ConfigureHelpTopic(HelpTopicIds.Fleet);
+        this.ConfigureHelpTour(this.ShowHelpTour);
 
         this.layoutDesignerControl = new LayoutDesignerControl
         {
@@ -156,6 +158,31 @@ internal sealed class LayoutEditorForm : ThemedForm
         this.layoutDesignerControl.SelectSlot(
             clientManager.CurrentProfile.Slots.FirstOrDefault());
         this.UpdateSelectionState();
+    }
+
+
+    internal void ShowHelpTour()
+    {
+        GuidedTourOverlay.Show(
+            this,
+            [
+                new GuidedTourStep(
+                    () => this.layoutDesignerControl,
+                    "Place the fleet on your monitors",
+                    "Each rectangle is one client slot. Drag slots to the screen and position where that game window should open every time."),
+                new GuidedTourStep(
+                    () => this.layoutDesignerControl,
+                    "Resize a slot visually",
+                    "Resize the slot rectangle to change its hosted window size. The slot can also make the game render at the same resolution."),
+                new GuidedTourStep(
+                    () => this.editSlotButton,
+                    "Fine-tune the selected client",
+                    "Edit selected opens the exact account, character, position, resolution, automatic-login, and automatic-character choices for this slot."),
+                new GuidedTourStep(
+                    () => this.selectionLabel,
+                    "Check the result",
+                    "The footer describes the selected slot and its current position. Changes are saved to the active profile as you work."),
+            ]);
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)

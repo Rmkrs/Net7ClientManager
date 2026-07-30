@@ -21,6 +21,7 @@ internal sealed class AutoLoginReadinessDialog : ThemedForm
             allowResize: false,
             showMinimizeButton: false,
             showMaximizeButton: false);
+        this.ConfigureHelpTopic(HelpTopicIds.AutoLogin);
 
         var statusLabel = new Label
         {

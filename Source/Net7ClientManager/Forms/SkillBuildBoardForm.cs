@@ -87,6 +87,8 @@ internal sealed partial class SkillBuildBoardForm : ThemedForm
             allowResize: true,
             showMinimizeButton: true,
             showMaximizeButton: true);
+        this.ConfigureHelpTopic(HelpTopicIds.Builds);
+        this.ConfigureHelpTour(this.ShowHelpTour);
 
         this.ConfigureContent();
         this.Controls.Add(this.contentPanel);
@@ -94,6 +96,72 @@ internal sealed partial class SkillBuildBoardForm : ThemedForm
 
         this.FormClosing += this.SkillBuildBoardForm_OnFormClosing;
         this.workspace.Changed += this.Workspace_OnChanged;
+    }
+
+
+    internal void ShowHelpTour()
+    {
+        GuidedTourOverlay.Show(
+            this,
+            [
+                new GuidedTourStep(
+                    () => (Control?)this.localBuildPicker ?? this.contentPanel,
+                    "Choose a build for this pilot",
+                    "A build is a step-by-step equipment and skill guide. Use the picker to switch between saved builds, and Use to make one the active guide for this pilot.",
+                    this.ShowLocalBuildsForTour),
+                new GuidedTourStep(
+                    () => (Control?)this.forgeSearchTextBox ?? this.contentPanel,
+                    "Find community builds in the Forge",
+                    "Open Forge and search by build name, purpose, notes, or publisher. Sort by stars, newest, name, or relevance to find a guide that suits the pilot.",
+                    this.OpenForgeBrowser),
+                new GuidedTourStep(
+                    () => this.forgeSearchResultsHost ?? this.contentPanel,
+                    "Preview before you use it",
+                    "Open a result to inspect its equipment, skill plan, notes, profession, level milestones, and available versions. Use the version you actually choose; Client Manager never swaps it behind your back."),
+                new GuidedTourStep(
+                    () => this.levelsHost ?? this.contentPanel,
+                    "See when the build becomes possible",
+                    "The level strip shows the Combat, Explore, Trade, Overall, and hull milestones needed by the planned equipment and skills.",
+                    this.ShowLocalBuildsForTour),
+                new GuidedTourStep(
+                    () => this.equipmentHost ?? this.contentPanel,
+                    "See what you already own and what is missing",
+                    "Equipment cards compare the guide with the selected pilot. They show equipped, in cargo, in vault, or missing items. Hover an item for its details and requirements."),
+                new GuidedTourStep(
+                    () => this.skillsHost ?? this.contentPanel,
+                    "Follow the skill plan",
+                    "Skill rows compare the current rank with the build target. Hover them to see requirements and prerequisites, including ranks the build needs before later milestones."),
+            ]);
+    }
+
+    internal void ShowForgeHelpTour()
+    {
+        this.OpenForgeBrowser();
+        GuidedTourOverlay.Show(
+            this,
+            [
+                new GuidedTourStep(
+                    () => (Control?)this.forgeSearchTextBox ?? this.contentPanel,
+                    "Search for a build guide",
+                    "Search by build name, purpose, notes, or publisher. Sort the results to discover popular, recent, or closely matching guides."),
+                new GuidedTourStep(
+                    () => this.forgeSearchResultsHost ?? this.contentPanel,
+                    "Open a result to inspect the plan",
+                    "A published guide can contain equipment, skill targets, milestone levels, notes, and multiple versions. Open one before deciding to use it."),
+                new GuidedTourStep(
+                    () => this.forgeSearchResultsHost ?? this.contentPanel,
+                    "Choose the guide you want to follow",
+                    "Use a build to add that exact version to your local library. The Build Board then compares it with the selected pilot and shows what is owned, missing, or still needs training."),
+            ]);
+    }
+
+    private void ShowLocalBuildsForTour()
+    {
+        this.CancelForgeSearch();
+        this.forgeMode = false;
+        this.forgeDetails = null;
+        this.forgeVersion = null;
+        this.RebuildContent();
     }
 
     public void RestorePlacement(Rectangle ownerBounds)

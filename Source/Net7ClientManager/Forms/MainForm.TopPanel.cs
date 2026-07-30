@@ -8,7 +8,7 @@ public sealed partial class MainForm
         var panel = new Panel
         {
             Dock = DockStyle.Top,
-            Height = 270,
+            Height = 282,
             Padding = new Padding(left: 18, top: 12, right: 18, bottom: 14),
             BackColor = MainWindowTheme.Header,
         };
@@ -38,13 +38,14 @@ public sealed partial class MainForm
         };
 
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, width: 100));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, height: 48));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, height: 60));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, height: 100));
 
         root.Controls.Add(this.CreateTopTitlePanel(), column: 0, row: 0);
         root.Controls.Add(this.CreateTopCardsPanel(), column: 0, row: 1);
 
         this.accountsButton.Click += this.AccountsButton_OnClick;
+        this.showHelpButton.Click += this.ShowHelpButton_OnClick;
         this.autoLoginReadinessButton.Click +=
             this.AutoLoginReadinessButton_OnClick;
         this.pilotArchiveButton.Click += this.PilotArchiveButton_OnClick;
@@ -88,36 +89,51 @@ public sealed partial class MainForm
         titlePanel.RowStyles.Add(
             new RowStyle(SizeType.Percent, height: 100));
 
-        var identityPanel = new Panel
+        var identityPanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 2,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty,
+            BackColor = MainWindowTheme.Header,
         };
+        identityPanel.ColumnStyles.Add(
+            new ColumnStyle(SizeType.Percent, width: 100));
+        identityPanel.RowStyles.Add(
+            new RowStyle(SizeType.AutoSize));
+        identityPanel.RowStyles.Add(
+            new RowStyle(SizeType.AutoSize));
 
         var titleLabel = new Label
         {
             AutoSize = true,
+            Dock = DockStyle.Fill,
+            Margin = Padding.Empty,
             ForeColor = MainWindowTheme.Text,
             Font = MainWindowTheme.CreateHeadingFont(size: 17.0f),
             Text = "Net7 Client Manager",
-            Location = new Point(x: 0, y: 0),
+            TextAlign = ContentAlignment.MiddleLeft,
         };
 
         var subtitleLabel = new Label
         {
             AutoSize = true,
+            Dock = DockStyle.Fill,
+            Margin = new Padding(left: 1, top: 0, right: 0, bottom: 0),
             ForeColor = MainWindowTheme.MutedText,
             Text = "Profiles configure the fleet. Live observations describe what is actually running.",
-            Location = new Point(x: 1, y: 28),
+            TextAlign = ContentAlignment.TopLeft,
         };
 
-        identityPanel.Controls.Add(titleLabel);
-        identityPanel.Controls.Add(subtitleLabel);
+        identityPanel.Controls.Add(titleLabel, column: 0, row: 0);
+        identityPanel.Controls.Add(subtitleLabel, column: 0, row: 1);
 
         var assistantPanel = new TableLayoutPanel
         {
             AutoSize = true,
             Dock = DockStyle.Fill,
-            ColumnCount = 2,
+            ColumnCount = 3,
             RowCount = 1,
             Margin = Padding.Empty,
             BackColor = MainWindowTheme.Header,
@@ -125,34 +141,69 @@ public sealed partial class MainForm
         assistantPanel.ColumnStyles.Add(
             new ColumnStyle(SizeType.Absolute, width: 208));
         assistantPanel.ColumnStyles.Add(
+            new ColumnStyle(SizeType.Absolute, width: 112));
+        assistantPanel.ColumnStyles.Add(
             new ColumnStyle(SizeType.Absolute, width: 142));
         assistantPanel.RowStyles.Add(
             new RowStyle(SizeType.Percent, height: 100));
 
-        var assistantTextPanel = new Panel
+        var assistantTextPanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 2,
+            Margin = Padding.Empty,
+            Padding = new Padding(left: 0, top: 2, right: 0, bottom: 0),
+            BackColor = MainWindowTheme.Header,
         };
+        assistantTextPanel.ColumnStyles.Add(
+            new ColumnStyle(SizeType.Percent, width: 100));
+        assistantTextPanel.RowStyles.Add(
+            new RowStyle(SizeType.AutoSize));
+        assistantTextPanel.RowStyles.Add(
+            new RowStyle(SizeType.AutoSize));
 
         var assistantTitleLabel = new Label
         {
             AutoSize = true,
+            Dock = DockStyle.Fill,
+            Margin = Padding.Empty,
             ForeColor = MainWindowTheme.Text,
             Font = MainWindowTheme.CreateHeadingFont(size: 9.5f),
             Text = "Auto-login setup",
-            Location = new Point(x: 0, y: 2),
+            TextAlign = ContentAlignment.MiddleLeft,
         };
 
         var assistantSubtitleLabel = new Label
         {
             AutoSize = true,
+            Dock = DockStyle.Fill,
+            Margin = Padding.Empty,
             ForeColor = MainWindowTheme.MutedText,
             Text = "Find the next missing step.",
-            Location = new Point(x: 0, y: 24),
+            TextAlign = ContentAlignment.TopLeft,
         };
 
-        assistantTextPanel.Controls.Add(assistantTitleLabel);
-        assistantTextPanel.Controls.Add(assistantSubtitleLabel);
+        assistantTextPanel.Controls.Add(
+            assistantTitleLabel,
+            column: 0,
+            row: 0);
+        assistantTextPanel.Controls.Add(
+            assistantSubtitleLabel,
+            column: 0,
+            row: 1);
+
+        this.showHelpButton = new Button
+        {
+            Text = "Show help",
+            Width = 102,
+            Height = 32,
+            Anchor = AnchorStyles.Right,
+            Margin = new Padding(left: 0, top: 4, right: 10, bottom: 4),
+            AccessibleDescription =
+                "Open Help and Assistance to discover features or troubleshoot Client Manager.",
+        };
+        MainWindowTheme.StyleButton(this.showHelpButton);
 
         this.autoLoginReadinessButton = new Button
         {
@@ -170,8 +221,12 @@ public sealed partial class MainForm
 
         assistantPanel.Controls.Add(assistantTextPanel, column: 0, row: 0);
         assistantPanel.Controls.Add(
-            this.autoLoginReadinessButton,
+            this.showHelpButton,
             column: 1,
+            row: 0);
+        assistantPanel.Controls.Add(
+            this.autoLoginReadinessButton,
+            column: 2,
             row: 0);
 
         titlePanel.Controls.Add(identityPanel, column: 0, row: 0);
@@ -195,9 +250,12 @@ public sealed partial class MainForm
         cards.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, width: 33.333f));
         cards.RowStyles.Add(new RowStyle(SizeType.Percent, height: 100));
 
-        cards.Controls.Add(this.CreateProfileCard(), column: 0, row: 0);
-        cards.Controls.Add(this.CreateToolsCard(), column: 1, row: 0);
-        cards.Controls.Add(this.CreateQuickLaunchCard(), column: 2, row: 0);
+        this.profileCard = this.CreateProfileCard();
+        this.accountsToolsCard = this.CreateToolsCard();
+        this.quickLaunchCard = this.CreateQuickLaunchCard();
+        cards.Controls.Add(this.profileCard, column: 0, row: 0);
+        cards.Controls.Add(this.accountsToolsCard, column: 1, row: 0);
+        cards.Controls.Add(this.quickLaunchCard, column: 2, row: 0);
 
         return cards;
     }

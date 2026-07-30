@@ -37,9 +37,14 @@ internal sealed class AddonOverlayForm : Form
     private const int AddonsMenuSeparatorBaseHeight = 7;
     private const int AddonsMenuCloseDelayMilliseconds = 300;
     private const int TooltipDelayMilliseconds = 450;
+    private const int MenuGuidanceDurationMilliseconds = 4500;
+    private const int MenuGuidancePulseMilliseconds = 300;
 
     private static readonly WidgetKey addonsTabKey =
         new("net7.addons.host", "addons-tab");
+
+    private static readonly WidgetKey helpKey =
+        new("net7.addons.host", "help");
 
     private static readonly WidgetKey optionsKey =
         new("net7.addons.host", "options");
@@ -99,6 +104,9 @@ internal sealed class AddonOverlayForm : Form
     private bool gameMenuOpen;
     private bool presentationEnabled = true;
     private bool inputSuppressed;
+    private InteractiveIdentity? menuGuidanceIdentity;
+    private DateTimeOffset menuGuidanceStartedAt;
+    private DateTimeOffset menuGuidanceUntil;
 
     public AddonOverlayForm(
         int ownerProcessId,
@@ -141,6 +149,8 @@ internal sealed class AddonOverlayForm : Form
     public event EventHandler? SocialRequested;
 
     public event EventHandler? ManageAddonsRequested;
+
+    public event EventHandler? HelpCenterRequested;
 
     public event EventHandler? GameMenuOpened;
 
@@ -359,6 +369,207 @@ internal sealed class AddonOverlayForm : Form
         }
 
         this.Invalidate();
+    }
+
+    internal bool TryGetAddonMenuToggleState(
+        string addonId,
+        out bool isChecked)
+    {
+        isChecked = false;
+
+        if (!this.TryResolveAddonMenuGuidanceIdentity(
+                addonId,
+                out var identity))
+        {
+            return false;
+        }
+
+        if (identity.Kind == InteractiveKind.AddonsMenuWindow &&
+            this.windows.TryGetValue(identity.Key, out var window))
+        {
+            isChecked = window.IsVisible && !window.IsClosed;
+            return true;
+        }
+
+        if (identity.Kind == InteractiveKind.AddonsMenuToggle &&
+            this.menuToggles.TryGetValue(identity.Key, out var toggle))
+        {
+            isChecked = toggle.IsChecked;
+            return true;
+        }
+
+        return false;
+    }
+
+    internal bool ShowAddonMenuToggleGuidance(string addonId)
+    {
+        if (!this.TryResolveAddonMenuGuidanceIdentity(
+                addonId,
+                out var identity))
+        {
+            return false;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        this.menuGuidanceIdentity = identity;
+        this.menuGuidanceStartedAt = now;
+        this.menuGuidanceUntil = now.AddMilliseconds(
+            MenuGuidanceDurationMilliseconds);
+        this.gameMenuVisible = true;
+        this.gameMenuOpen = true;
+        this.menuPointerLeftAt = null;
+        this.tooltipVisible = false;
+        this.tooltipHoverIdentity = null;
+        this.Invalidate();
+        return true;
+    }
+
+    internal bool ShowBuiltInMenuGuidance(
+        string item,
+        bool openMenu = true,
+        TimeSpan? duration = null)
+    {
+        var identity = item.Trim().ToLowerInvariant() switch
+        {
+            "menu" => new InteractiveIdentity(
+                InteractiveKind.AddonsMenuTab,
+                addonsTabKey),
+            "help" => new InteractiveIdentity(
+                InteractiveKind.AddonsMenuHelp,
+                helpKey),
+            "options" => new InteractiveIdentity(
+                InteractiveKind.AddonsMenuOptions,
+                optionsKey),
+            "atlas" => new InteractiveIdentity(
+                InteractiveKind.AddonsMenuGalaxyAtlas,
+                galaxyAtlasKey),
+            "finder" => new InteractiveIdentity(
+                InteractiveKind.AddonsMenuWorldFind,
+                worldFindKey),
+            "archive" => new InteractiveIdentity(
+                InteractiveKind.AddonsMenuPilotArchive,
+                pilotArchiveKey),
+            "builds" => new InteractiveIdentity(
+                InteractiveKind.AddonsMenuBuilds,
+                buildsKey),
+            "social" => new InteractiveIdentity(
+                InteractiveKind.AddonsMenuSocial,
+                socialKey),
+            "contributions" => new InteractiveIdentity(
+                InteractiveKind.AddonsMenuForgeContributions,
+                forgeContributionsKey),
+            "addons" => new InteractiveIdentity(
+                InteractiveKind.AddonsMenuManage,
+                manageAddonsKey),
+            _ => default,
+        };
+
+        if (identity == default)
+        {
+            return false;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        this.menuGuidanceIdentity = identity;
+        this.menuGuidanceStartedAt = now;
+        this.menuGuidanceUntil = now.Add(
+            duration ?? TimeSpan.FromMilliseconds(
+                MenuGuidanceDurationMilliseconds * 2));
+        this.gameMenuVisible = true;
+        this.gameMenuOpen = openMenu;
+        this.menuPointerLeftAt = null;
+        this.tooltipVisible = false;
+        this.tooltipHoverIdentity = null;
+        this.Invalidate();
+        return true;
+    }
+
+    internal void CloseBuiltInMenuGuidance()
+    {
+        this.ClearMenuGuidance();
+        this.gameMenuOpen = false;
+        this.menuPointerLeftAt = null;
+        this.tooltipVisible = false;
+        this.tooltipHoverIdentity = null;
+        this.Invalidate();
+    }
+
+    private bool TryResolveAddonMenuGuidanceIdentity(
+        string addonId,
+        out InteractiveIdentity identity)
+    {
+        identity = default;
+
+        if (string.IsNullOrWhiteSpace(addonId))
+        {
+            return false;
+        }
+
+        var windowCandidate = this.windowMenuItems
+            .Where(item =>
+                string.Equals(
+                    item.Key.AddonId,
+                    addonId,
+                    StringComparison.Ordinal) &&
+                this.windows.ContainsKey(item.Key))
+            .OrderByDescending(item =>
+                string.Equals(
+                    item.Value.Text,
+                    "Show",
+                    StringComparison.OrdinalIgnoreCase))
+            .ThenBy(item => item.Value.Order)
+            .Select(item => (WidgetKey?)item.Key)
+            .FirstOrDefault();
+
+        if (windowCandidate is { } windowKey)
+        {
+            identity = new InteractiveIdentity(
+                InteractiveKind.AddonsMenuWindow,
+                windowKey);
+            return true;
+        }
+
+        var toggleCandidate = this.menuToggles
+            .Where(item => string.Equals(
+                item.Key.AddonId,
+                addonId,
+                StringComparison.Ordinal))
+            .OrderByDescending(item =>
+                item.Value.Text.Contains(
+                    "Show",
+                    StringComparison.OrdinalIgnoreCase))
+            .ThenBy(item => item.Value.Order)
+            .Select(item => (WidgetKey?)item.Key)
+            .FirstOrDefault();
+
+        if (toggleCandidate is not { } toggleKey)
+        {
+            return false;
+        }
+
+        identity = new InteractiveIdentity(
+            InteractiveKind.AddonsMenuToggle,
+            toggleKey);
+        return true;
+    }
+
+    private bool IsMenuGuidanceActive(DateTimeOffset now)
+    {
+        if (this.menuGuidanceIdentity == null ||
+            now >= this.menuGuidanceUntil)
+        {
+            this.ClearMenuGuidance();
+            return false;
+        }
+
+        return true;
+    }
+
+    private void ClearMenuGuidance()
+    {
+        this.menuGuidanceIdentity = null;
+        this.menuGuidanceStartedAt = default;
+        this.menuGuidanceUntil = default;
     }
 
     public void SetGameMenuVisible(bool visible)
@@ -678,11 +889,22 @@ internal sealed class AddonOverlayForm : Form
             case InteractiveKind.AddonsMenuWindow:
                 this.ToggleWindowFromMenu(pressed.Value.Key);
                 this.menuPointerLeftAt = null;
+                this.ClearMenuGuidance();
                 break;
 
             case InteractiveKind.AddonsMenuToggle:
                 this.ToggleAddonMenuOption(pressed.Value.Key);
                 this.menuPointerLeftAt = null;
+                this.ClearMenuGuidance();
+                break;
+
+            case InteractiveKind.AddonsMenuHelp:
+                this.gameMenuOpen = false;
+                this.menuPointerLeftAt = null;
+                this.ClearMenuGuidance();
+                this.HelpCenterRequested?.Invoke(
+                    this,
+                    EventArgs.Empty);
                 break;
 
             case InteractiveKind.AddonsMenuOptions:
@@ -1065,6 +1287,25 @@ internal sealed class AddonOverlayForm : Form
                 menu.TabBounds);
         }
 
+        var tabGuidanceActive =
+            this.IsMenuGuidanceActive(DateTimeOffset.UtcNow) &&
+            this.menuGuidanceIdentity == tabIdentity;
+
+        if (tabGuidanceActive)
+        {
+            var now = DateTimeOffset.UtcNow;
+            var pulseOn =
+                ((int)(now - this.menuGuidanceStartedAt)
+                    .TotalMilliseconds /
+                 MenuGuidancePulseMilliseconds) % 2 == 0;
+            using var guidancePen = new Pen(
+                pulseOn
+                    ? Color.FromArgb(255, 255, 232, 134)
+                    : Color.FromArgb(255, 77, 211, 239),
+                Math.Max(2.0f, 2.0f * menu.Scale));
+            graphics.DrawRectangle(guidancePen, menu.TabBounds);
+        }
+
         TextRenderer.DrawText(
             graphics,
             "Client Manager",
@@ -1131,6 +1372,33 @@ internal sealed class AddonOverlayForm : Form
                 item.IsEnabled &&
                 this.lastCursorInteractiveElement ==
                     item.Identity;
+            var now = DateTimeOffset.UtcNow;
+            var guidanceActive =
+                this.IsMenuGuidanceActive(now) &&
+                this.menuGuidanceIdentity == item.Identity;
+
+            if (guidanceActive)
+            {
+                var pulseOn =
+                    ((int)(now - this.menuGuidanceStartedAt)
+                        .TotalMilliseconds /
+                     MenuGuidancePulseMilliseconds) % 2 == 0;
+                using var guidanceBrush = new SolidBrush(
+                    pulseOn
+                        ? Color.FromArgb(120, 242, 188, 73)
+                        : Color.FromArgb(70, 77, 211, 239));
+                graphics.FillRectangle(
+                    guidanceBrush,
+                    item.Bounds);
+                using var guidancePen = new Pen(
+                    pulseOn
+                        ? Color.FromArgb(255, 255, 232, 134)
+                        : Color.FromArgb(255, 77, 211, 239),
+                    Math.Max(2.0f, 2.0f * menu.Scale));
+                graphics.DrawRectangle(
+                    guidancePen,
+                    item.Bounds);
+            }
 
             if (hovered)
             {
@@ -1281,6 +1549,7 @@ internal sealed class AddonOverlayForm : Form
 
         if (scene.GameMenu is { IsOpen: true } gameMenu &&
             this.tooltipHoverIdentity.Value.Kind is
+                InteractiveKind.AddonsMenuHelp or
                 InteractiveKind.AddonsMenuWindow or
                 InteractiveKind.AddonsMenuToggle or
                 InteractiveKind.AddonsMenuOptions or
@@ -2072,6 +2341,7 @@ internal sealed class AddonOverlayForm : Form
 
         foreach (var text in new[]
                  {
+                     "Help",
                      "Options",
                      "Galaxy Atlas",
                      "Galaxy Finder",
@@ -2132,7 +2402,7 @@ internal sealed class AddonOverlayForm : Form
             120,
             maximumMenuWidth);
 
-        const int builtInItemCount = 7;
+        const int builtInItemCount = 8;
         var registeredRowCount = sections.Sum(section =>
             1 + section.Items.Count);
 
@@ -2191,6 +2461,22 @@ internal sealed class AddonOverlayForm : Form
                     dropDownBounds.Width - (padding * 2)),
                 separatorHeight);
         }
+
+        items.Add(
+            new ResolvedGameMenuItem(
+                new InteractiveIdentity(
+                    InteractiveKind.AddonsMenuHelp,
+                    helpKey),
+                CreateItemBounds(),
+                SeparatorBounds: null,
+                "Help",
+                string.Empty,
+                IsChecked: false,
+                IsEnabled: true,
+                IsHeader: false,
+                TextIndent: 0));
+
+        currentTop += itemHeight;
 
         items.Add(
             new ResolvedGameMenuItem(
@@ -3101,6 +3387,13 @@ internal sealed class AddonOverlayForm : Form
         var scene = this.ResolveScene();
         var menuStateChanged = false;
 
+        var menuGuidanceActive = this.IsMenuGuidanceActive(now);
+
+        if (menuGuidanceActive)
+        {
+            this.Invalidate();
+        }
+
         if (this.gameMenuOpen &&
             scene.GameMenu is { } openMenu)
         {
@@ -3112,7 +3405,7 @@ internal sealed class AddonOverlayForm : Form
             {
                 this.menuPointerLeftAt = null;
             }
-            else
+            else if (!menuGuidanceActive)
             {
                 this.menuPointerLeftAt ??= now;
 
@@ -3652,6 +3945,7 @@ internal sealed class AddonOverlayForm : Form
         AddonsMenuWindow,
         AddonsMenuToggle,
         AddonsMenuHeader,
+        AddonsMenuHelp,
         AddonsMenuOptions,
         AddonsMenuGalaxyAtlas,
         AddonsMenuWorldFind,

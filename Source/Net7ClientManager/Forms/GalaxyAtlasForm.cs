@@ -178,6 +178,15 @@ public sealed partial class GalaxyAtlasForm : Form
         this.titleBar.Height = TitleBarHeight;
         this.titleBar.TitleText = "NET7 GALAXY ATLAS";
         this.titleBar.ShowMaximizeButton = true;
+        this.titleBar.ShowHelpButton = true;
+        this.titleBar.HelpTopicId = HelpTopicIds.GalaxyAtlas;
+        this.titleBar.HelpProcessIdProvider =
+            () => this.SelectedProcessId;
+        this.titleBar.HelpOverride = () =>
+        {
+            this.ShowHelpTour();
+            return true;
+        };
         this.titleBar.AccessibleName = "Net7 Galaxy Atlas title bar";
 
         this.BuildUi();
@@ -262,6 +271,35 @@ public sealed partial class GalaxyAtlasForm : Form
         this.ResetToCurrentLocation();
         this.RefreshAtlas(force: true);
         this.RefreshAtlasSearchResults(force: true);
+    }
+
+
+    internal void ShowHelpTour()
+    {
+        GuidedTourOverlay.Show(
+            this,
+            [
+                new GuidedTourStep(
+                    () => this.clientComboBox,
+                    "Choose whose galaxy you are viewing",
+                    "The selected pilot supplies the live location and receives any destination you set from the Atlas."),
+                new GuidedTourStep(
+                    () => this.atlasSearchTextBox,
+                    "Jump straight to something",
+                    "Search for systems, sectors, stations, planets, navigation objects, or visible pilots. Select a result to move the Atlas there."),
+                new GuidedTourStep(
+                    () => this.atlasCanvas,
+                    "Explore the map",
+                    "Drag to pan and use the mouse wheel to zoom. Hover over objects for details. Gates and other destinations are clickable, so you can inspect them and set a route."),
+                new GuidedTourStep(
+                    () => this.currentLocationButton,
+                    "Return to your pilot",
+                    "Current location jumps back to the selected pilot. Back retraces your Atlas visits, while Reset view restores the default framing."),
+                new GuidedTourStep(
+                    () => this.showLabelsCheckBox,
+                    "Choose what the Atlas shows",
+                    "The filters along the bottom control labels, your pilot, group members, social pilots, gravity wells, encounters, and resource fields."),
+            ]);
     }
 
     protected override void WndProc(ref Message m)

@@ -58,6 +58,8 @@ public sealed class AccountsForm : ThemedForm
             allowResize: true,
             showMinimizeButton: false,
             showMaximizeButton: true);
+        this.ConfigureHelpTopic(HelpTopicIds.AutoLogin);
+        this.ConfigureHelpTour(this.ShowHelpTour);
 
         this.BuildUi();
         this.ReloadAccounts();
@@ -110,6 +112,34 @@ public sealed class AccountsForm : ThemedForm
             this.DialogResult = DialogResult.OK;
             this.Close();
         }
+    }
+
+    private void ShowHelpTour()
+    {
+        GuidedTourOverlay.Show(
+            this,
+            [
+                new GuidedTourStep(
+                    () => this.accountsPanel,
+                    "Choose the game account",
+                    "Accounts are stored once and can be reused by any client slot. Select an account here to view and manage its characters."),
+                new GuidedTourStep(
+                    () => this.addAccountButton,
+                    "Add another account",
+                    "Add stores a friendly display name, the Net-7 login name, and an optional protected password for automatic login."),
+                new GuidedTourStep(
+                    () => this.editAccountButton,
+                    "Update login details",
+                    "Edit changes the selected account. This is where you add or replace the stored password when automatic login is not ready."),
+                new GuidedTourStep(
+                    () => this.charactersPanel,
+                    "Record the account's characters",
+                    "Each account has character slots. Give the characters you use a name and profession so client slots can select them automatically."),
+                new GuidedTourStep(
+                    () => this.editCharacterButton,
+                    "Add or edit a character slot",
+                    "Select a character slot and use Edit to record the character name and profession shown on the game selection screen."),
+            ]);
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)

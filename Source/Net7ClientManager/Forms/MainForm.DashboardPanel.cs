@@ -18,8 +18,10 @@ public sealed partial class MainForm
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, width: 58));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, height: 100));
 
-        root.Controls.Add(this.CreateSlotsSection(), column: 0, row: 0);
-        root.Controls.Add(this.CreateRunningClientsSection(), column: 1, row: 0);
+        this.slotsSection = this.CreateSlotsSection();
+        this.runningClientsSection = this.CreateRunningClientsSection();
+        root.Controls.Add(this.slotsSection, column: 0, row: 0);
+        root.Controls.Add(this.runningClientsSection, column: 1, row: 0);
 
         return root;
     }

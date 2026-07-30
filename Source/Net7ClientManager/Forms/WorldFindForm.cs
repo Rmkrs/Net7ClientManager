@@ -99,8 +99,12 @@ public sealed class WorldFindForm : ThemedForm
             allowResize: true,
             showMinimizeButton: true,
             showMaximizeButton: true);
+        this.ConfigureHelpTopic(
+            HelpTopicIds.GalaxyFinder,
+            () => this.SelectedProcessId);
 
         this.BuildUi();
+        this.ConfigureHelpTour(this.ShowHelpTour);
         this.windowPlacement =
             clientManager.BindClientWindowPlacement(
                 this,
@@ -120,6 +124,73 @@ public sealed class WorldFindForm : ThemedForm
         this.RefreshClients(force: true);
         this.SelectRequestedProcess();
         this.RefreshResults();
+    }
+
+
+    internal void ShowFinderHelpTour()
+    {
+        this.tabs.SetPageVisible(this.searchPage, visible: true);
+        this.tabs.SelectedPage = this.searchPage;
+        GuidedTourOverlay.Show(
+            this,
+            [
+                new GuidedTourStep(
+                    () => this.clientComboBox,
+                    "Choose the pilot who needs it",
+                    "Finder uses the selected pilot for route distances, mob disposition, inventory-aware details, and Set destination actions."),
+                new GuidedTourStep(
+                    () => this.scopeComboBox,
+                    "Choose what you are looking for",
+                    "Search Places, NPCs, Mobs, Harvestables, or Items. Each scope changes the result columns so the useful details stay visible."),
+                new GuidedTourStep(
+                    () => this.searchTextBox,
+                    "Describe the thing",
+                    "Type any part of a name. Item searches can also be narrowed by category, effect, and where the item comes from."),
+                new GuidedTourStep(
+                    () => this.vendorSourceCheckBox,
+                    "Filter by source",
+                    "For items, choose vendors, loot, crafting, refining, harvesting, or missions. You can combine sources instead of starting separate searches."),
+                new GuidedTourStep(
+                    () => this.resultsGrid,
+                    "Inspect and act",
+                    "Select a result for details. Item pages show effects and real sources such as vendors, mobs, fields, recipes, and refining paths. Useful locations can be sent straight to Navigation."),
+                new GuidedTourStep(
+                    () => this.shoppingListButton,
+                    "Turn finds into a plan",
+                    "Add equipment, ammunition, or components to a Shopping List. Client Manager expands recipes and shows what to buy, loot, harvest, or manufacture."),
+            ]);
+    }
+
+    internal void ShowShoppingHelpTour()
+    {
+        this.ShowShoppingListPage();
+        GuidedTourOverlay.Show(
+            this,
+            [
+                new GuidedTourStep(
+                    () => this.tabs,
+                    "Search and planning live together",
+                    "Keep Search open in its own tab when you want to move between finding items and reviewing the active Shopping List."),
+                new GuidedTourStep(
+                    () => this.shoppingListView,
+                    "Build the acquisition plan",
+                    "Requested outputs are things you want to obtain in addition to what you already own. The plan expands recipes, counts useful inventory, and updates as you acquire materials."),
+                new GuidedTourStep(
+                    () => this.shoppingListView,
+                    "Use it while playing",
+                    "When a docked vendor sells something useful, the in-game vendor companion calls it out and reduces the remaining need as purchases are made."),
+            ]);
+    }
+
+    private void ShowHelpTour()
+    {
+        if (ReferenceEquals(this.tabs.SelectedPage, this.shoppingListPage))
+        {
+            this.ShowShoppingHelpTour();
+            return;
+        }
+
+        this.ShowFinderHelpTour();
     }
 
     public void SelectProcess(int? processId)
@@ -3266,6 +3337,11 @@ public sealed class WorldFindForm : ThemedForm
         this.tabs.SetPageVisible(this.searchPage, visible: true);
         this.tabs.SelectedPage = this.searchPage;
         this.searchTextBox.Focus();
+    }
+
+    internal void ShowShoppingListFromHelp()
+    {
+        this.ShowShoppingListPage();
     }
 
     private void ShowShoppingListPage(string? listId = null)

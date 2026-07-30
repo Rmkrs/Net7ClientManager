@@ -25,6 +25,8 @@ internal sealed partial class SkillBuildBoardForm
     private ForgeBuildSearchResponse? forgeSearch;
     private ForgeBuildDetailsResponse? forgeDetails;
     private ForgeBuildVersionResponse? forgeVersion;
+    private TextBox? forgeSearchTextBox;
+    private ComboBox? forgeSortComboBox;
     private Label? forgeSearchSummaryLabel;
     private Button? forgePreviousButton;
     private Button? forgeNextButton;
@@ -58,6 +60,8 @@ internal sealed partial class SkillBuildBoardForm
 
     private void ResetForgeViewBindings()
     {
+        this.forgeSearchTextBox = null;
+        this.forgeSortComboBox = null;
         this.forgeSearchSummaryLabel = null;
         this.forgePreviousButton = null;
         this.forgeNextButton = null;
@@ -182,6 +186,7 @@ internal sealed partial class SkillBuildBoardForm
         };
         MainWindowTheme.StyleTextBox(search);
         search.Font = MainWindowTheme.CreateBodyFont(9.5f);
+        this.forgeSearchTextBox = search;
         search.Enabled = !this.forgeBusy;
         search.TextChanged += (_, _) =>
         {
@@ -237,6 +242,7 @@ internal sealed partial class SkillBuildBoardForm
             Margin = new Padding(0, 4, 10, 4),
         };
         MainWindowTheme.StyleComboBox(sort);
+        this.forgeSortComboBox = sort;
         sort.Enabled = !this.forgeBusy;
         sort.Items.AddRange(
         [

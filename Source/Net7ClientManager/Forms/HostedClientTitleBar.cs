@@ -86,6 +86,10 @@ internal sealed class HostedClientTitleBar : Control
     private HostedClientTitlePresentation? presentation;
     private string titleText = "";
     private bool showMaximizeButton;
+    private bool showHelpButton;
+    private string helpTopicId = HelpTopicIds.Home;
+    private Func<int?>? helpProcessIdProvider;
+    private Func<bool>? helpOverride;
     private bool isMaximized;
     private ChromeRegion hoveredRegion;
     private ChromeRegion pressedRegion;
@@ -155,6 +159,49 @@ internal sealed class HostedClientTitleBar : Control
 
     [Browsable(false)]
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public bool ShowHelpButton
+    {
+        get => this.showHelpButton;
+        set
+        {
+            if (this.showHelpButton == value)
+            {
+                return;
+            }
+
+            this.showHelpButton = value;
+            this.Invalidate();
+        }
+    }
+
+    [Browsable(false)]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public string HelpTopicId
+    {
+        get => this.helpTopicId;
+        set => this.helpTopicId = string.IsNullOrWhiteSpace(value)
+            ? HelpTopicIds.Home
+            : value;
+    }
+
+    [Browsable(false)]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public Func<int?>? HelpProcessIdProvider
+    {
+        get => this.helpProcessIdProvider;
+        set => this.helpProcessIdProvider = value;
+    }
+
+    [Browsable(false)]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public Func<bool>? HelpOverride
+    {
+        get => this.helpOverride;
+        set => this.helpOverride = value;
+    }
+
+    [Browsable(false)]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public bool IsMaximized
     {
         get => this.isMaximized;
@@ -171,7 +218,9 @@ internal sealed class HostedClientTitleBar : Control
     }
 
     private int ChromeButtonCount =>
-        this.showMaximizeButton ? 3 : 2;
+        2 +
+        Convert.ToInt32(this.showMaximizeButton) +
+        Convert.ToInt32(this.showHelpButton);
 
     protected override void Dispose(bool disposing)
     {
@@ -294,6 +343,16 @@ internal sealed class HostedClientTitleBar : Control
 
         switch (chromeRegion)
         {
+            case ChromeRegion.Help:
+                if (this.helpOverride?.Invoke() != true)
+                {
+                    HelpCenterLauncher.Show(
+                        this.FindForm(),
+                        this.helpTopicId,
+                        this.helpProcessIdProvider?.Invoke());
+                }
+                break;
+
             case ChromeRegion.Minimize:
                 this.MinimizeRequested?.Invoke(this, EventArgs.Empty);
                 break;
@@ -527,69 +586,44 @@ internal sealed class HostedClientTitleBar : Control
 
     private void DrawChrome(Graphics graphics, Rectangle bounds)
     {
-        var minimizeBounds = this.GetChromeBounds(ChromeRegion.Minimize);
-        var closeBounds = this.GetChromeBounds(ChromeRegion.Close);
+        var regions = this.GetVisibleChromeRegions();
 
-        this.DrawChromeBackground(
-            graphics,
-            minimizeBounds,
-            ChromeRegion.Minimize);
-
-        if (this.showMaximizeButton)
+        foreach (var region in regions)
         {
-            var maximizeBounds =
-                this.GetChromeBounds(ChromeRegion.Maximize);
-
+            var regionBounds = this.GetChromeBounds(region);
             this.DrawChromeBackground(
                 graphics,
-                maximizeBounds,
-                ChromeRegion.Maximize);
+                regionBounds,
+                region);
 
-            DrawChromeDivider(
-                graphics,
-                maximizeBounds.Left,
-                bounds);
-        }
+            if (region != ChromeRegion.Close)
+            {
+                DrawChromeDivider(
+                    graphics,
+                    regionBounds.Left,
+                    bounds);
+            }
 
-        this.DrawChromeBackground(
-            graphics,
-            closeBounds,
-            ChromeRegion.Close);
+            var glyph = region switch
+            {
+                ChromeRegion.Help => "?",
+                ChromeRegion.Minimize => "─",
+                ChromeRegion.Maximize => this.isMaximized
+                    ? "❐"
+                    : "□",
+                ChromeRegion.Close => "×",
+                _ => "",
+            };
 
-        DrawChromeDivider(
-            graphics,
-            minimizeBounds.Left,
-            bounds);
-
-        TextRenderer.DrawText(
-            graphics,
-            "─",
-            this.chromeFont,
-            minimizeBounds,
-            Color.White,
-            textFlags |
-            TextFormatFlags.HorizontalCenter);
-
-        if (this.showMaximizeButton)
-        {
             TextRenderer.DrawText(
                 graphics,
-                this.isMaximized ? "❐" : "□",
+                glyph,
                 this.chromeFont,
-                this.GetChromeBounds(ChromeRegion.Maximize),
+                regionBounds,
                 Color.White,
                 textFlags |
                 TextFormatFlags.HorizontalCenter);
         }
-
-        TextRenderer.DrawText(
-            graphics,
-            "×",
-            this.chromeFont,
-            closeBounds,
-            Color.White,
-            textFlags |
-            TextFormatFlags.HorizontalCenter);
     }
 
     private static void DrawChromeDivider(
@@ -636,66 +670,56 @@ internal sealed class HostedClientTitleBar : Control
 
     private ChromeRegion HitTestChrome(Point location)
     {
-        if (this.GetChromeBounds(ChromeRegion.Close).Contains(location))
+        foreach (var region in this.GetVisibleChromeRegions())
         {
-            return ChromeRegion.Close;
-        }
-
-        if (this.showMaximizeButton &&
-            this.GetChromeBounds(ChromeRegion.Maximize).Contains(location))
-        {
-            return ChromeRegion.Maximize;
-        }
-
-        if (this.GetChromeBounds(ChromeRegion.Minimize).Contains(location))
-        {
-            return ChromeRegion.Minimize;
+            if (this.GetChromeBounds(region).Contains(location))
+            {
+                return region;
+            }
         }
 
         return ChromeRegion.None;
     }
 
+    private List<ChromeRegion> GetVisibleChromeRegions()
+    {
+        var regions = new List<ChromeRegion>(capacity: 4);
+
+        if (this.showHelpButton)
+        {
+            regions.Add(ChromeRegion.Help);
+        }
+
+        regions.Add(ChromeRegion.Minimize);
+
+        if (this.showMaximizeButton)
+        {
+            regions.Add(ChromeRegion.Maximize);
+        }
+
+        regions.Add(ChromeRegion.Close);
+        return regions;
+    }
+
     private Rectangle GetChromeBounds(
         ChromeRegion region)
     {
-        if (region == ChromeRegion.Close)
+        var regions = this.GetVisibleChromeRegions();
+        var index = regions.IndexOf(region);
+
+        if (index < 0)
         {
-            return new Rectangle(
-                Math.Max(
-                    0,
-                    this.ClientSize.Width - ChromeButtonWidth),
-                0,
-                ChromeButtonWidth,
-                this.ClientSize.Height);
+            return Rectangle.Empty;
         }
 
-        if (region == ChromeRegion.Maximize &&
-            this.showMaximizeButton)
-        {
-            return new Rectangle(
-                Math.Max(
-                    0,
-                    this.ClientSize.Width -
-                    (ChromeButtonWidth * 2)),
-                0,
-                ChromeButtonWidth,
-                this.ClientSize.Height);
-        }
+        var left = this.ClientSize.Width -
+                   ((regions.Count - index) * ChromeButtonWidth);
 
-        if (region == ChromeRegion.Minimize)
-        {
-            return new Rectangle(
-                Math.Max(
-                    0,
-                    this.ClientSize.Width -
-                    (ChromeButtonWidth *
-                     this.ChromeButtonCount)),
-                0,
-                ChromeButtonWidth,
-                this.ClientSize.Height);
-        }
-
-        return Rectangle.Empty;
+        return new Rectangle(
+            Math.Max(0, left),
+            0,
+            ChromeButtonWidth,
+            this.ClientSize.Height);
     }
 
     private void InvalidateChrome()
@@ -724,6 +748,7 @@ internal sealed class HostedClientTitleBar : Control
     private enum ChromeRegion
     {
         None,
+        Help,
         Minimize,
         Maximize,
         Close,

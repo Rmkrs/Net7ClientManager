@@ -166,6 +166,12 @@ internal sealed class AddonDiscoverCardControl : UserControl
 
     public AddonInstallationInfo? Installation => this.installation;
 
+    internal void ShowPrimaryGuidance()
+    {
+        ControlGuidancePulse.Start(this.primaryButton);
+    }
+
+
     public void UpdateAddon(
         AddonRegistrySummary newAddon,
         AddonRuntimeStatus? newInstalledStatus,

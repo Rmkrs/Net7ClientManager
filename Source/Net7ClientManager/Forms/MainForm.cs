@@ -30,11 +30,17 @@ public sealed partial class MainForm : ThemedForm
     private ComboBox quickLaunchGameResolutionComboBox = null!;
     private Button startClientButton = null!;
     private Button accountsButton = null!;
+    private Button showHelpButton = null!;
     private Button autoLoginReadinessButton = null!;
     private Button pilotArchiveButton = null!;
     private Button gameSettingsButton = null!;
     private Button createMissingClientsButton = null!;
     private CheckBox keepClientsAliveCheckBox = null!;
+    private Control profileCard = null!;
+    private Control accountsToolsCard = null!;
+    private Control quickLaunchCard = null!;
+    private Control slotsSection = null!;
+    private Control runningClientsSection = null!;
 
     private bool isRefreshingProfileComboBox;
     private bool isRefreshingProfileControls;
@@ -70,6 +76,9 @@ public sealed partial class MainForm : ThemedForm
             allowResize: true,
             showMinimizeButton: true,
             showMaximizeButton: true);
+        this.ConfigureHelpTopic(HelpTopicIds.Home);
+        this.ConfigureHelpTour(this.ShowMainScreenHelpTour);
+        HelpCenterLauncher.Configure(this.OpenHelpCenter);
         this.RestoreWindowPlacement();
 
         var topPanel = this.CreateTopPanel();
@@ -105,6 +114,9 @@ public sealed partial class MainForm : ThemedForm
         this.clientManager.InGameOptionsRequested +=
             this.ClientManager_OnInGameOptionsRequested;
 
+        this.clientManager.HelpRequested +=
+            this.ClientManager_OnHelpRequested;
+
         this.ApplyCommandPaletteRuntimeSettings();
     }
 
@@ -139,6 +151,7 @@ public sealed partial class MainForm : ThemedForm
             this.QuickLaunchGameResolutionComboBox_OnSelectedIndexChanged;
         this.startClientButton.Click -= this.StartClientButton_OnClick;
         this.accountsButton.Click -= this.AccountsButton_OnClick;
+        this.showHelpButton.Click -= this.ShowHelpButton_OnClick;
         this.autoLoginReadinessButton.Click -=
             this.AutoLoginReadinessButton_OnClick;
         this.pilotArchiveButton.Click -= this.PilotArchiveButton_OnClick;
@@ -156,6 +169,9 @@ public sealed partial class MainForm : ThemedForm
         this.clientManager.InGameOptionsRequested -=
             this.ClientManager_OnInGameOptionsRequested;
 
+        this.clientManager.HelpRequested -=
+            this.ClientManager_OnHelpRequested;
+
         this.createMissingClientsButton.Click -= this.CreateMissingClientsButton_OnClick;
         this.keepClientsAliveCheckBox.CheckedChanged -= this.KeepClientsAliveCheckBox_OnCheckedChanged;
 
@@ -169,6 +185,14 @@ public sealed partial class MainForm : ThemedForm
         }
 
         this.inGameOptionsForm = null;
+
+        if (this.helpCenterForm is { IsDisposed: false })
+        {
+            this.helpCenterForm.Close();
+        }
+
+        this.helpCenterForm = null;
+        HelpCenterLauncher.Clear(this.OpenHelpCenter);
 
         base.OnFormClosed(e);
     }
@@ -355,9 +379,21 @@ public sealed partial class MainForm : ThemedForm
 
     private void GameSettingsButton_OnClick(object? sender, EventArgs e)
     {
+        this.OpenGameSettings(showTour: false);
+    }
+
+    private void OpenGameSettings(bool showTour)
+    {
         using var form = new GameSettingsForm(
             this.clientManager,
             this);
+
+        if (showTour)
+        {
+            form.Shown += (_, _) =>
+                form.BeginInvoke(() => form.ShowHelpTour());
+        }
+
         form.ShowDialog(this);
     }
 
@@ -396,6 +432,17 @@ public sealed partial class MainForm : ThemedForm
             this.RefreshCommandPaletteRuntime();
             this.RefreshInGameOptionsLifecycle();
         }
+    }
+
+    private void ClientManager_OnHelpRequested(
+        object? sender,
+        HelpRequestedEventArgs e)
+    {
+        this.OpenHelpCenter(
+            e.Owner,
+            new HelpLaunchRequest(
+                HelpTopicIds.Home,
+                e.ProcessId));
     }
 
     private void ClientManager_OnGalaxyAtlasRequested(

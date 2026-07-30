@@ -212,6 +212,12 @@ internal sealed class AddonCardControl : UserControl
 
     public AddonRuntimeStatus? Status => this.status;
 
+    internal void ShowPrimaryGuidance()
+    {
+        ControlGuidancePulse.Start(this.toggleButton);
+    }
+
+
     public void UpdateStatus(
         AddonRuntimeStatus newStatus,
         bool canPersist,

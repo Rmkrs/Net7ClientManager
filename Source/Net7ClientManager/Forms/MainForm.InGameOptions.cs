@@ -10,13 +10,24 @@ public sealed partial class MainForm
         object? sender,
         InGameOptionsRequestedEventArgs e)
     {
+        this.OpenInGameOptions(
+            e.ProcessId,
+            e.Owner,
+            showTour: false);
+    }
+
+    private void OpenInGameOptions(
+        int processId,
+        IWin32Window owner,
+        bool showTour)
+    {
         if (this.inGameOptionsOpen)
         {
             return;
         }
 
         var client = this.clientManager.Clients.FirstOrDefault(candidate =>
-            candidate.ProcessId == e.ProcessId);
+            candidate.ProcessId == processId);
 
         if (client == null ||
             client.LifecycleState != ClientLifecycleState.InGame)
@@ -39,7 +50,7 @@ public sealed partial class MainForm
                 settings.CommandMenuFixedPositionX,
                 settings.CommandMenuFixedPositionY),
             this.clientManager.IsMissionWikiFeatureEnabled(
-                e.ProcessId),
+                processId),
             historySettings.RecordMissionHistory,
             historySettings.RecordActivityHistory,
             historySettings.RecordCombatHistory,
@@ -50,7 +61,7 @@ public sealed partial class MainForm
             itemToolTipSettings.VerticalOffset);
 
         this.inGameOptionsOpen = true;
-        this.inGameOptionsProcessId = e.ProcessId;
+        this.inGameOptionsProcessId = processId;
         this.CloseCommandOverlay();
 
         try
@@ -60,7 +71,7 @@ public sealed partial class MainForm
                 this.clientManager.ValidateCommandPaletteHotKeyAsync,
                 previewOwner =>
                     this.PickCommandPaletteFixedPosition(
-                        e.ProcessId,
+                        processId,
                         previewOwner),
                 (enabled, horizontalOffset, verticalOffset) =>
                     this.clientManager.PreviewGameItemToolTipOptions(
@@ -68,11 +79,17 @@ public sealed partial class MainForm
                         horizontalOffset,
                         verticalOffset),
                 values => this.TryApplyInGameOptions(
-                    e.ProcessId,
+                    processId,
                     values));
 
+            if (showTour)
+            {
+                form.Shown += (_, _) =>
+                    form.BeginInvoke(() => form.ShowHelpTour());
+            }
+
             this.inGameOptionsForm = form;
-            _ = form.ShowDialog(e.Owner);
+            _ = form.ShowDialog(owner);
         }
         finally
         {

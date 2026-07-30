@@ -13,6 +13,10 @@ public sealed class SocialForm : ThemedForm
     private int ownerProcessId;
     private readonly System.Windows.Forms.Timer refreshTimer;
     private readonly WindowPlacementBinding placementBinding;
+    private readonly ThemedTabHost tabs = new();
+    private ThemedTabPage presenceTab = null!;
+    private ThemedTabPage lookingForGuildTab = null!;
+    private ThemedTabPage guildRecruitmentTab = null!;
 
     private ComboBox presencePilotCombo = null!;
     private CheckBox publishPresenceCheckBox = null!;
@@ -80,6 +84,7 @@ public sealed class SocialForm : ThemedForm
             allowResize: true,
             showMinimizeButton: true,
             showMaximizeButton: true);
+        this.ConfigureHelpTopic(HelpTopicIds.Social, () => this.ownerProcessId);
 
         var root = new TableLayoutPanel
         {
@@ -92,13 +97,14 @@ public sealed class SocialForm : ThemedForm
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
 
-        var tabs = new ThemedTabHost
-        {
-            Dock = DockStyle.Fill,
-        };
-        tabs.AddPage(this.CreatePresenceTab());
-        tabs.AddPage(this.CreateLookingForGuildTab());
-        tabs.AddPage(this.CreateGuildRecruitmentTab());
+        this.tabs.Dock = DockStyle.Fill;
+        this.presenceTab = this.CreatePresenceTab();
+        this.lookingForGuildTab = this.CreateLookingForGuildTab();
+        this.guildRecruitmentTab = this.CreateGuildRecruitmentTab();
+        this.tabs.AddPage(this.presenceTab);
+        this.tabs.AddPage(this.lookingForGuildTab);
+        this.tabs.AddPage(this.guildRecruitmentTab);
+        this.ConfigureHelpTour(this.ShowHelpTour);
 
         var footer = new Panel
         {
@@ -119,7 +125,7 @@ public sealed class SocialForm : ThemedForm
         footer.Controls.Add(this.statusLabel);
         footer.Controls.Add(this.refreshButton);
 
-        root.Controls.Add(tabs, 0, 0);
+        root.Controls.Add(this.tabs, 0, 0);
         root.Controls.Add(footer, 0, 1);
         this.Controls.Add(root);
 
@@ -136,6 +142,40 @@ public sealed class SocialForm : ThemedForm
 
         this.RefreshLocalChoices(force: true);
         this.RenderPublicData(force: true);
+    }
+
+
+    internal void ShowHelpTour()
+    {
+        GuidedTourOverlay.Show(
+            this,
+            [
+                new GuidedTourStep(
+                    () => this.publishPresenceCheckBox,
+                    "Choose whether this pilot is visible",
+                    "Presence is opt-in. Enable it for the selected pilot when you want other Client Manager players to see that you are online.",
+                    () => this.tabs.SelectedPage = this.presenceTab),
+                new GuidedTourStep(
+                    () => this.atlasVisibilityCombo,
+                    "Share only the location detail you choose",
+                    "Pick None, Sector, Near navigation, or Exact. This controls how precisely the pilot can appear to other players and in the Galaxy Atlas.",
+                    () => this.tabs.SelectedPage = this.presenceTab),
+                new GuidedTourStep(
+                    () => this.presenceGrid,
+                    "Find other pilots",
+                    "Search the live presence list by pilot, sector, or state. Visible pilots can also appear in the Galaxy Atlas when its Social layer is enabled.",
+                    () => this.tabs.SelectedPage = this.presenceTab),
+                new GuidedTourStep(
+                    () => this.lookingForGuildCheckBox,
+                    "Tell guilds what you are looking for",
+                    "Looking for Guild lets you publish your play style, languages, region, availability, and a short message, then browse matching pilots.",
+                    () => this.tabs.SelectedPage = this.lookingForGuildTab),
+                new GuidedTourStep(
+                    () => this.guildRecruitingCheckBox,
+                    "Advertise a recruiting guild",
+                    "Guild Recruitment publishes what the guild offers, who it needs, active times, languages, requirements, and how interested pilots should make contact.",
+                    () => this.tabs.SelectedPage = this.guildRecruitmentTab),
+            ]);
     }
 
     protected override void Dispose(bool disposing)

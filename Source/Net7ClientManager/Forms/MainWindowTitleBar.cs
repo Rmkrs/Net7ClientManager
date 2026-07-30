@@ -14,6 +14,10 @@ internal sealed class MainWindowTitleBar : Control
     private bool showMinimizeButton;
     private bool showMaximizeButton;
     private bool showCloseButton = true;
+    private bool showHelpButton;
+    private string helpTopicId = HelpTopicIds.Home;
+    private Func<int?>? helpProcessIdProvider;
+    private Func<bool>? helpOverride;
     private bool isMaximized;
     private ChromeRegion hoveredRegion;
     private ChromeRegion pressedRegion;
@@ -121,6 +125,45 @@ internal sealed class MainWindowTitleBar : Control
     }
 
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public bool ShowHelpButton
+    {
+        get => this.showHelpButton;
+        set
+        {
+            if (this.showHelpButton == value)
+            {
+                return;
+            }
+
+            this.showHelpButton = value;
+            this.Invalidate();
+        }
+    }
+
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public string HelpTopicId
+    {
+        get => this.helpTopicId;
+        set => this.helpTopicId = string.IsNullOrWhiteSpace(value)
+            ? HelpTopicIds.Home
+            : value;
+    }
+
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public Func<int?>? HelpProcessIdProvider
+    {
+        get => this.helpProcessIdProvider;
+        set => this.helpProcessIdProvider = value;
+    }
+
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public Func<bool>? HelpOverride
+    {
+        get => this.helpOverride;
+        set => this.helpOverride = value;
+    }
+
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public bool IsMaximized
     {
         get => this.isMaximized;
@@ -137,6 +180,7 @@ internal sealed class MainWindowTitleBar : Control
     }
 
     private int ChromeButtonCount =>
+        Convert.ToInt32(this.showHelpButton) +
         Convert.ToInt32(this.showMinimizeButton) +
         Convert.ToInt32(this.showMaximizeButton) +
         Convert.ToInt32(this.showCloseButton);
@@ -179,6 +223,7 @@ internal sealed class MainWindowTitleBar : Control
                 this.ClientSize.Height),
             MainWindowTheme.Text,
             TextFormatFlags.EndEllipsis |
+            TextFormatFlags.NoPrefix |
             TextFormatFlags.NoPadding |
             TextFormatFlags.SingleLine |
             TextFormatFlags.VerticalCenter);
@@ -271,6 +316,16 @@ internal sealed class MainWindowTitleBar : Control
 
         switch (pressedRegion)
         {
+            case ChromeRegion.Help:
+                if (this.helpOverride?.Invoke() != true)
+                {
+                    HelpCenterLauncher.Show(
+                        this.FindForm(),
+                        this.helpTopicId,
+                        this.helpProcessIdProvider?.Invoke());
+                }
+                break;
+
             case ChromeRegion.Minimize:
                 this.MinimizeRequested?.Invoke(this, EventArgs.Empty);
                 break;
@@ -322,6 +377,19 @@ internal sealed class MainWindowTitleBar : Control
 
         switch (region)
         {
+            case ChromeRegion.Help:
+                TextRenderer.DrawText(
+                    graphics,
+                    "?",
+                    MainWindowTheme.CreateHeadingFont(size: 10.5f),
+                    bounds,
+                    MainWindowTheme.Text,
+                    TextFormatFlags.HorizontalCenter |
+                    TextFormatFlags.VerticalCenter |
+                    TextFormatFlags.NoPadding |
+                    TextFormatFlags.SingleLine);
+                break;
+
             case ChromeRegion.Minimize:
                 graphics.DrawLine(
                     pen,
@@ -387,7 +455,12 @@ internal sealed class MainWindowTitleBar : Control
 
     private List<ChromeRegion> GetVisibleChromeRegions()
     {
-        var regions = new List<ChromeRegion>(capacity: 3);
+        var regions = new List<ChromeRegion>(capacity: 4);
+
+        if (this.showHelpButton)
+        {
+            regions.Add(ChromeRegion.Help);
+        }
 
         if (this.showMinimizeButton)
         {
@@ -441,6 +514,7 @@ internal sealed class MainWindowTitleBar : Control
     private enum ChromeRegion
     {
         None,
+        Help,
         Minimize,
         Maximize,
         Close,

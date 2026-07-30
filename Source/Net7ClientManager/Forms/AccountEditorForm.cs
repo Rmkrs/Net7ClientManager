@@ -46,6 +46,8 @@ public sealed class AccountEditorForm : ThemedForm
             allowResize: false,
             showMinimizeButton: false,
             showMaximizeButton: false);
+        this.ConfigureHelpTopic(HelpTopicIds.AutoLogin);
+        this.ConfigureHelpTour(this.ShowHelpTour);
 
         this.BuildUi();
 
@@ -70,6 +72,30 @@ public sealed class AccountEditorForm : ThemedForm
         {
             this.BeginInvoke(() => ControlGuidancePulse.Start(target));
         }
+    }
+
+    private void ShowHelpTour()
+    {
+        GuidedTourOverlay.Show(
+            this,
+            [
+                new GuidedTourStep(
+                    () => this.displayNameTextBox,
+                    "Name the account for yourself",
+                    "The display name is only used inside Client Manager. Choose something that makes the account easy to recognise."),
+                new GuidedTourStep(
+                    () => this.loginNameTextBox,
+                    "Enter the Net-7 login name",
+                    "This must match the username used on the Earth & Beyond login screen."),
+                new GuidedTourStep(
+                    () => this.passwordTextBox,
+                    "Store the password for automatic login",
+                    "Client Manager protects the password for your Windows user. Leave this empty when editing to keep the password that is already stored."),
+                new GuidedTourStep(
+                    () => this.clearPasswordCheckBox,
+                    "Remove a stored password",
+                    "Use this only when you want automatic login to stop using the password currently saved for this account."),
+            ]);
     }
 
     private void BuildUi()

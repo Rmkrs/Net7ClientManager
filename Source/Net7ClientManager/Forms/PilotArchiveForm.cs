@@ -81,6 +81,7 @@ public sealed partial class PilotArchiveForm : ThemedForm
             allowResize: true,
             showMinimizeButton: true,
             showMaximizeButton: true);
+        this.ConfigureHelpTopic(HelpTopicIds.PilotArchive);
         this.windowPlacement =
             clientManager.BindGlobalWindowPlacement(
                 this,
@@ -125,6 +126,7 @@ public sealed partial class PilotArchiveForm : ThemedForm
         this.RegisterGridState(this.searchGrid, "search");
 
         this.BuildLayout();
+        this.ConfigureHelpTour(this.ShowHelpTour);
         this.RegisterDarkScrollbarTheme(this);
         this.ApplyHistorySettings();
         this.ConfigureGrids();
@@ -243,6 +245,45 @@ public sealed partial class PilotArchiveForm : ThemedForm
 
         this.ApplyActivityHistorySettings();
         this.ApplyCombatHistorySettings();
+    }
+
+
+    internal void ShowHelpTour()
+    {
+        GuidedTourOverlay.Show(
+            this,
+            [
+                new GuidedTourStep(
+                    () => this.pilotGrid,
+                    "Choose an archived pilot",
+                    "Client Manager keeps one lasting record per pilot. Select a pilot here, or use Start to launch the account and slot that belongs to that character."),
+                new GuidedTourStep(
+                    () => this.detailTabs,
+                    "Review the pilot from every angle",
+                    "The tabs cover overview, cargo, equipped items, vault, skills, missions, mission history, activity, combat, and reputation."),
+                new GuidedTourStep(
+                    () => this.cargoGrid,
+                    "Snapshots are captured while you play",
+                    "Docking at a station refreshes cargo, equipped items, vault contents, credits, skills, missions, reputation, location, and guild details. The latest known state remains available after the client closes.",
+                    () => this.SelectArchiveSection(PilotArchiveSections.Cargo)),
+                new GuidedTourStep(
+                    () => this.missionHistoryGrid,
+                    "Histories remember what just happened",
+                    "Mission changes become a mission history. Loot, travel, credits, and other activity become an activity history. Combat records kills, damage, and encounters for later review.",
+                    () => this.SelectArchiveSection(PilotArchiveSections.MissionHistory)),
+                new GuidedTourStep(
+                    () => this.searchTextBox,
+                    "Search across every pilot",
+                    "Search for an item, skill, mission, reputation, guild, or location. Double-click a result to jump directly to the matching pilot and section."),
+            ]);
+    }
+
+    private void SelectArchiveSection(string section)
+    {
+        if (this.sectionTabs.TryGetValue(section, out var tab))
+        {
+            this.detailTabs.SelectedPage = tab;
+        }
     }
 
     protected override void Dispose(bool disposing)

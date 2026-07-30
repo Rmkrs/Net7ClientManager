@@ -91,6 +91,14 @@ public sealed partial class AddonCenterForm : Form
 
         this.titleBar.TitleText = "NET7 ADDON CENTER";
         this.titleBar.ShowMaximizeButton = true;
+        this.titleBar.ShowHelpButton = true;
+        this.titleBar.HelpTopicId = HelpTopicIds.Addons;
+        this.titleBar.HelpProcessIdProvider = () => this.ownerProcessId;
+        this.titleBar.HelpOverride = () =>
+        {
+            this.ShowHelpTour();
+            return true;
+        };
         this.titleBar.AccessibleName = "Net7 Addon Center title bar";
         this.windowPlacement =
             clientManager.BindClientWindowPlacement(
@@ -201,6 +209,48 @@ public sealed partial class AddonCenterForm : Form
         chrome.Controls.Add(this.titleBar, 0, 0);
         chrome.Controls.Add(content, 0, 1);
         this.Controls.Add(chrome);
+    }
+
+    private void ShowHelpTour()
+    {
+        GuidedTourOverlay.Show(
+            this,
+            [
+                new GuidedTourStep(
+                    () => this.navigationButtons[AddonCenterPage.Installed],
+                    "Manage the addons used by this client",
+                    "Installed shows official and community addons already available on this machine. Enablement and window placement are remembered separately for each client slot.",
+                    () => this.ShowPage(AddonCenterPage.Installed)),
+                new GuidedTourStep(
+                    () => this.searchTextBox,
+                    "Find an installed addon",
+                    "Search and filter the installed list when you know the addon name or only want to see a particular state.",
+                    () => this.ShowPage(AddonCenterPage.Installed)),
+                new GuidedTourStep(
+                    () => this.installedScrollPanel,
+                    "Enable, inspect, and arrange addons",
+                    "Each addon card shows its current state and the actions it supports. Installed is not the same as enabled: choose which client slots should run each addon.",
+                    () => this.ShowPage(AddonCenterPage.Installed)),
+                new GuidedTourStep(
+                    () => this.navigationButtons[AddonCenterPage.Discover],
+                    "Discover more addons",
+                    "Discover browses addons available from Forge and lets you install them without hunting for files.",
+                    () => this.ShowPage(AddonCenterPage.Discover)),
+                new GuidedTourStep(
+                    () => this.navigationButtons[AddonCenterPage.Develop],
+                    "Build your own addon",
+                    "Develop contains the Lua authoring tools, examples, and publishing workflow for creating an addon.",
+                    () => this.ShowPage(AddonCenterPage.Develop)),
+                new GuidedTourStep(
+                    () => this.navigationButtons[AddonCenterPage.Activity],
+                    "See what Addon Center changed",
+                    "Activity records installs, updates, enablement changes, and startup problems so you can see what happened.",
+                    () => this.ShowPage(AddonCenterPage.Activity)),
+                new GuidedTourStep(
+                    () => this.suspendButton,
+                    "Pause every addon temporarily",
+                    "Suspend all is an emergency switch for the current Client Manager session. Your normal per-slot choices return when addons are resumed or Client Manager restarts."),
+            ]);
     }
 
     private Control BuildHeader()
@@ -1081,6 +1131,67 @@ public sealed partial class AddonCenterForm : Form
         this.activityTextBox.SelectionStart =
             this.activityTextBox.TextLength;
         this.activityTextBox.ScrollToCaret();
+    }
+
+    internal void ShowAddonGuidance(
+        string? addonId,
+        bool discover)
+    {
+        var page = discover
+            ? AddonCenterPage.Discover
+            : AddonCenterPage.Installed;
+
+        this.ShowPage(page);
+        this.RefreshView(force: true);
+
+        if (string.IsNullOrWhiteSpace(addonId))
+        {
+            return;
+        }
+
+        if (discover)
+        {
+            var addon = this.clientManager.AddonRegistry.FirstOrDefault(
+                candidate => string.Equals(
+                    candidate.Id,
+                    addonId,
+                    StringComparison.Ordinal));
+            this.discoverFilterComboBox.SelectedIndex = 0;
+            this.discoverSearchTextBox.Text = addon?.Name ?? addonId;
+            this.RefreshDiscoverView(force: true);
+
+            this.BeginInvoke(() =>
+            {
+                if (this.discoverCardsByAddonId.TryGetValue(
+                        addonId,
+                        out var card))
+                {
+                    this.discoverScrollPanel.ScrollControlIntoView(card);
+                    card.ShowPrimaryGuidance();
+                }
+            });
+            return;
+        }
+
+        var status = this.currentStatuses.FirstOrDefault(candidate =>
+            string.Equals(
+                candidate.AddonId,
+                addonId,
+                StringComparison.Ordinal));
+        this.filterComboBox.SelectedIndex = 0;
+        this.searchTextBox.Text = status?.Name ?? addonId;
+        this.RefreshView(force: true);
+
+        this.BeginInvoke(() =>
+        {
+            if (this.cardsByAddonId.TryGetValue(
+                    addonId,
+                    out var card))
+            {
+                this.installedScrollPanel.ScrollControlIntoView(card);
+                card.ShowPrimaryGuidance();
+            }
+        });
     }
 
     private void ShowPage(AddonCenterPage page)

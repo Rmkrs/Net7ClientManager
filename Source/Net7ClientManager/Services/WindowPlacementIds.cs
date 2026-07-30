@@ -12,6 +12,8 @@ public static class WindowPlacementIds
 
     public const string GameSettings = "game-settings";
 
+    public const string HelpCenter = "help-center";
+
     public const string LayoutEditor = "layout-editor";
 
     public const string NavigationPlanner = "navigation-planner";

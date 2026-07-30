@@ -51,6 +51,8 @@ internal sealed class SlotEditorForm : ThemedForm
             allowResize: false,
             showMinimizeButton: false,
             showMaximizeButton: false);
+        this.ConfigureHelpTopic(HelpTopicIds.AutoLogin);
+        this.ConfigureHelpTour(this.ShowHelpTour);
 
         this.nameTextBox = new TextBox();
         MainWindowTheme.StyleTextBox(this.nameTextBox);
@@ -198,6 +200,46 @@ internal sealed class SlotEditorForm : ThemedForm
         {
             this.BeginInvoke(() => ControlGuidancePulse.Start(target));
         }
+    }
+
+    private void ShowHelpTour()
+    {
+        GuidedTourOverlay.Show(
+            this,
+            [
+                new GuidedTourStep(
+                    () => this.nameTextBox,
+                    "Name this client slot",
+                    "The slot name identifies this managed game window on the main screen and in running-client controls."),
+                new GuidedTourStep(
+                    () => this.accountComboBox,
+                    "Choose the account",
+                    "Select the saved Net-7 account this client should use. Manage accounts first when the account is not listed."),
+                new GuidedTourStep(
+                    () => this.characterComboBox,
+                    "Choose the character",
+                    "Select the character this client should enter after login. Characters come from the chosen account."),
+                new GuidedTourStep(
+                    () => this.hostResolutionComboBox,
+                    "Choose the hosted window size",
+                    "This controls how large the game window appears on your desktop."),
+                new GuidedTourStep(
+                    () => this.matchGameResolutionCheckBox,
+                    "Match the game to the window",
+                    "Keep this enabled for the simplest setup. Disable it only when the game should render at a different resolution from the hosted window."),
+                new GuidedTourStep(
+                    () => this.leftNumeric,
+                    "Place the window on your monitors",
+                    "Left and Top are the desktop coordinates for this slot. The Layout Editor is usually the easier way to arrange several clients visually."),
+                new GuidedTourStep(
+                    () => this.autoLoginCheckBox,
+                    "Enable automatic login",
+                    "When enabled, Client Manager enters the selected account's stored login name and password after the game starts."),
+                new GuidedTourStep(
+                    () => this.autoEnterGameCheckBox,
+                    "Enter the chosen character automatically",
+                    "Enable this together with automatic login to continue from the login screen into the configured character without extra clicks."),
+            ]);
     }
 
     private Control CreateHeader()

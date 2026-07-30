@@ -55,6 +55,8 @@ public sealed class CharacterEditorForm : ThemedForm
             allowResize: false,
             showMinimizeButton: false,
             showMaximizeButton: false);
+        this.ConfigureHelpTopic(HelpTopicIds.AutoLogin);
+        this.ConfigureHelpTour(this.ShowHelpTour);
 
         this.BuildUi();
 
@@ -83,6 +85,22 @@ public sealed class CharacterEditorForm : ThemedForm
             this.BeginInvoke(
                 () => ControlGuidancePulse.Start(this.nameTextBox));
         }
+    }
+
+    private void ShowHelpTour()
+    {
+        GuidedTourOverlay.Show(
+            this,
+            [
+                new GuidedTourStep(
+                    () => this.nameTextBox,
+                    "Enter the character name",
+                    "Use the name exactly as it appears on the game's character selection screen."),
+                new GuidedTourStep(
+                    () => this.professionComboBox,
+                    "Choose the character profession",
+                    "The profession helps identify the character throughout Client Manager, including client slots and the Pilot Archive."),
+            ]);
     }
 
     private void BuildUi()

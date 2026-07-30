@@ -89,6 +89,12 @@ public sealed class GameSettingsForm : ThemedForm
     private readonly Button reloadButton = new();
     private readonly ThemedTabHost tabs = new();
     private readonly ComboBox chatResolutionComboBox = new();
+    private ThemedTabPage cameraTab = null!;
+    private ThemedTabPage interfaceTab = null!;
+    private ThemedTabPage graphicsTab = null!;
+    private ThemedTabPage soundTab = null!;
+    private ThemedTabPage privacyTab = null!;
+    private ThemedTabPage chatFontTab = null!;
 
     private DataGridView cameraGrid = null!;
     private DataGridView interfaceGrid = null!;
@@ -126,12 +132,14 @@ public sealed class GameSettingsForm : ThemedForm
             allowResize: true,
             showMinimizeButton: true,
             showMaximizeButton: true);
+        this.ConfigureHelpTopic(HelpTopicIds.GameSettings);
         this.windowPlacement = clientManager.BindGlobalWindowPlacement(
             this,
             WindowPlacementIds.GameSettings,
             preferredOwner);
 
         this.BuildLayout();
+        this.ConfigureHelpTour(this.ShowHelpTour);
         this.ConfigureGrids();
 
         this.Shown += this.GameSettingsForm_OnShown;
@@ -149,6 +157,38 @@ public sealed class GameSettingsForm : ThemedForm
 
         this.statusResetTimer.Interval = 2600;
         this.statusResetTimer.Tick += this.StatusResetTimer_OnTick;
+    }
+
+
+    internal void ShowHelpTour()
+    {
+        GuidedTourOverlay.Show(
+            this,
+            [
+                new GuidedTourStep(
+                    () => this.tabs,
+                    "See every pilot's settings together",
+                    "Camera, Interface, Graphics, Sound, Privacy, and Chat Font are grouped into tabs. Each row is a game setting and each pilot can be compared without logging characters in and out."),
+                new GuidedTourStep(
+                    () => this.cameraGrid,
+                    "Change one pilot or the whole fleet",
+                    "Edit a value in its pilot column to update that character. Right-click a setting to copy the chosen value to every offline pilot, so common preferences stay synchronized.",
+                    () => this.tabs.SelectedPage = this.cameraTab),
+                new GuidedTourStep(
+                    () => this.graphicsGrid,
+                    "Keep shared settings consistent",
+                    "Use the same fleet-wide action for graphics, interface, sound, and privacy choices. Online pilots are protected until they are safely offline.",
+                    () => this.tabs.SelectedPage = this.graphicsTab),
+                new GuidedTourStep(
+                    () => this.chatResolutionComboBox,
+                    "Synchronize chat fonts by resolution",
+                    "Choose the resolution record, adjust the chat-font values, then right-click a configured value to copy Player Chat, Game Messages, or both to the offline fleet.",
+                    () => this.tabs.SelectedPage = this.chatFontTab),
+                new GuidedTourStep(
+                    () => this.reloadButton,
+                    "Refresh after changing settings in the game",
+                    "Reload from game re-reads the settings Earth & Beyond currently has. Client Manager saves supported changes automatically as you make them here."),
+            ]);
     }
 
     protected override void Dispose(bool disposing)
@@ -260,12 +300,18 @@ public sealed class GameSettingsForm : ThemedForm
         this.privacyGrid = this.CreateGrid();
         this.chatFontGrid = this.CreateGrid();
 
-        this.tabs.AddPage(this.CreateGridTab("Camera", this.cameraGrid));
-        this.tabs.AddPage(this.CreateGridTab("Interface", this.interfaceGrid));
-        this.tabs.AddPage(this.CreateGridTab("Graphics", this.graphicsGrid));
-        this.tabs.AddPage(this.CreateGridTab("Sound", this.soundGrid));
-        this.tabs.AddPage(this.CreateGridTab("Privacy", this.privacyGrid));
-        this.tabs.AddPage(this.CreateChatFontTab());
+        this.cameraTab = this.CreateGridTab("Camera", this.cameraGrid);
+        this.interfaceTab = this.CreateGridTab("Interface", this.interfaceGrid);
+        this.graphicsTab = this.CreateGridTab("Graphics", this.graphicsGrid);
+        this.soundTab = this.CreateGridTab("Sound", this.soundGrid);
+        this.privacyTab = this.CreateGridTab("Privacy", this.privacyGrid);
+        this.chatFontTab = this.CreateChatFontTab();
+        this.tabs.AddPage(this.cameraTab);
+        this.tabs.AddPage(this.interfaceTab);
+        this.tabs.AddPage(this.graphicsTab);
+        this.tabs.AddPage(this.soundTab);
+        this.tabs.AddPage(this.privacyTab);
+        this.tabs.AddPage(this.chatFontTab);
 
         this.Controls.Add(this.tabs);
         this.Controls.Add(footer);

@@ -105,6 +105,8 @@ internal sealed class InGameOptionsForm : ThemedForm
             allowResize: false,
             showMinimizeButton: false,
             showMaximizeButton: false);
+        this.ConfigureHelpTopic(HelpTopicIds.InGameTools);
+        this.ConfigureHelpTour(this.ShowHelpTour);
 
         this.BuildUi();
         this.WireEvents();
@@ -173,6 +175,39 @@ internal sealed class InGameOptionsForm : ThemedForm
 
         this.lifetimeCancellation.Dispose();
         base.OnFormClosed(e);
+    }
+
+
+    internal void ShowHelpTour()
+    {
+        GuidedTourOverlay.Show(
+            this,
+            [
+                new GuidedTourStep(
+                    () => this.showModeComboBox,
+                    "Choose how the Client Manager menu opens",
+                    "Set whether the in-game menu is always available, appears on hover, or stays hidden until its shortcut is used."),
+                new GuidedTourStep(
+                    () => this.shortcutTextBox,
+                    "Set the Command Palette shortcut",
+                    "The Command Palette gives fast keyboard access to Client Manager actions while the game has focus."),
+                new GuidedTourStep(
+                    () => this.missionWikiCheckBox,
+                    "Turn in-game helpers on or off",
+                    "Mission Wiki, Finder behaviour, vendor assistance, and enhanced item tooltips can be enabled independently for the active game experience."),
+                new GuidedTourStep(
+                    () => this.missionHistoryCheckBox,
+                    "Choose what Pilot Archive remembers",
+                    "Mission, activity, and combat history recording can be controlled here. The resulting histories remain available after the client closes."),
+                new GuidedTourStep(
+                    () => this.enhancedItemToolTipsCheckBox,
+                    "Replace cramped native item details",
+                    "Enhanced tooltips cover inventory, vault, loot, and equipped items. Use the offsets below to place them comfortably beside the game UI."),
+                new GuidedTourStep(
+                    () => this.applyButton,
+                    "Apply to the active game client",
+                    "Apply saves these in-game choices and refreshes the relevant Client Manager surfaces without restarting the game."),
+            ]);
     }
 
     private void BuildUi()

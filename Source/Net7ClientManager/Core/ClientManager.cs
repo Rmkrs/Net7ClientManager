@@ -952,6 +952,9 @@ public sealed class ClientManager : IDisposable
     public event EventHandler<InGameOptionsRequestedEventArgs>?
         InGameOptionsRequested;
 
+    public event EventHandler<HelpRequestedEventArgs>?
+        HelpRequested;
+
     public event EventHandler? NavigationDataChanged;
 
     public event EventHandler<GalaxyKnowledgeSnapshotChangedEventArgs>?
@@ -7880,6 +7883,7 @@ public sealed class ClientManager : IDisposable
             this.OpenPilotArchive,
             this.OpenSocial,
             this.OpenAddonCenter,
+            this.RequestHelp,
             this.RequestInGameOptions,
             this.ResolveMissionWikiDestination,
             mission => this.ResolveMissionJobGuidance(
@@ -10276,40 +10280,61 @@ public sealed class ClientManager : IDisposable
         IWin32Window owner)
     {
         _ = client;
+        this.OpenForgeContributionsCore(owner, tourClosed: null);
+    }
+
+    internal void OpenForgeContributionsForHelp(
+        IWin32Window owner,
+        Action? tourClosed)
+    {
+        this.OpenForgeContributionsCore(owner, tourClosed);
+    }
+
+    private void OpenForgeContributionsCore(
+        IWin32Window owner,
+        Action? tourClosed)
+    {
+        ForgeContributionsForm form;
 
         if (this.forgeContributionsForm is
             {
                 IsDisposed: false,
                 Disposing: false,
-            })
+            } existing)
         {
-            if (this.forgeContributionsForm.WindowState ==
-                FormWindowState.Minimized)
+            form = existing;
+
+            if (form.WindowState == FormWindowState.Minimized)
             {
-                this.forgeContributionsForm.WindowState =
-                    FormWindowState.Normal;
+                form.WindowState = FormWindowState.Normal;
             }
 
-            if (!this.forgeContributionsForm.Visible)
+            if (!form.Visible)
             {
-                this.forgeContributionsForm.Show(owner);
+                form.Show(owner);
             }
 
-            this.forgeContributionsForm.BringToFront();
-            this.forgeContributionsForm.Activate();
-            return;
+            form.BringToFront();
+            form.Activate();
+        }
+        else
+        {
+            form = new ForgeContributionsForm(this, owner);
+            this.forgeContributionsForm = form;
+            form.FormClosed += (_, _) =>
+            {
+                if (ReferenceEquals(this.forgeContributionsForm, form))
+                {
+                    this.forgeContributionsForm = null;
+                }
+            };
+            form.Show(owner);
         }
 
-        var form = new ForgeContributionsForm(this, owner);
-        this.forgeContributionsForm = form;
-        form.FormClosed += (_, _) =>
+        if (tourClosed != null)
         {
-            if (ReferenceEquals(this.forgeContributionsForm, form))
-            {
-                this.forgeContributionsForm = null;
-            }
-        };
-        form.Show(owner);
+            form.BeginInvoke(() => form.ShowHelpTour(tourClosed));
+        }
     }
 
     private void OpenSocial(
@@ -10356,6 +10381,29 @@ public sealed class ClientManager : IDisposable
         };
         form.Show(owner);
         form.SelectPilot(client.ProcessId);
+    }
+
+    public bool OpenSocialForHelp(
+        int processId,
+        IWin32Window owner)
+    {
+        ClientInstance? client;
+
+        lock (this.lockObject)
+        {
+            this.clients.TryGetValue(processId, out client);
+        }
+
+        if (client == null ||
+            client.LifecycleState != ClientLifecycleState.InGame)
+        {
+            return false;
+        }
+
+        this.OpenSocial(client, owner);
+        var form = this.socialForm;
+        form?.BeginInvoke(() => form.ShowHelpTour());
+        return true;
     }
 
     private void OpenPilotArchive(
@@ -10414,6 +10462,15 @@ public sealed class ClientManager : IDisposable
         {
             form.SelectPilot(characterId.Value);
         }
+    }
+
+    public void OpenPilotArchiveForHelp(
+        IWin32Window owner,
+        uint? characterId = null)
+    {
+        this.OpenPilotArchive(owner, characterId);
+        var form = this.pilotArchiveForm;
+        form?.BeginInvoke(() => form.ShowHelpTour());
     }
 
     public string? GetPilotArchiveActiveBuildDisplayName(
@@ -10967,6 +11024,17 @@ public sealed class ClientManager : IDisposable
         GameAccount Account,
         GameCharacter Character);
 
+    private void RequestHelp(
+        ClientInstance client,
+        IWin32Window owner)
+    {
+        this.HelpRequested?.Invoke(
+            this,
+            new HelpRequestedEventArgs(
+                client.ProcessId,
+                owner));
+    }
+
     private void RequestInGameOptions(
         ClientInstance client,
         IWin32Window owner)
@@ -11020,6 +11088,35 @@ public sealed class ClientManager : IDisposable
         };
 
         form.Show(owner);
+    }
+
+    public void OpenAddonCenterForHelp(
+        int ownerProcessId,
+        IWin32Window owner,
+        string? addonId,
+        bool discover)
+    {
+        ClientInstance? client;
+
+        lock (this.lockObject)
+        {
+            this.clients.TryGetValue(ownerProcessId, out client);
+        }
+
+        if (client == null)
+        {
+            return;
+        }
+
+        this.OpenAddonCenter(client, owner);
+
+        if (this.addonCenterForms.TryGetValue(
+                ownerProcessId,
+                out var form) &&
+            form is { IsDisposed: false, Disposing: false })
+        {
+            form.ShowAddonGuidance(addonId, discover);
+        }
     }
 
     private void CloseAddonCenter(int ownerProcessId)

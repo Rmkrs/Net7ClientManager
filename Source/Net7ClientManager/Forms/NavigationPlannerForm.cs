@@ -142,6 +142,15 @@ public sealed class NavigationPlannerForm : Form
         this.titleBar.Height = TitleBarHeight;
         this.titleBar.TitleText = "NET7 ROUTE PLANNER";
         this.titleBar.ShowMaximizeButton = true;
+        this.titleBar.ShowHelpButton = true;
+        this.titleBar.HelpTopicId = HelpTopicIds.Navigation;
+        this.titleBar.HelpProcessIdProvider =
+            () => this.SelectedProcessId;
+        this.titleBar.HelpOverride = () =>
+        {
+            this.ShowHelpTour();
+            return true;
+        };
         this.titleBar.AccessibleName = "Net7 Route Planner title bar";
 
         this.BuildUi();
@@ -217,6 +226,39 @@ public sealed class NavigationPlannerForm : Form
         this.RefreshClients(force: true);
         this.SelectRequestedProcess();
         this.ShowCurrentRoute();
+    }
+
+
+    internal void ShowHelpTour()
+    {
+        GuidedTourOverlay.Show(
+            this,
+            [
+                new GuidedTourStep(
+                    () => this.clientComboBox,
+                    "Choose the pilot",
+                    "Routes start from the live position of the selected hosted pilot. Change this when you want to plan for another client."),
+                new GuidedTourStep(
+                    () => this.searchTextBox,
+                    "Find a destination",
+                    "Type part of a sector, station, planet, gate, or navigation-point name. The destination list narrows as you type."),
+                new GuidedTourStep(
+                    () => this.destinationFilterComboBox,
+                    "Narrow the kind of place",
+                    "Use Type when you only want sectors, stations, gates, planets, or navigation points. Nearest first can move nearby matches to the top."),
+                new GuidedTourStep(
+                    () => this.catalogTree,
+                    "Choose from the results",
+                    "Select a destination to preview its route. The right side immediately shows the hops, warnings, and the next travel target."),
+                new GuidedTourStep(
+                    () => this.setDestinationButton,
+                    "Send the route to the game",
+                    "Set destination makes the previewed route active for the selected pilot. Navigation HUD and Auto Pilot can then use it."),
+                new GuidedTourStep(
+                    () => this.routeListBox,
+                    "Read the journey",
+                    "The route lists each supported travel step in order. Warnings below it call out restrictions, unavailable shortcuts, or anything that needs your attention."),
+            ]);
     }
 
     protected override void WndProc(ref Message m)

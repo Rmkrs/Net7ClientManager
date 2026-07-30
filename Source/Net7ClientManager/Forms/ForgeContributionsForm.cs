@@ -90,6 +90,13 @@ public sealed class ForgeContributionsForm : Form
         this.titleBar.Height = TitleBarHeight;
         this.titleBar.TitleText = "NET7 FORGE CONTRIBUTIONS";
         this.titleBar.ShowMaximizeButton = true;
+        this.titleBar.ShowHelpButton = true;
+        this.titleBar.HelpTopicId = HelpTopicIds.Addons;
+        this.titleBar.HelpOverride = () =>
+        {
+            this.ShowHelpTour();
+            return true;
+        };
         this.titleBar.AccessibleName = "Net7 Forge Contributions title bar";
         this.windowPlacement =
             clientManager.BindGlobalWindowPlacement(
@@ -198,6 +205,51 @@ public sealed class ForgeContributionsForm : Form
         this.contentPanel.Controls.Add(root);
         this.Controls.Add(this.contentPanel);
         this.Controls.Add(this.titleBar);
+    }
+
+    internal void ShowHelpTour(Action? tourClosed = null)
+    {
+        GuidedTourOverlay.Show(
+            this,
+            [
+                new GuidedTourStep(
+                    () => this.enabledCheckBox,
+                    "Choose whether to contribute",
+                    "Contribution is optional and off by default. Enable it when you want supported world discoveries from your clients to improve the shared Forge dataset.",
+                    () => this.ScrollTourTargetIntoView(this.enabledCheckBox)),
+                new GuidedTourStep(
+                    () => this.identityValueLabel,
+                    "See whether Forge is connected",
+                    "Forge access shows whether this installation is ready to contribute. If access is ever lost, recovery options appear in the Forge connection section above.",
+                    () => this.ScrollTourTargetIntoView(this.identityValueLabel)),
+                new GuidedTourStep(
+                    () => this.anonymousRadioButton,
+                    "Control public attribution",
+                    "Choose whether contributions appear anonymously or may show the contributing pilot name publicly. Private abuse protection still remains in place.",
+                    () => this.ScrollTourTargetIntoView(this.anonymousRadioButton)),
+                new GuidedTourStep(
+                    () => this.npcPresenceCheckBox,
+                    "Choose the discoveries you share",
+                    "Enable only the categories you are comfortable contributing, such as NPCs, navigation objects, vendors, mobs, resources, recipes, missions, and jobs.",
+                    () => this.ScrollTourTargetIntoView(this.npcPresenceCheckBox)),
+                new GuidedTourStep(
+                    () => this.dataUpdateButton,
+                    "Refresh shared world data",
+                    "Use the data update action when a newer Forge world dataset is available for Client Manager.",
+                    () => this.ScrollTourTargetIntoView(this.dataUpdateButton)),
+                new GuidedTourStep(
+                    () => this.statusValueLabel,
+                    "Review contribution activity",
+                    "The overview shows whether contribution is active and summarises what this session and installation have shared.",
+                    () => this.ScrollTourTargetIntoView(this.statusValueLabel)),
+            ],
+            tourClosed: tourClosed);
+    }
+
+    private void ScrollTourTargetIntoView(Control control)
+    {
+        this.contentPanel.ScrollControlIntoView(control);
+        control.Focus();
     }
 
     private Control CreateIntroductionPanel()

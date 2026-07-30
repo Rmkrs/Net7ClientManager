@@ -23,6 +23,8 @@ public abstract class ThemedForm : Form
     private bool allowResize = true;
     private bool showWindowIcon = true;
     private bool showTitleBar = true;
+    private string helpTopicId = HelpTopicIds.Home;
+    private Func<int?>? helpProcessIdProvider;
 
     protected ThemedForm()
     {
@@ -38,6 +40,8 @@ public abstract class ThemedForm : Form
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
             TitleText = this.Text,
             WindowIcon = this.Icon,
+            ShowHelpButton = false,
+            HelpTopicId = this.helpTopicId,
         };
 
         this.titleBar.DragRequested += this.TitleBar_OnDragRequested;
@@ -54,7 +58,8 @@ public abstract class ThemedForm : Form
         bool showMinimizeButton,
         bool showMaximizeButton,
         bool showCloseButton = true,
-        bool showIcon = true)
+        bool showIcon = true,
+        bool showHelpButton = false)
     {
         this.showTitleBar = true;
         this.titleBar.Visible = true;
@@ -64,11 +69,37 @@ public abstract class ThemedForm : Form
         this.titleBar.ShowMinimizeButton = showMinimizeButton;
         this.titleBar.ShowMaximizeButton = showMaximizeButton;
         this.titleBar.ShowCloseButton = showCloseButton;
+        this.titleBar.ShowHelpButton = showHelpButton;
         this.titleBar.IsMaximized = this.WindowState ==
                                     FormWindowState.Maximized;
         this.UpdateWindowChromeLayout();
     }
 
+
+    protected void ConfigureHelpTopic(
+        string topicId,
+        Func<int?>? processIdProvider = null)
+    {
+        this.helpTopicId = string.IsNullOrWhiteSpace(topicId)
+            ? HelpTopicIds.Home
+            : topicId;
+        this.helpProcessIdProvider = processIdProvider;
+        this.titleBar.HelpTopicId = this.helpTopicId;
+        this.titleBar.HelpProcessIdProvider =
+            this.helpProcessIdProvider;
+    }
+
+
+    protected void ConfigureHelpTour(Action showTour)
+    {
+        ArgumentNullException.ThrowIfNull(showTour);
+        this.titleBar.ShowHelpButton = true;
+        this.titleBar.HelpOverride = () =>
+        {
+            showTour();
+            return true;
+        };
+    }
 
     protected void ConfigureCompactOverlayChrome()
     {

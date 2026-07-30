@@ -415,9 +415,12 @@ public sealed partial class MainForm
         card.Controls.Add(root);
         card.Tag = new ProfileSlotCardRuntime(
             slot.Id,
+            card,
             statusLabel,
             automationLabel,
-            startButton);
+            startButton,
+            editButton,
+            deleteButton);
 
         AttachDoubleClick(
             card,
@@ -775,6 +778,11 @@ public sealed partial class MainForm
         object? sender,
         EventArgs e)
     {
+        this.OpenLayoutEditor(showTour: false);
+    }
+
+    private void OpenLayoutEditor(bool showTour)
+    {
         if (this.clientManager.ActiveProfile == null)
         {
             return;
@@ -786,6 +794,13 @@ public sealed partial class MainForm
                 form,
                 Net7ClientManager.Services.WindowPlacementIds.LayoutEditor,
                 this);
+
+        if (showTour)
+        {
+            form.Shown += (_, _) =>
+                form.BeginInvoke(() => form.ShowHelpTour());
+        }
+
         _ = form.ShowDialog(this);
         this.RefreshAll();
     }
@@ -1116,9 +1131,12 @@ public sealed partial class MainForm
 
     private sealed record ProfileSlotCardRuntime(
         Guid SlotId,
+        Control Card,
         Label StatusLabel,
         Label AutomationLabel,
-        Button StartButton);
+        Button StartButton,
+        Button EditButton,
+        Button DeleteButton);
 
     private sealed record RunningClientCardPresentation(
         string Title,

@@ -40,6 +40,8 @@ public sealed class ClientManager : IDisposable
     private readonly ClientWindowFinder clientWindowFinder = new();
     private readonly ClientDockingService clientDockingService = new();
     private readonly System.Windows.Forms.Timer clientWindowTimer;
+    private readonly System.Windows.Forms.Timer hostedClientActivationTimer;
+    private bool hostedClientMouseWasDown;
     private readonly SettingsStore settingsStore = new();
     private readonly GameRenderResolutionOverrideCoordinator
         gameRenderResolutionOverrideCoordinator;
@@ -59,7 +61,7 @@ public sealed class ClientManager : IDisposable
     private static readonly TimeSpan launcherPlayInvocationTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan launcherPlayAcceptanceDelay = TimeSpan.FromSeconds(10);
     private const int LauncherPlayAttemptLimit = 2;
-    private static readonly TimeSpan introEscapeInterval = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan introSkipClickInterval = TimeSpan.FromMilliseconds(750);
 
     private static readonly TimeSpan navigationDataAutomaticCheckInterval =
         TimeSpan.FromMinutes(5);
@@ -403,6 +405,14 @@ public sealed class ClientManager : IDisposable
         };
 
         this.clientWindowTimer.Tick += this.ClientWindowTimer_OnTick;
+
+        this.hostedClientActivationTimer = new System.Windows.Forms.Timer
+        {
+            Interval = 16,
+        };
+
+        this.hostedClientActivationTimer.Tick +=
+            this.HostedClientActivationTimer_OnTick;
 
         this.clientObservationCoordinator.ChatMessageObserved +=
             this.ClientObservationCoordinator_OnChatMessageObserved;
@@ -1076,6 +1086,66 @@ public sealed class ClientManager : IDisposable
         int processId)
     {
         return this.navigationAutoPilotCoordinator.GetSnapshot(processId);
+    }
+
+    internal AddonNavigationRouteSnapshot
+        GetNavigationPresentationSnapshot(int processId)
+    {
+        var route = this.NavigationRoutes.GetSnapshot(processId);
+
+        if (!this.clientObservationCoordinator.TryGetSnapshot(
+                processId,
+                out var observation))
+        {
+            return new AddonNavigationRouteSnapshot
+            {
+                IsAvailable = false,
+                Status = "unavailable",
+                StatusText =
+                    "Navigation is waiting for live game state.",
+                HasRoute = route.HasRoute,
+                Journey = new AddonNavigationJourneySnapshot
+                {
+                    State = "unavailable",
+                    StatusText =
+                        "Navigation is waiting for live game state.",
+                },
+            };
+        }
+
+        return this.BuildAddonNavigationRouteSnapshot(
+            route,
+            observation);
+    }
+
+    internal void RequestNavigationPlanner(int processId)
+    {
+        this.NavigationPlannerRequested?.Invoke(
+            this,
+            new NavigationPlannerRequestedEventArgs(processId));
+    }
+
+    internal void SetNavigationPresentationMode(
+        int processId,
+        NavigationPresentationMode mode)
+    {
+        lock (this.lockObject)
+        {
+            if (!this.clients.TryGetValue(processId, out var client))
+            {
+                return;
+            }
+
+            var slot = this.GetAssignedSlot(client);
+
+            if (slot == null || slot.NavigationPresentationMode == mode)
+            {
+                return;
+            }
+
+            slot.NavigationPresentationMode = mode;
+            this.SaveSettings();
+        }
     }
 
     public NavigationAutoPilotCommandResult StartNavigationAutoPilot(
@@ -2060,13 +2130,187 @@ public sealed class ClientManager : IDisposable
     public void Start()
     {
         this.addonRuntimeCoordinator.Start(
-            this.settings.AddonCenter.CheckForUpdatesAutomatically);
+            checkForUpdatesAutomatically: false);
+        this.RetireLegacyNavigationHudAddon();
+
+        if (this.settings.AddonCenter.CheckForUpdatesAutomatically)
+        {
+            this.addonRuntimeCoordinator.RefreshCatalogInBackground();
+        }
+
         this.clientObservationCoordinator.Start();
         this.clientProcessWatcher.Start();
         this.clientWindowTimer.Start();
+        this.hostedClientActivationTimer.Start();
         this.socialCoordinator.Start();
 
         this.ScheduleInitialAutomaticNavigationDataUpdateCheck();
+    }
+
+    private void RetireLegacyNavigationHudAddon()
+    {
+        var retiredAddonIds = this.addonRuntimeCoordinator
+            .RetireInstalledAddonsByName(
+                NavigationPresentationIds.LegacyAddonName,
+                removeStoredData: true);
+        var retiredSet = retiredAddonIds.ToHashSet(
+            StringComparer.Ordinal);
+        var settingsChanged = false;
+
+        foreach (var slot in this.settings.Profiles
+                     .SelectMany(profile => profile.Slots))
+        {
+            settingsChanged |= MigrateLegacyNavigationCompanionPlacement(
+                slot.AddonWindowPlacements);
+
+            var wasEnabled = slot.EnabledAddonIds.Any(
+                retiredSet.Contains);
+
+            if (wasEnabled)
+            {
+                settingsChanged |= MigrateLegacyNavigationHudPlacement(
+                    slot.AddonWindowPlacements,
+                    retiredSet);
+                slot.NavigationPresentationMode =
+                    NavigationPresentationMode.InGame;
+                settingsChanged = true;
+            }
+
+            if (retiredSet.Count != 0)
+            {
+                var removedEnabled = slot.EnabledAddonIds.RemoveAll(
+                    retiredSet.Contains);
+                var removedPlacements = slot.AddonWindowPlacements.RemoveAll(
+                    placement => retiredSet.Contains(placement.AddonId));
+                settingsChanged |= removedEnabled != 0 ||
+                                   removedPlacements != 0;
+            }
+        }
+
+        settingsChanged |= MigrateLegacyNavigationCompanionPlacement(
+            this.settings.AddonCenter.UnassignedAddonWindowPlacements);
+
+        if (retiredSet.Count != 0)
+        {
+            var removedEnabled = this.settings.AddonCenter
+                .UnassignedEnabledAddonIds.RemoveAll(retiredSet.Contains);
+            var removedPlacements = this.settings.AddonCenter
+                .UnassignedAddonWindowPlacements.RemoveAll(
+                    placement => retiredSet.Contains(placement.AddonId));
+            settingsChanged |= removedEnabled != 0 ||
+                               removedPlacements != 0;
+        }
+
+        if (settingsChanged)
+        {
+            this.SaveSettings();
+        }
+    }
+
+    private static bool MigrateLegacyNavigationHudPlacement(
+        List<AddonWindowPlacement> placements,
+        IReadOnlySet<string> retiredAddonIds)
+    {
+        if (placements.Any(placement =>
+                string.Equals(
+                    placement.AddonId,
+                    NavigationPresentationIds.BuiltInAddonId,
+                    StringComparison.Ordinal) &&
+                string.Equals(
+                    placement.WidgetId,
+                    NavigationPresentationIds.InGameWindowId,
+                    StringComparison.Ordinal)))
+        {
+            return false;
+        }
+
+        var legacy = placements.FirstOrDefault(placement =>
+            retiredAddonIds.Contains(placement.AddonId) &&
+            !string.Equals(
+                placement.WidgetId,
+                NavigationPresentationIds.CompanionWindowId,
+                StringComparison.Ordinal));
+
+        if (legacy == null)
+        {
+            return false;
+        }
+
+        placements.Add(new AddonWindowPlacement
+        {
+            AddonId = NavigationPresentationIds.BuiltInAddonId,
+            WidgetId = NavigationPresentationIds.InGameWindowId,
+            OffsetX = legacy.OffsetX,
+            OffsetY = legacy.OffsetY,
+            Width = legacy.Width,
+            Height = legacy.Height,
+            IsClosed = legacy.IsClosed,
+            IsVisible = legacy.IsVisible,
+            IsMinimized = legacy.IsMinimized,
+            HorizontalEdge = legacy.HorizontalEdge,
+            MinimizedOffsetX = legacy.MinimizedOffsetX,
+            MinimizedOffsetY = legacy.MinimizedOffsetY,
+        });
+        return true;
+    }
+
+    private static bool MigrateLegacyNavigationCompanionPlacement(
+        List<AddonWindowPlacement> placements)
+    {
+        var legacy = placements.FirstOrDefault(placement =>
+            string.Equals(
+                placement.AddonId,
+                NavigationPresentationIds.LegacyCompanionPlacementAddonId,
+                StringComparison.Ordinal) &&
+            string.Equals(
+                placement.WidgetId,
+                NavigationPresentationIds.CompanionWindowId,
+                StringComparison.Ordinal));
+
+        if (legacy == null)
+        {
+            return false;
+        }
+
+        var hasCurrentPlacement = placements.Any(placement =>
+            string.Equals(
+                placement.AddonId,
+                NavigationPresentationIds.BuiltInAddonId,
+                StringComparison.Ordinal) &&
+            string.Equals(
+                placement.WidgetId,
+                NavigationPresentationIds.CompanionWindowId,
+                StringComparison.Ordinal));
+
+        if (!hasCurrentPlacement)
+        {
+            placements.Add(new AddonWindowPlacement
+            {
+                AddonId = NavigationPresentationIds.BuiltInAddonId,
+                WidgetId = NavigationPresentationIds.CompanionWindowId,
+                OffsetX = legacy.OffsetX,
+                OffsetY = legacy.OffsetY,
+                Width = legacy.Width,
+                Height = legacy.Height,
+                IsClosed = legacy.IsClosed,
+                IsVisible = legacy.IsVisible,
+                IsMinimized = legacy.IsMinimized,
+                HorizontalEdge = legacy.HorizontalEdge,
+                MinimizedOffsetX = legacy.MinimizedOffsetX,
+                MinimizedOffsetY = legacy.MinimizedOffsetY,
+            });
+        }
+
+        placements.RemoveAll(placement =>
+            string.Equals(
+                placement.AddonId,
+                NavigationPresentationIds.LegacyCompanionPlacementAddonId,
+                StringComparison.Ordinal) &&
+            string.Equals(
+                placement.WidgetId,
+                NavigationPresentationIds.CompanionWindowId,
+                StringComparison.Ordinal));
+        return true;
     }
 
     private void ScheduleInitialAutomaticNavigationDataUpdateCheck()
@@ -2979,6 +3223,12 @@ public sealed class ClientManager : IDisposable
                     ResolutionPresetName = slot.ResolutionPresetName,
                     MatchGameResolutionToHost =
                         slot.MatchGameResolutionToHost,
+                    ShowTitleBar = slot.ShowTitleBar,
+                    TitleBarMode = slot.TitleBarMode,
+                    TitleBarHoverDelaySeconds =
+                        slot.TitleBarHoverDelaySeconds,
+                    NavigationPresentationMode =
+                        slot.NavigationPresentationMode,
                     GameResolutionWidth = slot.GameResolutionWidth,
                     GameResolutionHeight = slot.GameResolutionHeight,
                     IncludeInAssistMe = slot.IncludeInAssistMe,
@@ -3061,6 +3311,11 @@ public sealed class ClientManager : IDisposable
 
         this.forgeNavigationDataClient.Dispose();
         this.navigationUpdateCancellation.Dispose();
+        this.hostedClientActivationTimer.Stop();
+        this.hostedClientActivationTimer.Tick -=
+            this.HostedClientActivationTimer_OnTick;
+        this.hostedClientActivationTimer.Dispose();
+
         this.clientWindowTimer.Stop();
         this.clientWindowTimer.Tick -= this.ClientWindowTimer_OnTick;
         this.clientWindowTimer.Dispose();
@@ -7725,6 +7980,80 @@ public sealed class ClientManager : IDisposable
         this.addonRuntimeCoordinator.DetachOwner(processId);
     }
 
+    private void HostedClientActivationTimer_OnTick(
+        object? sender,
+        EventArgs e)
+    {
+        var mouseIsDown =
+            NativeMethods.IsKeyDown(Keys.LButton) ||
+            NativeMethods.IsKeyDown(Keys.RButton) ||
+            NativeMethods.IsKeyDown(Keys.MButton) ||
+            NativeMethods.IsKeyDown(Keys.XButton1) ||
+            NativeMethods.IsKeyDown(Keys.XButton2);
+        var mousePressStarted =
+            mouseIsDown &&
+            !this.hostedClientMouseWasDown;
+
+        this.hostedClientMouseWasDown = mouseIsDown;
+
+        if (!mousePressStarted ||
+            this.foregroundInputCoordinator.IsBusy ||
+            !NativeMethods.TryGetCursorScreenPosition(
+                out var cursorPosition))
+        {
+            return;
+        }
+
+        var clickedWindowHandle =
+            NativeMethods.GetWindowAtScreenPoint(
+                cursorPosition);
+
+        if (clickedWindowHandle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        ClientHostForm? clickedHost = null;
+
+        lock (this.lockObject)
+        {
+            foreach (var client in this.clients.Values)
+            {
+                if (client.GameWindowHandle == IntPtr.Zero ||
+                    client.HostForm is not
+                    {
+                        IsDisposed: false,
+                        Disposing: false,
+                        Visible: true,
+                    } hostForm ||
+                    !NativeMethods.IsChildOrSameWindow(
+                        client.GameWindowHandle,
+                        clickedWindowHandle))
+                {
+                    continue;
+                }
+
+                clickedHost = hostForm;
+                break;
+            }
+        }
+
+        if (clickedHost == null ||
+            !clickedHost.IsHandleCreated ||
+            clickedHost.WindowState ==
+                FormWindowState.Minimized)
+        {
+            return;
+        }
+
+        // Do not activate or refocus anything here. The physical click has
+        // already been delivered to ENB. We only repair the surrounding
+        // host's desktop Z-order so the complete hosted client follows the
+        // game window to the front without disturbing mouse or keyboard input.
+        _ = NativeMethods.TryBringWindowToTopWithoutActivation(
+            clickedHost.Handle);
+    }
+
     private void ClientWindowTimer_OnTick(object? sender, EventArgs e)
     {
         this.TickGameRenderResolutionRestoration();
@@ -7874,6 +8203,7 @@ public sealed class ClientManager : IDisposable
         }
 
         var hostForm = new ClientHostForm(
+            this,
             client,
             this.clientDockingService,
             this.CloseClient,
@@ -7926,7 +8256,7 @@ public sealed class ClientManager : IDisposable
             client.LoadingOrTransitionFlag != 0);
         client.State = ClientState.Docked;
         client.DockedAt = DateTimeOffset.UtcNow;
-        client.LastIntroEscapeSentAt = null;
+        client.LastIntroSkipClickAt = null;
         client.LoginSubmittedAt = null;
         client.AutoLoginProvenance = null;
         client.EnterGameClickAt = null;
@@ -8030,7 +8360,7 @@ public sealed class ClientManager : IDisposable
         }
 
         client.DockedAt ??= DateTimeOffset.UtcNow;
-        client.LastIntroEscapeSentAt = null;
+        client.LastIntroSkipClickAt = null;
         client.LoginSubmittedAt = null;
         client.AutoLoginProvenance = null;
         client.EnterGameClickAt = null;
@@ -8303,19 +8633,12 @@ public sealed class ClientManager : IDisposable
 
                 client.AutomationStatus = "Skipping intro";
 
-                if (client.LastIntroEscapeSentAt == null ||
+                if (client.LastIntroSkipClickAt == null ||
                     DateTimeOffset.UtcNow -
-                    client.LastIntroEscapeSentAt.Value >=
-                    introEscapeInterval)
+                    client.LastIntroSkipClickAt.Value >=
+                    introSkipClickInterval)
                 {
-                    NativeMethods.FocusWindow(
-                        client.GameWindowHandle);
-
-                    NativeMethods.SendEscape(
-                        client.GameWindowHandle);
-
-                    client.LastIntroEscapeSentAt =
-                        DateTimeOffset.UtcNow;
+                    this.TrySkipIntroWithSafeClick(client);
                 }
 
                 return;
@@ -8364,6 +8687,52 @@ public sealed class ClientManager : IDisposable
                 client.AutomationStatus =
                     $"Waiting for intro or login screen; observed {client.LifecycleState}";
                 return;
+        }
+    }
+
+    private void TrySkipIntroWithSafeClick(ClientInstance client)
+    {
+        if (client.GameWindowHandle == IntPtr.Zero ||
+            client.LifecycleState != ClientLifecycleState.IntroScene ||
+            !this.foregroundInputCoordinator.TryAcquire(
+                out var foregroundLease))
+        {
+            return;
+        }
+
+        using (foregroundLease)
+        {
+            // Lifecycle observations can change between timer ticks. Recheck
+            // after acquiring foreground-input ownership, then click a quiet
+            // corner that remains harmless if the intro has just disappeared.
+            if (client.GameWindowHandle == IntPtr.Zero ||
+                client.LifecycleState != ClientLifecycleState.IntroScene ||
+                !NativeMethods.TryGetClientSize(
+                    client.GameWindowHandle,
+                    out var clientSize))
+            {
+                return;
+            }
+
+            var safeX = Math.Clamp(clientSize.Width / 100, 8, 16);
+
+            // Keep the pointer in the quiet left gutter, but well below the
+            // hover-title-bar reveal strip and the native top menu. The old
+            // top-corner click could leave the cursor parked in the reveal
+            // zone long enough for the temporary title bar to appear before
+            // the next intro-skip attempt.
+            var safeY = Math.Clamp(
+                clientSize.Height / 5,
+                96,
+                160);
+
+            if (NativeMethods.ForegroundLeftClick(
+                    client.GameWindowHandle,
+                    safeX,
+                    safeY))
+            {
+                client.LastIntroSkipClickAt = DateTimeOffset.UtcNow;
+            }
         }
     }
 
@@ -9613,7 +9982,7 @@ public sealed class ClientManager : IDisposable
             observation.LocalPlayer.Operational.IsAvailable &&
             runtime.PrivateWarpState.HasValue &&
             runtime.GlobalWarpState.HasValue &&
-            runtime.HasActiveWarpState;
+            runtime.BlocksAutoPilotStart;
         var supportsCurrentAutoPilotStep =
             NavigationAutoPilotCoordinator.SupportsStep(
                 route?.NextStep);
@@ -9626,6 +9995,10 @@ public sealed class ClientManager : IDisposable
             !isObservedWarping &&
             !autoPilotRunning &&
             supportsCurrentAutoPilotStep;
+        var canResumeAutoPilot =
+            canStartAutoPilot &&
+            autoPilotApplies &&
+            autoPilot.State == NavigationAutoPilotState.Stopped;
         var canSelectNextTarget =
             hasStableSpaceContext &&
             !autoPilotRunning &&
@@ -9729,7 +10102,7 @@ public sealed class ClientManager : IDisposable
                 CanSelectNextTarget =
                     canSelectNextTarget,
                 CanPause = false,
-                CanResume = false,
+                CanResume = canResumeAutoPilot,
                 CanClear = snapshot.HasRoute &&
                            !autoPilotRunning,
                 CanPlanReturnTrip = canPlanReturnTrip,

@@ -55,7 +55,7 @@ internal static class HelpArticleCatalog
                 "Turn one game window or a whole multibox team into a repeatable layout you can launch again in seconds.",
                 [
                     "Launch one client, or create every missing client in the selected profile",
-                    "Place and resize client windows visually across your monitors",
+                    "Place client windows visually across your monitors, including always-visible and hover title bars",
                     "Keep the fleet alive and replace a client that closes unexpectedly",
                 ],
                 [
@@ -64,9 +64,12 @@ internal static class HelpArticleCatalog
                         "A profile is one saved fleet arrangement. Keep separate profiles for solo play, a combat group, trade runs, or any other combination you want to launch together."),
                     new HelpArticleSection(
                         "Client slots",
-                        "Each slot remembers its account, character, automatic-login choices, monitor position, hosted window size, and game resolution."),
+                        "Each slot remembers its account, character, automatic-login choices, monitor position, hosted window size, game resolution, and title-bar mode. The Layout Editor reserves extra space only for an always-visible title bar, so rows do not overlap."),
+                    new HelpArticleSection(
+                        "Macro compatibility",
+                        "Choose Always show for normal use, Hide for strict macro compatibility, or Show on hover to keep Earth & Beyond at window coordinate 0,0 while still revealing the title bar after the pointer rests at the top edge. The hover delay prevents brief visits to the gutter from covering game controls."),
                 ],
-                ["fleet", "profile", "slot", "layout", "window", "multibox"],
+                ["fleet", "profile", "slot", "layout", "window", "multibox", "title bar", "hover", "macro", "autohotkey", "ahk"],
                 Featured: true,
                 OpenAction: "show:fleet-tour",
                 OpenActionText: "Tour the main screen"),
@@ -86,16 +89,19 @@ internal static class HelpArticleCatalog
                         "Route Planner",
                         "Search for a destination, filter by type, preview every hop and warning, then send the route to the selected hosted pilot."),
                     new HelpArticleSection(
-                        "Navigation HUD",
-                        "The Navigation HUD addon presents the active route inside the game. Help can check whether it is installed, enabled for this client, and currently visible."),
+                        "Pop out or show in game",
+                        "Open Navigation from the in-game Client Manager menu. Use Pop out to move the same route into a desktop companion beside or below the game, or onto another monitor. Use Show in game to return it to a movable window over Earth & Beyond. Route and Auto Pilot state continue unchanged."),
+                    new HelpArticleSection(
+                        "Built in",
+                        "Both presentations are part of Client Manager and share the same route controls. The retired Navigation HUD addon is uninstalled automatically during upgrade, so players do not need to install or manage a separate package."),
                     new HelpArticleSection(
                         "Auto Pilot",
                         "Auto Pilot acts on the current route and supports a limited unattended run. Route warnings and follower recovery remain visible so you know when intervention is needed."),
                 ],
-                ["navigation", "route", "autopilot", "hud", "destination", "wormhole"],
+                ["navigation", "route", "autopilot", "hud", "companion", "pop out", "destination", "wormhole"],
                 Featured: true,
                 DiagnosticAction: "diagnose:navigation",
-                DiagnosticText: "Check Navigation HUD",
+                DiagnosticText: "Open Navigation",
                 OpenAction: "open:navigation",
                 OpenActionText: "Tour the Route Planner"),
 

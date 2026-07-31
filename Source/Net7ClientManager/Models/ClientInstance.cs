@@ -44,7 +44,7 @@ public sealed class ClientInstance(int processId, Process process)
 
     public string? AutomationStatus { get; set; }
 
-    public DateTimeOffset? LastIntroEscapeSentAt { get; set; }
+    public DateTimeOffset? LastIntroSkipClickAt { get; set; }
 
     public DateTimeOffset? LoginSubmittedAt { get; set; }
 

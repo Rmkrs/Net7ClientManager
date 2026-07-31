@@ -9,6 +9,8 @@ internal readonly record struct NavigationAutoPilotEffectOutcome
 
     public bool Succeeded { get; init; }
 
+    public bool ActivateVerbInstead { get; init; }
+
     public NavigationAutoPilotStopReason StopReason { get; init; }
 
     public string StatusText { get; init; } = "";
@@ -18,6 +20,15 @@ internal readonly record struct NavigationAutoPilotEffectOutcome
         return new NavigationAutoPilotEffectOutcome
         {
             Succeeded = true,
+            StatusText = "",
+        };
+    }
+
+    public static NavigationAutoPilotEffectOutcome VerbReady()
+    {
+        return new NavigationAutoPilotEffectOutcome
+        {
+            ActivateVerbInstead = true,
             StatusText = "",
         };
     }

@@ -169,15 +169,15 @@ internal sealed class LayoutEditorForm : ThemedForm
                 new GuidedTourStep(
                     () => this.layoutDesignerControl,
                     "Place the fleet on your monitors",
-                    "Each rectangle is one client slot. Drag slots to the screen and position where that game window should open every time."),
+                    "Each rectangle is one complete hosted client. Drag slots to the screen and position where that window should open every time."),
                 new GuidedTourStep(
                     () => this.layoutDesignerControl,
-                    "Resize a slot visually",
-                    "Resize the slot rectangle to change its hosted window size. The slot can also make the game render at the same resolution."),
+                    "The rectangle matches the real footprint",
+                    "Always show includes the Client Manager title bar and snapping keeps the next row clear. Hide and Show on hover use only the Earth & Beyond game area because the hover title bar temporarily overlays it."),
                 new GuidedTourStep(
                     () => this.editSlotButton,
                     "Fine-tune the selected client",
-                    "Edit selected opens the exact account, character, position, resolution, automatic-login, and automatic-character choices for this slot."),
+                    "Edit selected opens the exact account, character, title-bar mode and hover delay, position, resolution, automatic-login, and automatic-character choices for this slot."),
                 new GuidedTourStep(
                     () => this.selectionLabel,
                     "Check the result",
@@ -302,7 +302,8 @@ internal sealed class LayoutEditorForm : ThemedForm
         var preset = SlotPlacementDefaults.SelectBestFitResolution(
             this.clientManager.SlotResolutionPresets,
             this.clientManager.DefaultSlotResolutionPreset,
-            screenBounds);
+            screenBounds,
+            HostedClientWindowMetrics.TitleBarHeight);
         var bounds = SlotPlacementDefaults.CreateForScreen(screenBounds);
 
         bounds.Width = preset.Width;
@@ -315,6 +316,9 @@ internal sealed class LayoutEditorForm : ThemedForm
             Bounds = bounds,
             ResolutionPresetName = preset.Name,
             MatchGameResolutionToHost = true,
+            ShowTitleBar = true,
+            TitleBarMode = ClientTitleBarMode.Always,
+            TitleBarHoverDelaySeconds = 0.75m,
             GameResolutionWidth = preset.Width,
             GameResolutionHeight = preset.Height,
         };
@@ -430,8 +434,20 @@ internal sealed class LayoutEditorForm : ThemedForm
             return;
         }
 
+        var hostedHeight =
+            HostedClientWindowMetrics.GetHostedWindowHeight(slot);
+        var titleBarText =
+            HostedClientWindowMetrics.GetTitleBarModeText(slot);
+
+        var hoverDelayText =
+            slot.EffectiveTitleBarMode == ClientTitleBarMode.OnHover
+                ? string.Create(
+                    CultureInfo.InvariantCulture,
+                    $" after {slot.TitleBarHoverDelaySeconds:0.##}s")
+                : "";
+
         this.selectionLabel.Text = string.Create(
             CultureInfo.InvariantCulture,
-            $"Selected: {slot.Name} · {slot.Bounds.Width}×{slot.Bounds.Height} at {slot.Bounds.Left}, {slot.Bounds.Top}");
+            $"Selected: {slot.Name} · {slot.Bounds.Width}×{hostedHeight} · {titleBarText}{hoverDelayText} · at {slot.Bounds.Left}, {slot.Bounds.Top}");
     }
 }

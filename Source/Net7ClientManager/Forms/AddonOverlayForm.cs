@@ -49,6 +49,9 @@ internal sealed class AddonOverlayForm : Form
     private static readonly WidgetKey optionsKey =
         new("net7.addons.host", "options");
 
+    private static readonly WidgetKey navigationKey =
+        new("net7.addons.host", "navigation");
+
     private static readonly WidgetKey galaxyAtlasKey =
         new("net7.addons.host", "galaxy-atlas");
 
@@ -104,6 +107,7 @@ internal sealed class AddonOverlayForm : Form
     private bool gameMenuOpen;
     private bool presentationEnabled = true;
     private bool inputSuppressed;
+    private int topOcclusionHeight;
     private InteractiveIdentity? menuGuidanceIdentity;
     private DateTimeOffset menuGuidanceStartedAt;
     private DateTimeOffset menuGuidanceUntil;
@@ -135,6 +139,8 @@ internal sealed class AddonOverlayForm : Form
         UiInteractionRaised;
 
     public event EventHandler? InGameOptionsRequested;
+
+    public event EventHandler? NavigationRequested;
 
     public event EventHandler? GalaxyAtlasRequested;
 
@@ -252,6 +258,9 @@ internal sealed class AddonOverlayForm : Form
                         {
                             IsVisible = true,
                         };
+                    windowToShow.IsClosed = false;
+                    windowToShow.IsVisible = true;
+                    this.PersistWindowState(key, windowToShow);
                 }
 
                 break;
@@ -440,6 +449,9 @@ internal sealed class AddonOverlayForm : Form
             "options" => new InteractiveIdentity(
                 InteractiveKind.AddonsMenuOptions,
                 optionsKey),
+            "navigation" => new InteractiveIdentity(
+                InteractiveKind.AddonsMenuNavigation,
+                navigationKey),
             "atlas" => new InteractiveIdentity(
                 InteractiveKind.AddonsMenuGalaxyAtlas,
                 galaxyAtlasKey),
@@ -620,6 +632,38 @@ internal sealed class AddonOverlayForm : Form
         this.Invalidate();
     }
 
+    // The overlay is an owned top-level window and therefore normally sits
+    // above controls inside the host form. Clip only the temporarily revealed
+    // title-bar strip instead of changing either window's Z-order.
+    public void SetTopOcclusionHeight(int height)
+    {
+        var clampedHeight = Math.Clamp(
+            height,
+            0,
+            Math.Max(0, this.ClientSize.Height));
+
+        if (this.topOcclusionHeight == clampedHeight)
+        {
+            return;
+        }
+
+        this.topOcclusionHeight = clampedHeight;
+
+        if (clampedHeight > 0)
+        {
+            this.gameMenuOpen = false;
+            this.menuPointerLeftAt = null;
+            this.tooltipVisible = false;
+            this.tooltipHoverIdentity = null;
+            this.lastCursorOwnedElement = null;
+            this.lastCursorInteractiveElement = null;
+            this.pressedElement = null;
+            this.Capture = false;
+        }
+
+        this.Invalidate();
+    }
+
     public void SetInputSuppressed(bool suppressed)
     {
         if (this.inputSuppressed == suppressed)
@@ -690,6 +734,14 @@ internal sealed class AddonOverlayForm : Form
 
             var screenPoint = GetScreenPoint(message.LParam);
             var clientPoint = this.PointToClient(screenPoint);
+
+            if (clientPoint.Y >= 0 &&
+                clientPoint.Y < this.topOcclusionHeight)
+            {
+                message.Result = new IntPtr(HtTransparent);
+                return;
+            }
+
             var scene = this.ResolveScene();
             var interactive = FindTopmostInteractive(
                 scene,
@@ -915,6 +967,14 @@ internal sealed class AddonOverlayForm : Form
                     EventArgs.Empty);
                 break;
 
+            case InteractiveKind.AddonsMenuNavigation:
+                this.gameMenuOpen = false;
+                this.menuPointerLeftAt = null;
+                this.NavigationRequested?.Invoke(
+                    this,
+                    EventArgs.Empty);
+                break;
+
             case InteractiveKind.AddonsMenuGalaxyAtlas:
                 this.gameMenuOpen = false;
                 this.menuPointerLeftAt = null;
@@ -1008,6 +1068,20 @@ internal sealed class AddonOverlayForm : Form
         if (!this.presentationEnabled)
         {
             return;
+        }
+
+        if (this.topOcclusionHeight > 0)
+        {
+            e.Graphics.SetClip(
+                new Rectangle(
+                    x: 0,
+                    y: this.topOcclusionHeight,
+                    width: this.ClientSize.Width,
+                    height: Math.Max(
+                        0,
+                        this.ClientSize.Height -
+                        this.topOcclusionHeight)),
+                CombineMode.Intersect);
         }
 
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
@@ -1260,6 +1334,16 @@ internal sealed class AddonOverlayForm : Form
         Graphics graphics,
         ResolvedGameMenu menu)
     {
+        // TextRenderer uses GDI and does not reliably honor the GDI+ clip
+        // applied by OnPaint. Suppress the in-game menu entirely whenever
+        // its tab intersects the temporary hover title-bar strip, so no
+        // menu text can bleed through the title bar.
+        if (this.topOcclusionHeight > 0 &&
+            menu.TabBounds.Top < this.topOcclusionHeight)
+        {
+            return;
+        }
+
         var tabIdentity = new InteractiveIdentity(
             InteractiveKind.AddonsMenuTab,
             addonsTabKey);
@@ -1553,6 +1637,7 @@ internal sealed class AddonOverlayForm : Form
                 InteractiveKind.AddonsMenuWindow or
                 InteractiveKind.AddonsMenuToggle or
                 InteractiveKind.AddonsMenuOptions or
+                InteractiveKind.AddonsMenuNavigation or
                 InteractiveKind.AddonsMenuGalaxyAtlas or
                 InteractiveKind.AddonsMenuWorldFind or
                 InteractiveKind.AddonsMenuPilotArchive or
@@ -2343,6 +2428,7 @@ internal sealed class AddonOverlayForm : Form
                  {
                      "Help",
                      "Options",
+                     "Navigation",
                      "Galaxy Atlas",
                      "Galaxy Finder",
                      "Social",
@@ -2402,7 +2488,7 @@ internal sealed class AddonOverlayForm : Form
             120,
             maximumMenuWidth);
 
-        const int builtInItemCount = 8;
+        const int builtInItemCount = 9;
         var registeredRowCount = sections.Sum(section =>
             1 + section.Items.Count);
 
@@ -2496,6 +2582,22 @@ internal sealed class AddonOverlayForm : Form
 
         var optionsSeparator = CreateSeparatorBounds();
         currentTop += separatorHeight;
+
+        items.Add(
+            new ResolvedGameMenuItem(
+                new InteractiveIdentity(
+                    InteractiveKind.AddonsMenuNavigation,
+                    navigationKey),
+                CreateItemBounds(),
+                optionsSeparator,
+                "Navigation",
+                string.Empty,
+                IsChecked: false,
+                IsEnabled: true,
+                IsHeader: false,
+                TextIndent: 0));
+
+        currentTop += itemHeight;
 
         items.Add(
             new ResolvedGameMenuItem(
@@ -3947,6 +4049,7 @@ internal sealed class AddonOverlayForm : Form
         AddonsMenuHeader,
         AddonsMenuHelp,
         AddonsMenuOptions,
+        AddonsMenuNavigation,
         AddonsMenuGalaxyAtlas,
         AddonsMenuWorldFind,
         AddonsMenuPilotArchive,

@@ -876,8 +876,65 @@ internal static class NavigationAutoPilotStateMachineScenarios
             .State;
         AssertPhase(
             state,
+            NavigationAutoPilotMachinePhase.EvaluatingRange,
+            "missing gate verb receives a bounded observation grace");
+
+        state = NavigationAutoPilotStateMachine.Observe(
+            state,
+            CreateFrame(
+                state,
+                now.AddMilliseconds(1400),
+                "saturn",
+                "Saturn",
+                gate,
+                selectedTargetObjectId: 560,
+                verbState: NavigationAutoPilotVerbState.Missing))
+            .State;
+        AssertPhase(
+            state,
             NavigationAutoPilotMachinePhase.WaitingForWarp,
-            "missing gate verb enters native Warp readiness evaluation");
+            "persistently missing gate verb enters native Warp readiness evaluation");
+
+        var engage = NavigationAutoPilotStateMachine.Observe(
+            state,
+            CreateFrame(
+                state,
+                now.AddMilliseconds(1450),
+                "saturn",
+                "Saturn",
+                gate,
+                selectedTargetObjectId: 560,
+                verbState: NavigationAutoPilotVerbState.Missing,
+                warpAvailable: 2));
+        AssertEffect(
+            engage,
+            NavigationAutoPilotEffectKind.EngageWarp,
+            "missing gate verb prepares Warp");
+
+        var redirect = NavigationAutoPilotStateMachine.ApplyWarpCommand(
+            engage.State,
+            NavigationAutoPilotEffectOutcome.VerbReady(),
+            now.AddMilliseconds(1500));
+        AssertPhase(
+            redirect.State,
+            NavigationAutoPilotMachinePhase.EvaluatingRange,
+            "late gate verb cancels Warp and returns to range evaluation");
+
+        var activate = NavigationAutoPilotStateMachine.Observe(
+            redirect.State,
+            CreateFrame(
+                redirect.State,
+                now.AddMilliseconds(1550),
+                "saturn",
+                "Saturn",
+                gate,
+                selectedTargetObjectId: 560,
+                verbState: NavigationAutoPilotVerbState.Executable,
+                warpAvailable: 2));
+        AssertEffect(
+            activate,
+            NavigationAutoPilotEffectKind.ActivateVerb,
+            "late gate verb activation");
     }
 
     private static void ValidateUnexpectedWarpStateBlocksCommand()

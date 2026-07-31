@@ -24,6 +24,26 @@ internal sealed class ForegroundInputCoordinator : IDisposable
         return new Releaser(this.gate);
     }
 
+    public bool IsBusy =>
+        !this.disposed &&
+        this.gate.CurrentCount == 0;
+
+    public bool TryAcquire(out IDisposable? lease)
+    {
+        ObjectDisposedException.ThrowIf(
+            this.disposed,
+            this);
+
+        if (!this.gate.Wait(0))
+        {
+            lease = null;
+            return false;
+        }
+
+        lease = new Releaser(this.gate);
+        return true;
+    }
+
     public void Dispose()
     {
         if (this.disposed)

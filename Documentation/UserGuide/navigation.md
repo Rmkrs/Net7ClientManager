@@ -32,9 +32,20 @@ The current route lists each step. **Select next target** asks the game to selec
 
 **Clear route** removes the destination without changing the pilot’s current target.
 
+## Navigation presentations
+
+Open **Navigation** from the in-game Client Manager menu. Navigation is built into Client Manager and can be used in two interchangeable ways:
+
+- **In game** keeps a movable Navigation window over Earth & Beyond. Select **Pop out** when the game window needs more room.
+- **Desktop companion** can sit beside or below Earth & Beyond, or move to another monitor. Select **Show in game** to return it to the hosted game.
+
+Both presentations show the destination, next route target, completed and remaining hops, Auto Pilot state, warnings, and the same route controls. Moving between them does not restart the route or Auto Pilot. Their positions are remembered for the client slot.
+
+The former Navigation HUD addon is retired. Client Manager uninstalls an installed copy automatically during upgrade and preserves the in-game choice for slots that had it enabled.
+
 ## Auto Pilot
 
-A destination can be followed manually, or by an installed navigation add-on that starts Net7 Client Manager’s Auto Pilot.
+A destination can be followed manually or from the built-in Navigation companion.
 
 Auto Pilot works from the saved route rather than inventing its own journey. It can select route targets, warp, pass through gates or accelerators, dock at stations, and land on planets. It watches sector transitions, reactor energy, target changes, confirmations, and interruptions, and stops with an explanation when the next safe step cannot be completed.
 

@@ -81,6 +81,66 @@ public sealed partial class AddonRuntimeCoordinator : IAsyncDisposable
         return this.catalog.GetInstallations();
     }
 
+    public IReadOnlyList<string> RetireInstalledAddonsByName(
+        string addonName,
+        bool removeStoredData)
+    {
+        ObjectDisposedException.ThrowIf(this.disposed, this);
+        ArgumentException.ThrowIfNullOrWhiteSpace(addonName);
+
+        lock (this.lockObject)
+        {
+            if (!this.started)
+            {
+                throw new InvalidOperationException(
+                    "Start the addon coordinator before retiring installed addons.");
+            }
+
+            if (this.owners.Count != 0)
+            {
+                return [];
+            }
+
+            var installedIds = this.catalog.GetInstallations()
+                .Select(installation => installation.AddonId)
+                .ToHashSet(StringComparer.Ordinal);
+            var matchingIds = this.catalogDescriptors
+                .Where(descriptor =>
+                    installedIds.Contains(descriptor.Id) &&
+                    string.Equals(
+                        descriptor.Name,
+                        addonName,
+                        StringComparison.OrdinalIgnoreCase))
+                .Select(descriptor => descriptor.Id)
+                .Concat(this.catalog.RegistryAddons
+                    .Where(addon =>
+                        installedIds.Contains(addon.Id) &&
+                        string.Equals(
+                            addon.Name,
+                            addonName,
+                            StringComparison.OrdinalIgnoreCase))
+                    .Select(addon => addon.Id))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            List<string> retired = [];
+
+            foreach (var addonId in matchingIds)
+            {
+                var result = this.catalog.Uninstall(
+                    addonId,
+                    removeStoredData);
+
+                if (result.Succeeded)
+                {
+                    retired.Add(addonId);
+                }
+            }
+
+            this.catalogDescriptors = [.. this.catalog.Descriptors];
+            return retired;
+        }
+    }
+
     public IReadOnlyList<AddonDevelopmentWorkspace> GetDevelopmentWorkspaces()
     {
         return this.developmentService.GetWorkspaces();
@@ -282,20 +342,27 @@ public sealed partial class AddonRuntimeCoordinator : IAsyncDisposable
 
         if (checkForUpdatesAutomatically)
         {
-            this.scheduler.EnqueueFireAndForget(
-                async token =>
-                {
-                    await this.catalog.RefreshAsync(token)
-                        .ConfigureAwait(false);
-
-                    lock (this.lockObject)
-                    {
-                        this.catalogDescriptors =
-                            [.. this.catalog.Descriptors];
-                    }
-                },
-                this.LogSchedulerFailure);
+            this.RefreshCatalogInBackground();
         }
+    }
+
+    public void RefreshCatalogInBackground()
+    {
+        ObjectDisposedException.ThrowIf(this.disposed, this);
+
+        this.scheduler.EnqueueFireAndForget(
+            async token =>
+            {
+                await this.catalog.RefreshAsync(token)
+                    .ConfigureAwait(false);
+
+                lock (this.lockObject)
+                {
+                    this.catalogDescriptors =
+                        [.. this.catalog.Descriptors];
+                }
+            },
+            this.LogSchedulerFailure);
     }
 
     public void UpdateOwnerSnapshot(
@@ -1215,8 +1282,12 @@ public sealed partial class AddonRuntimeCoordinator : IAsyncDisposable
                 instance.LastActivityAt = DateTimeOffset.UtcNow;
             }
 
-            if (result.Succeeded)
+            if (result.Succeeded || result.WasCancelled)
             {
+                // Snapshot/event callbacks are bounded work. Cancellation or
+                // a time-budget expiry is recoverable and must not unload the
+                // complete addon package. The runtime already recorded a
+                // warning and can process the next event normally.
                 continue;
             }
 
@@ -1283,8 +1354,11 @@ public sealed partial class AddonRuntimeCoordinator : IAsyncDisposable
             instance.LastActivityAt = DateTimeOffset.UtcNow;
         }
 
-        if (result.Succeeded)
+        if (result.Succeeded || result.WasCancelled)
         {
+            // A direct gesture may legitimately lose its foreground-input
+            // race or exceed the host action budget. Keep the addon running
+            // so its controls and the next user gesture remain available.
             return;
         }
 

@@ -15,6 +15,8 @@ internal sealed class SlotEditorForm : ThemedForm
     private readonly ComboBox characterComboBox;
     private readonly ComboBox hostResolutionComboBox;
     private readonly ThemedCheckBox matchGameResolutionCheckBox;
+    private readonly ComboBox titleBarModeComboBox;
+    private readonly NumericUpDown titleBarHoverDelayNumeric;
     private readonly ComboBox gameResolutionComboBox;
     private readonly NumericUpDown leftNumeric;
     private readonly NumericUpDown topNumeric;
@@ -81,6 +83,36 @@ internal sealed class SlotEditorForm : ThemedForm
             AutoSize = true,
             ForeColor = MainWindowTheme.Text,
         };
+
+        this.titleBarModeComboBox = new ComboBox
+        {
+            DropDownStyle = ComboBoxStyle.DropDownList,
+        };
+        MainWindowTheme.StyleComboBox(this.titleBarModeComboBox);
+        this.titleBarModeComboBox.Items.AddRange(
+        [
+            new TitleBarModeItem(
+                ClientTitleBarMode.Always,
+                "Always show"),
+            new TitleBarModeItem(
+                ClientTitleBarMode.OnHover,
+                "Show on hover"),
+            new TitleBarModeItem(
+                ClientTitleBarMode.Hidden,
+                "Hide"),
+        ]);
+
+        this.titleBarHoverDelayNumeric = new NumericUpDown
+        {
+            Minimum = 0.10m,
+            Maximum = 5.00m,
+            DecimalPlaces = 2,
+            Increment = 0.10m,
+            Value = 0.75m,
+            ThousandsSeparator = false,
+        };
+        MainWindowTheme.StyleNumericUpDown(
+            this.titleBarHoverDelayNumeric);
 
         this.gameResolutionComboBox = new ComboBox
         {
@@ -153,6 +185,8 @@ internal sealed class SlotEditorForm : ThemedForm
             this.HostResolutionComboBox_OnSelectedIndexChanged;
         this.matchGameResolutionCheckBox.CheckedChanged +=
             this.MatchGameResolutionCheckBox_OnCheckedChanged;
+        this.titleBarModeComboBox.SelectedIndexChanged +=
+            this.TitleBarModeComboBox_OnSelectedIndexChanged;
         this.gameResolutionComboBox.SelectedIndexChanged +=
             this.GameResolutionComboBox_OnSelectedIndexChanged;
         this.leftNumeric.ValueChanged +=
@@ -228,6 +262,14 @@ internal sealed class SlotEditorForm : ThemedForm
                     "Match the game to the window",
                     "Keep this enabled for the simplest setup. Disable it only when the game should render at a different resolution from the hosted window."),
                 new GuidedTourStep(
+                    () => this.titleBarModeComboBox,
+                    "Choose how the title bar behaves",
+                    "Always show reserves space above Earth & Beyond. Show on hover keeps macro-compatible game coordinates and temporarily overlays the title bar after you rest the pointer at the top edge. Hide removes it completely."),
+                new GuidedTourStep(
+                    () => this.titleBarHoverDelayNumeric,
+                    "Set the hover delay",
+                    "This delay only applies to Show on hover. A short visit to the game's top edge still reaches Earth & Beyond; the title bar appears only after the pointer remains there for this long."),
+                new GuidedTourStep(
                     () => this.leftNumeric,
                     "Place the window on your monitors",
                     "Left and Top are the desktop coordinates for this slot. The Layout Editor is usually the easier way to arrange several clients visually."),
@@ -301,7 +343,7 @@ internal sealed class SlotEditorForm : ThemedForm
         {
             Dock = DockStyle.Fill,
             ColumnCount = 4,
-            RowCount = 7,
+            RowCount = 8,
             BackColor = MainWindowTheme.Panel,
         };
 
@@ -310,7 +352,7 @@ internal sealed class SlotEditorForm : ThemedForm
         table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, width: 108));
         table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, width: 44));
 
-        for (var index = 0; index < 6; index++)
+        for (var index = 0; index < 7; index++)
         {
             table.RowStyles.Add(new RowStyle(SizeType.Absolute, height: 40));
         }
@@ -326,6 +368,12 @@ internal sealed class SlotEditorForm : ThemedForm
         ConfigureCompactFieldControl(
             this.gameResolutionComboBox,
             width: 190);
+        ConfigureCompactFieldControl(
+            this.titleBarModeComboBox,
+            width: 190);
+        ConfigureCompactFieldControl(
+            this.titleBarHoverDelayNumeric,
+            width: 96);
         ConfigureFieldControl(this.leftNumeric);
         ConfigureFieldControl(this.topNumeric, rightMargin: 0);
 
@@ -358,19 +406,27 @@ internal sealed class SlotEditorForm : ThemedForm
             row: 4);
         table.SetColumnSpan(this.matchGameResolutionCheckBox, value: 3);
 
-        AddLabel(table, "Position X", column: 0, row: 5);
-        table.Controls.Add(this.leftNumeric, column: 1, row: 5);
-        AddLabel(table, "Position Y", column: 2, row: 5);
-        table.Controls.Add(this.topNumeric, column: 3, row: 5);
+        AddLabel(table, "Title bar", column: 0, row: 5);
+        table.Controls.Add(this.titleBarModeComboBox, column: 1, row: 5);
+        AddLabel(table, "Hover delay (s)", column: 2, row: 5);
+        table.Controls.Add(
+            this.titleBarHoverDelayNumeric,
+            column: 3,
+            row: 5);
+
+        AddLabel(table, "Position X", column: 0, row: 6);
+        table.Controls.Add(this.leftNumeric, column: 1, row: 6);
+        AddLabel(table, "Position Y", column: 2, row: 6);
+        table.Controls.Add(this.topNumeric, column: 3, row: 6);
 
         this.autoLoginCheckBox.Anchor = AnchorStyles.Left;
         this.autoEnterGameCheckBox.Anchor = AnchorStyles.Left;
         this.autoLoginCheckBox.Margin = new Padding(left: 0, top: 8, right: 12, bottom: 0);
         this.autoEnterGameCheckBox.Margin = new Padding(left: 0, top: 8, right: 0, bottom: 0);
 
-        table.Controls.Add(this.autoLoginCheckBox, column: 0, row: 6);
+        table.Controls.Add(this.autoLoginCheckBox, column: 0, row: 7);
         table.SetColumnSpan(this.autoLoginCheckBox, value: 2);
-        table.Controls.Add(this.autoEnterGameCheckBox, column: 2, row: 6);
+        table.Controls.Add(this.autoEnterGameCheckBox, column: 2, row: 7);
         table.SetColumnSpan(this.autoEnterGameCheckBox, value: 2);
 
         panel.Controls.Add(table);
@@ -461,6 +517,18 @@ internal sealed class SlotEditorForm : ThemedForm
             this.nameTextBox.Text = this.slot.Name;
             this.autoLoginCheckBox.Checked = this.slot.AutoLogin;
             this.autoEnterGameCheckBox.Checked = this.slot.AutoEnterGame;
+            this.titleBarModeComboBox.SelectedItem =
+                this.titleBarModeComboBox.Items
+                    .OfType<TitleBarModeItem>()
+                    .FirstOrDefault(item =>
+                        item.Mode == this.slot.EffectiveTitleBarMode)
+                ?? this.titleBarModeComboBox.Items
+                    .OfType<TitleBarModeItem>()
+                    .First();
+            this.titleBarHoverDelayNumeric.Value = Math.Clamp(
+                this.slot.TitleBarHoverDelaySeconds,
+                this.titleBarHoverDelayNumeric.Minimum,
+                this.titleBarHoverDelayNumeric.Maximum);
             this.leftNumeric.Value = this.slot.Bounds.Left;
             this.topNumeric.Value = this.slot.Bounds.Top;
             this.matchGameResolutionCheckBox.Checked =
@@ -469,6 +537,7 @@ internal sealed class SlotEditorForm : ThemedForm
             this.ReloadResolutionCombos();
             this.ReloadAccountCombo();
             this.UpdateGameResolutionState();
+            this.UpdateTitleBarHoverDelayState();
             this.UpdateInputRiskWarning();
         }
         finally
@@ -707,6 +776,25 @@ internal sealed class SlotEditorForm : ThemedForm
         this.UpdateGameResolutionState();
     }
 
+    private void TitleBarModeComboBox_OnSelectedIndexChanged(
+        object? sender,
+        EventArgs e)
+    {
+        if (this.isRefreshing)
+        {
+            return;
+        }
+
+        this.UpdateTitleBarHoverDelayState();
+    }
+
+    private void UpdateTitleBarHoverDelayState()
+    {
+        this.titleBarHoverDelayNumeric.Enabled =
+            (this.titleBarModeComboBox.SelectedItem as TitleBarModeItem)
+            ?.Mode == ClientTitleBarMode.OnHover;
+    }
+
     private void GameResolutionComboBox_OnSelectedIndexChanged(
         object? sender,
         EventArgs e)
@@ -849,6 +937,15 @@ internal sealed class SlotEditorForm : ThemedForm
             : selectedCharacterId;
         this.slot.AutoLogin = this.autoLoginCheckBox.Checked;
         this.slot.AutoEnterGame = this.autoEnterGameCheckBox.Checked;
+
+        var titleBarMode =
+            (this.titleBarModeComboBox.SelectedItem as TitleBarModeItem)
+            ?.Mode ?? ClientTitleBarMode.Always;
+
+        this.slot.TitleBarMode = titleBarMode;
+        this.slot.ShowTitleBar = titleBarMode == ClientTitleBarMode.Always;
+        this.slot.TitleBarHoverDelaySeconds =
+            this.titleBarHoverDelayNumeric.Value;
         this.slot.Bounds.Left = decimal.ToInt32(this.leftNumeric.Value);
         this.slot.Bounds.Top = decimal.ToInt32(this.topNumeric.Value);
 
@@ -881,6 +978,16 @@ internal sealed class SlotEditorForm : ThemedForm
 
         this.DialogResult = DialogResult.OK;
         this.Close();
+    }
+
+    private sealed record TitleBarModeItem(
+        ClientTitleBarMode Mode,
+        string DisplayText)
+    {
+        public override string ToString()
+        {
+            return this.DisplayText;
+        }
     }
 
     private sealed record ResolutionPresetItem(

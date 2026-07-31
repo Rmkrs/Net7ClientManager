@@ -1069,6 +1069,20 @@ internal sealed class NavigationAutoPilotCoordinator : IDisposable
                     "Auto Pilot was interrupted because the selected route target or client path changed before Warp was requested.");
             }
 
+            if (state.Step.RequiresInteraction &&
+                this.ReadVerbState(
+                    run.Client.ProcessId,
+                    observation.World.ActiveSectorNumber,
+                    state.TargetObjectId.Value,
+                    state.Step.Verb) ==
+                    NavigationAutoPilotVerbState.Executable)
+            {
+                // The ship may already be beside the gate/station, or the
+                // interaction control may have become observable while the
+                // warp command lease was being acquired. Interaction wins.
+                return NavigationAutoPilotEffectOutcome.VerbReady();
+            }
+
             if (!navigation.IsClientWarpReady)
             {
                 return NavigationAutoPilotEffectOutcome.Failure(
@@ -1590,7 +1604,7 @@ internal sealed class NavigationAutoPilotCoordinator : IDisposable
         }
 
         warpAvailable = runtime.WarpAvailable.Value;
-        isWarping = runtime.HasActiveWarpState;
+        isWarping = runtime.BlocksAutoPilotStart;
         return true;
     }
 

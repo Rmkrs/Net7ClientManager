@@ -108,6 +108,10 @@ public sealed partial class MainForm
                 .Append('|')
                 .Append(slot.MatchGameResolutionToHost)
                 .Append('|')
+                .Append(slot.EffectiveTitleBarMode)
+                .Append('|')
+                .Append(slot.TitleBarHoverDelaySeconds)
+                .Append('|')
                 .Append(slot.GameResolutionWidth)
                 .Append('|')
                 .Append(slot.GameResolutionHeight)
@@ -679,7 +683,8 @@ public sealed partial class MainForm
         var preset = SlotPlacementDefaults.SelectBestFitResolution(
             this.clientManager.SlotResolutionPresets,
             this.clientManager.DefaultSlotResolutionPreset,
-            screenBounds);
+            screenBounds,
+            HostedClientWindowMetrics.TitleBarHeight);
         var bounds = SlotPlacementDefaults.CreateForScreen(screenBounds);
 
         bounds.Width = preset.Width;
@@ -692,6 +697,9 @@ public sealed partial class MainForm
             Bounds = bounds,
             ResolutionPresetName = preset.Name,
             MatchGameResolutionToHost = true,
+            ShowTitleBar = true,
+            TitleBarMode = ClientTitleBarMode.Always,
+            TitleBarHoverDelaySeconds = 0.75m,
             GameResolutionWidth = preset.Width,
             GameResolutionHeight = preset.Height,
         };
@@ -1052,15 +1060,28 @@ public sealed partial class MainForm
             ? slot.Bounds.Height
             : slot.GameResolutionHeight;
 
+        var hostedHeight =
+            HostedClientWindowMetrics.GetHostedWindowHeight(slot);
+
         return string.Concat(
             "Host ",
             slot.Bounds.Width.ToString(CultureInfo.InvariantCulture),
             "×",
-            slot.Bounds.Height.ToString(CultureInfo.InvariantCulture),
+            hostedHeight.ToString(CultureInfo.InvariantCulture),
             " · Game ",
             gameWidth.ToString(CultureInfo.InvariantCulture),
             "×",
             gameHeight.ToString(CultureInfo.InvariantCulture),
+            " · ",
+            HostedClientWindowMetrics.GetTitleBarModeText(slot),
+            slot.EffectiveTitleBarMode == ClientTitleBarMode.OnHover
+                ? string.Concat(
+                    " after ",
+                    slot.TitleBarHoverDelaySeconds.ToString(
+                        "0.##",
+                        CultureInfo.InvariantCulture),
+                    "s")
+                : "",
             " · position ",
             slot.Bounds.Left.ToString(CultureInfo.InvariantCulture),
             ", ",

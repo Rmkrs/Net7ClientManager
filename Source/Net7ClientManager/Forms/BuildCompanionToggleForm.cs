@@ -57,6 +57,9 @@ internal sealed class BuildCompanionToggleForm : Form
     public void SetActive(bool active) =>
         this.toggle.SetActive(active);
 
+    public void SetScale(float scale) =>
+        this.toggle.SetScale(scale);
+
     protected override void WndProc(ref Message message)
     {
         if (message.Msg == WmMouseActivate)
@@ -85,6 +88,8 @@ internal sealed class BuildCompanionToggleForm : Form
     private sealed class BuildToggleControl : Control
     {
         private readonly BuildCompanionToggleStyle style;
+        private readonly float baseFontSize;
+        private float appliedScale = 1f;
         private bool active;
         private bool hovered;
         private bool pressed;
@@ -102,19 +107,33 @@ internal sealed class BuildCompanionToggleForm : Form
             this.TabStop = false;
             this.BackColor = transparencyColor;
             this.Cursor = Cursors.Hand;
-            this.Font = new Font(
-                "Segoe UI Semibold",
+            this.baseFontSize =
                 style == BuildCompanionToggleStyle.EquipmentStack
                     ? 13f
-                    : 14f,
-                FontStyle.Bold,
-                GraphicsUnit.Point);
+                    : 14f;
+            this.Font = this.CreateScaledFont(scale: 1f);
             this.ForeColor = Color.FromArgb(255, 255, 0);
             this.AccessibleRole = AccessibleRole.PushButton;
             this.AccessibleName = "Toggle build companion";
         }
 
         public event EventHandler? ToggleRequested;
+
+        public void SetScale(float scale)
+        {
+            var nextScale = Math.Clamp(scale, 0.5f, 2f);
+
+            if (Math.Abs(this.appliedScale - nextScale) < 0.01f)
+            {
+                return;
+            }
+
+            var previousFont = this.Font;
+            this.appliedScale = nextScale;
+            this.Font = this.CreateScaledFont(nextScale);
+            previousFont.Dispose();
+            this.Invalidate();
+        }
 
         public void SetActive(bool nextActive)
         {
@@ -128,6 +147,16 @@ internal sealed class BuildCompanionToggleForm : Form
                 ? "The build companion is visible."
                 : "The build companion is hidden.";
             this.Invalidate();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            var font = disposing
+                ? this.Font
+                : null;
+
+            base.Dispose(disposing);
+            font?.Dispose();
         }
 
         protected override void OnMouseEnter(EventArgs e)
@@ -225,6 +254,18 @@ internal sealed class BuildCompanionToggleForm : Form
                 TextFormatFlags.NoPrefix |
                 TextFormatFlags.NoPadding |
                 TextFormatFlags.SingleLine);
+        }
+
+        private Font CreateScaledFont(float scale)
+        {
+            return new Font(
+                "Segoe UI Semibold",
+                Math.Clamp(
+                    this.baseFontSize * scale,
+                    7f,
+                    24f),
+                FontStyle.Bold,
+                GraphicsUnit.Point);
         }
 
         private static GraphicsPath CreateButtonPath(Rectangle bounds)

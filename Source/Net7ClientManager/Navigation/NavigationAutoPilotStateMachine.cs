@@ -19,6 +19,9 @@ internal static class NavigationAutoPilotStateMachine
     private static readonly TimeSpan targetStateTimeout =
         TimeSpan.FromSeconds(4);
 
+    private static readonly TimeSpan initialVerbObservationDelay =
+        TimeSpan.FromSeconds(1);
+
     private static readonly TimeSpan warpAvailableTimeout =
         TimeSpan.FromSeconds(30);
 
@@ -186,6 +189,26 @@ internal static class NavigationAutoPilotStateMachine
                 NavigationAutoPilotStopReason.InternalError,
                 "Auto Pilot stopped because warp-command state became inconsistent.",
                 now);
+        }
+
+        if (outcome.ActivateVerbInstead)
+        {
+            return new NavigationAutoPilotMachineTransition(
+                state with
+                {
+                    Phase = NavigationAutoPilotMachinePhase.EvaluatingRange,
+                    PhaseStartedAt = now,
+                    VerbMissingSince = null,
+                    WarpRequestNavigationSequence = 0,
+                    WarpRequestGenerationSequence = 0,
+                    WarpRequestedAt = null,
+                    WarpRequestAccepted = false,
+                    WarpReachedActiveState = false,
+                    PublicState = NavigationAutoPilotState.VerifyingArrival,
+                    StopReason = NavigationAutoPilotStopReason.None,
+                    StatusText =
+                        $"{state.Step?.TargetName ?? "The route target"} entered interaction range before Warp was issued.",
+                });
         }
 
         if (!outcome.Succeeded)
@@ -577,6 +600,23 @@ internal static class NavigationAutoPilotStateMachine
         if (frame.VerbState ==
             NavigationAutoPilotVerbState.Missing)
         {
+            var verbMissingSince =
+                state.VerbMissingSince ?? frame.Now;
+
+            if (frame.Now - verbMissingSince <
+                initialVerbObservationDelay)
+            {
+                return new NavigationAutoPilotMachineTransition(
+                    state with
+                    {
+                        VerbMissingSince = verbMissingSince,
+                        PublicState =
+                            NavigationAutoPilotState.VerifyingArrival,
+                        StatusText =
+                            $"Waiting for {step.VerbName} readiness at {step.TargetName}.",
+                    });
+            }
+
             return BeginWaitingForWarp(
                 state,
                 frame.Now);

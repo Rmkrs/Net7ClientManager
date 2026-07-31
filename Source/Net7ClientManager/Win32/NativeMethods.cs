@@ -717,6 +717,16 @@ public static partial class NativeMethods
         return IsCapsLockEnabled() == enabled;
     }
 
+    public static IntPtr GetWindowAtScreenPoint(
+        Point point)
+    {
+        return WindowFromPoint(new NativePoint
+        {
+            X = point.X,
+            Y = point.Y,
+        });
+    }
+
     public static bool TryGetCursorScreenPosition(
         out Point point)
     {
@@ -1989,6 +1999,10 @@ public static partial class NativeMethods
     private static partial bool UnregisterHotKey(
         IntPtr windowHandle,
         int id);
+
+    [LibraryImport("user32.dll", EntryPoint = "WindowFromPoint")]
+    private static partial IntPtr WindowFromPoint(
+        NativePoint point);
 
     [LibraryImport("user32.dll", EntryPoint = "GetCursorPos", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

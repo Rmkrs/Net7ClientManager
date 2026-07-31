@@ -146,6 +146,26 @@ public sealed class AppSettings
                 slot.GameResolutionWidth = slot.Bounds.Width;
                 slot.GameResolutionHeight = slot.Bounds.Height;
             }
+
+            var titleBarMode = slot.EffectiveTitleBarMode;
+
+            if (!Enum.IsDefined(titleBarMode))
+            {
+                titleBarMode = ClientTitleBarMode.Always;
+            }
+
+            slot.TitleBarMode = titleBarMode;
+            slot.ShowTitleBar = titleBarMode == ClientTitleBarMode.Always;
+            slot.TitleBarHoverDelaySeconds = Math.Clamp(
+                slot.TitleBarHoverDelaySeconds,
+                0.10m,
+                5.00m);
+
+            if (!Enum.IsDefined(slot.NavigationPresentationMode))
+            {
+                slot.NavigationPresentationMode =
+                    NavigationPresentationMode.Companion;
+            }
         }
 
         foreach (var defaultPreset in defaultSlotResolutionPresets)

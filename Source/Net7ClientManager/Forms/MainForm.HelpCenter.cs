@@ -2,13 +2,11 @@
 namespace Net7ClientManager.Forms;
 
 using Net7ClientManager.Addons.Contracts;
-using Net7ClientManager.Addons.Registry;
 using Net7ClientManager.Models;
 using Net7ClientManager.Observations;
 
 public sealed partial class MainForm
 {
-    private const string NavigationHudName = "Navigation HUD";
     private HelpCenterForm? helpCenterForm;
 
     private void OpenHelpCenter(
@@ -186,17 +184,6 @@ public sealed partial class MainForm
                 this.ShowFleetTourFromHelp(),
             "diagnose:navigation" =>
                 this.DiagnoseNavigation(request.Context),
-            "show:navigation-install" =>
-                this.ShowNavigationAddonInCenter(
-                    request.Context,
-                    discover: true),
-            "show:navigation-enable" =>
-                this.ShowNavigationAddonInCenter(
-                    request.Context,
-                    discover: false),
-            "show:navigation-visible" =>
-                this.ShowNavigationVisibilityControl(
-                    request.Context),
             "open:navigation" =>
                 this.OpenNavigationFromHelp(request.Context),
             "open:atlas" =>
@@ -300,11 +287,11 @@ public sealed partial class MainForm
             new(
                 () => this.addSlotButton,
                 "Add another managed client",
-                "Add slot creates another place in the selected profile. The slot editor chooses its account, character, automatic-login behaviour, hosted size, game resolution, and screen position."),
+                "Add slot creates another place in the selected profile. The slot editor chooses its account, character, automatic-login behaviour, hosted size, game resolution, title-bar mode and hover delay, and screen position."),
             new(
                 () => this.editLayoutButton,
                 "Arrange the fleet visually",
-                "Edit layout opens the monitor canvas. Move and resize slot rectangles there instead of calculating coordinates by hand."),
+                "Edit layout opens the monitor canvas. Move slot rectangles there instead of calculating coordinates by hand. A rectangle includes extra title-bar height only in Always show mode; Hide and Show on hover keep the game-sized footprint."),
             new(
                 () => this.keepClientsAliveCheckBox,
                 "Replace missing clients automatically",
@@ -322,7 +309,7 @@ public sealed partial class MainForm
                 new GuidedTourStep(
                     () => slotRuntime.Card,
                     "Read one configured slot",
-                    "The card shows the chosen account and character, hosted and game resolution, screen position, automatic-login state, and whether the client is available, starting, running, or failed."));
+                    "The card shows the chosen account and character, complete hosted size, game resolution, title-bar mode, screen position, automatic-login state, and whether the client is available, starting, running, or failed."));
             steps.Add(
                 new GuidedTourStep(
                     () => slotRuntime.StartButton,
@@ -332,7 +319,7 @@ public sealed partial class MainForm
                 new GuidedTourStep(
                     () => slotRuntime.EditButton,
                     "Change this slot",
-                    "Edit opens the slot configuration for its account, character, automatic-login options, resolution, and placement."));
+                    "Edit opens the slot configuration for its account, character, automatic-login options, title-bar mode and hover delay, resolution, and placement."));
             steps.Add(
                 new GuidedTourStep(
                     () => slotRuntime.DeleteButton,
@@ -420,190 +407,26 @@ public sealed partial class MainForm
     {
         var resolved = this.ResolveHelpContext(context);
 
-        if (resolved.Client == null)
-        {
-            return new HelpActionResponse(
-                HelpResultKind.Information,
-                "Choose a running client",
-                "Select a running client or client slot in Help for, then Client Manager can inspect Navigation HUD for that pilot.");
-        }
-
-        var status = FindNavigationStatus(
-            this.clientManager.GetAddonStatuses(
-                resolved.Client.ProcessId));
-        var addon = this.ResolveNavigationAddon(status);
-
-        if (addon == null)
-        {
-            return new HelpActionResponse(
-                HelpResultKind.Warning,
-                "Navigation HUD is not installed",
-                "Install Navigation HUD from the Addon Center before enabling it for this client.",
-                "show:navigation-install",
-                "Show me");
-        }
-
-        var installed = this.clientManager.GetAddonInstallations().Any(
-            candidate => string.Equals(
-                candidate.AddonId,
-                addon.Value.AddonId,
-                StringComparison.Ordinal));
-
-        if (!installed)
-        {
-            return new HelpActionResponse(
-                HelpResultKind.Warning,
-                "Navigation HUD is not installed",
-                "Install Navigation HUD from the Addon Center before enabling it for this client.",
-                "show:navigation-install",
-                "Show me");
-        }
-
-        status ??= FindNavigationStatus(
-            this.clientManager.GetAddonStatuses(
-                resolved.Client.ProcessId));
-
-        if (status == null || !status.IsEnabled)
-        {
-            return new HelpActionResponse(
-                HelpResultKind.Warning,
-                "Navigation HUD is disabled for this client",
-                "Enable Navigation HUD for the selected client in the Addon Center.",
-                "show:navigation-enable",
-                "Show me");
-        }
-
-        if (this.clientManager.AddonsSuspendedForSession ||
-            status.State == AddonRuntimeState.Suspended)
-        {
-            return new HelpActionResponse(
-                HelpResultKind.Warning,
-                "Addons are temporarily suspended",
-                "Resume addons in the Addon Center before Navigation HUD can appear.",
-                "show:navigation-enable",
-                "Show me");
-        }
-
-        if (status.State is AddonRuntimeState.Failed or
-            AddonRuntimeState.Unavailable)
-        {
-            return new HelpActionResponse(
-                HelpResultKind.Error,
-                "Navigation HUD could not start",
-                string.IsNullOrWhiteSpace(status.Error)
-                    ? status.Detail
-                    : status.Error,
-                "show:navigation-enable",
-                "Open Addon Center");
-        }
-
-        var hasVisibilityToggle = false;
-        var isVisible = false;
-
-        if (resolved.Client.HostForm != null)
-        {
-            hasVisibilityToggle =
-                resolved.Client.HostForm.TryGetAddonMenuToggleState(
-                    addon.Value.AddonId,
-                    out isVisible);
-        }
-
-        if (hasVisibilityToggle && !isVisible)
-        {
-            return new HelpActionResponse(
-                HelpResultKind.Warning,
-                "Navigation HUD is hidden",
-                "The addon is installed and enabled, but its Show option is turned off in the in-game Client Manager menu.",
-                "show:navigation-visible",
-                "Show me");
-        }
-
-        return new HelpActionResponse(
-            HelpResultKind.Success,
-            "Navigation HUD is ready",
-            status.State == AddonRuntimeState.Running
-                ? "Navigation HUD is installed, enabled, and visible for the selected client."
-                : "Navigation HUD is installed and enabled. It will appear when the client reaches a supported in-game context.");
-    }
-
-    private HelpActionResponse ShowNavigationAddonInCenter(
-        HelpClientContext context,
-        bool discover)
-    {
-        var resolved = this.ResolveHelpContext(context);
-
-        if (resolved.Client == null)
-        {
-            return new HelpActionResponse(
-                HelpResultKind.Information,
-                "Choose a running client",
-                "Select the client whose addon settings should be opened.");
-        }
-
-        var status = FindNavigationStatus(
-            this.clientManager.GetAddonStatuses(
-                resolved.Client.ProcessId));
-        var addon = this.ResolveNavigationAddon(status);
-
-        if (addon == null)
-        {
-            this.clientManager.OpenAddonCenterForHelp(
-                resolved.Client.ProcessId,
-                this,
-                addonId: null,
-                discover: true);
-        }
-        else
-        {
-            this.clientManager.OpenAddonCenterForHelp(
-                resolved.Client.ProcessId,
-                this,
-                addon.Value.AddonId,
-                discover);
-        }
-
-        return new HelpActionResponse(
-            HelpResultKind.Information,
-            discover
-                ? "Navigation HUD is shown in Discover"
-                : "Navigation HUD is shown in Installed",
-            discover
-                ? "Use Install on the highlighted Navigation HUD card."
-                : "Use the highlighted control to enable Navigation HUD for this client.");
-    }
-
-    private HelpActionResponse ShowNavigationVisibilityControl(
-        HelpClientContext context)
-    {
-        var resolved = this.ResolveHelpContext(context);
-
         if (resolved.Client?.HostForm == null)
         {
             return new HelpActionResponse(
                 HelpResultKind.Information,
-                "The game client is not hosted",
-                "Start the client first, then Help can open its Client Manager menu and highlight Navigation HUD's Show option.");
+                "Choose a running client",
+                "Start or select a hosted client, then Help can open its built-in Navigation companion.");
         }
 
-        var status = FindNavigationStatus(
-            this.clientManager.GetAddonStatuses(
-                resolved.Client.ProcessId));
-        var addon = this.ResolveNavigationAddon(status);
-
-        if (addon == null ||
-            !resolved.Client.HostForm.ShowAddonMenuToggleGuidance(
-                addon.Value.AddonId))
+        if (!resolved.Client.HostForm.ShowNavigationCompanionForHelp())
         {
             return new HelpActionResponse(
-                HelpResultKind.Information,
-                "Navigation HUD has not created its menu option yet",
-                "Enter the game and wait for the addon to finish loading, then check again.");
+                HelpResultKind.Error,
+                "Navigation could not open",
+                "The hosted client is no longer available. Start the client again and retry.");
         }
 
         return new HelpActionResponse(
-            HelpResultKind.Information,
-            "The Show option is highlighted",
-            "Tick the flashing Show option in the in-game Client Manager menu.");
+            HelpResultKind.Success,
+            "Navigation companion opened",
+            "Move it beside the game, below it, or to another monitor. Its position and size are remembered for this client slot.");
     }
 
     private HelpActionResponse OpenNavigationFromHelp(
@@ -754,7 +577,7 @@ public sealed partial class MainForm
         return new HelpActionResponse(
             HelpResultKind.Information,
             "The Client Manager menu is highlighted",
-            "Use this menu to open the Atlas, Finder, Social, Pilot Archive, Builds, Addon Center, Help, and Options.");
+            "Use this menu to open Navigation, Atlas, Finder, Social, Pilot Archive, Builds, Addon Center, Help, and Options.");
     }
 
     private HelpActionResponse OpenInGameOptionsFromHelp(
@@ -929,43 +752,8 @@ public sealed partial class MainForm
         return new ResolvedHelpContext(client, slot);
     }
 
-    private NavigationAddonReference? ResolveNavigationAddon(
-        AddonRuntimeStatus? status)
-    {
-        if (status != null)
-        {
-            return new NavigationAddonReference(
-                status.AddonId,
-                status.Name);
-        }
-
-        AddonRegistrySummary? registry = this.clientManager.AddonRegistry
-            .FirstOrDefault(candidate => string.Equals(
-                candidate.Name,
-                NavigationHudName,
-                StringComparison.OrdinalIgnoreCase));
-
-        return registry == null
-            ? null
-            : new NavigationAddonReference(
-                registry.Id,
-                registry.Name);
-    }
-
-    private static AddonRuntimeStatus? FindNavigationStatus(
-        IReadOnlyList<AddonRuntimeStatus> statuses)
-    {
-        return statuses.FirstOrDefault(status => string.Equals(
-            status.Name,
-            NavigationHudName,
-            StringComparison.OrdinalIgnoreCase));
-    }
-
     private sealed record ResolvedHelpContext(
         ClientInstance? Client,
         ClientSlot? Slot);
 
-    private readonly record struct NavigationAddonReference(
-        string AddonId,
-        string Name);
 }

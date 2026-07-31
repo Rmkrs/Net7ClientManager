@@ -253,7 +253,7 @@ public sealed class NavigationPlannerForm : Form
                 new GuidedTourStep(
                     () => this.setDestinationButton,
                     "Send the route to the game",
-                    "Set destination makes the previewed route active for the selected pilot. Navigation HUD and Auto Pilot can then use it."),
+                    "Set destination makes the previewed route active for the selected pilot. Built-in Navigation and Auto Pilot can then use it."),
                 new GuidedTourStep(
                     () => this.routeListBox,
                     "Read the journey",

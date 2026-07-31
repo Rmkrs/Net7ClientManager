@@ -15,7 +15,8 @@ using Net7ClientManager.Win32;
 
 public sealed partial class ClientHostForm : Form
 {
-    private const int TitleBarHeight = 34;
+    private const int HoverTitleBarRevealZoneHeight = 10;
+    private const int HoverTitleBarPollIntervalMilliseconds = 50;
 
     private const int MissionWikiBaseCanvasWidth = 1280;
     private const int MissionWikiBaseCanvasHeight = 720;
@@ -59,8 +60,8 @@ public sealed partial class ClientHostForm : Form
     private const int BuildSkillsToggleBaseY = 140;
     private const int BuildSkillsToggleBaseWidth = 88;
     private const int BuildSkillsToggleBaseHeight = 25;
-    private const int BuildSkillsToggleMinimumWidth = 82;
-    private const int BuildSkillsToggleMinimumHeight = 22;
+    private const int BuildSkillsToggleMinimumWidth = 48;
+    private const int BuildSkillsToggleMinimumHeight = 14;
     private const string BuildSkillsCompanionPlacementAddonId =
         "net7.builds";
     private const string BuildSkillsCompanionPlacementWidgetId =
@@ -78,13 +79,14 @@ public sealed partial class ClientHostForm : Form
     private const int BuildEquipmentToggleUndockedBaseY = 186;
     private const int BuildEquipmentToggleBaseWidth = 190;
     private const int BuildEquipmentToggleBaseHeight = 19;
-    private const int BuildEquipmentToggleMinimumWidth = 180;
-    private const int BuildEquipmentToggleMinimumHeight = 18;
+    private const int BuildEquipmentToggleMinimumWidth = 96;
+    private const int BuildEquipmentToggleMinimumHeight = 12;
     private const string BuildEquipmentCompanionPlacementAddonId =
         "net7.builds";
     private const string BuildEquipmentCompanionPlacementWidgetId =
         "equipment-companion-v1";
 
+    private readonly ClientManager clientManager;
     private readonly ClientInstance clientInstance;
     private readonly ClientDockingService clientDockingService;
     private readonly Action<ClientInstance, CloseReason> closeRequested;
@@ -129,10 +131,13 @@ public sealed partial class ClientHostForm : Form
 
     private readonly System.Windows.Forms.Timer titleStatusTimer = new();
     private readonly System.Windows.Forms.Timer titleBlinkTimer = new();
+    private readonly System.Windows.Forms.Timer titleBarHoverTimer = new();
     private readonly Lock pendingUiCommandLock = new();
     private readonly List<AddonUiCommand> pendingUiCommands = [];
 
     private AddonOverlayForm? addonOverlayForm;
+    private NavigationCompanionForm? navigationCompanionForm;
+    private NavigationInGamePresenter? navigationInGamePresenter;
     private HostedClientMenuTourForm? hostedClientMenuTourForm;
     private MissionWikiWebViewForm? missionWikiWebViewForm;
     private MissionWikiControlForm? missionWikiControlForm;
@@ -190,9 +195,15 @@ public sealed partial class ClientHostForm : Form
         ClientLifecycleState.Unknown;
     private bool addonTransitioning;
     private bool closeRequestedByManager;
+    private ClientTitleBarMode titleBarMode = ClientTitleBarMode.Always;
+    private NavigationPresentationMode navigationPresentationMode =
+        NavigationPresentationMode.Companion;
+    private decimal titleBarHoverDelaySeconds = 0.75m;
+    private DateTime? titleBarHoverStartedAtUtc;
     private Guid? appliedSlotId;
 
     internal ClientHostForm(
+        ClientManager clientManager,
         ClientInstance clientInstance,
         ClientDockingService clientDockingService,
         Action<ClientInstance, CloseReason> closeRequested,
@@ -224,6 +235,8 @@ public sealed partial class ClientHostForm : Form
         Action<int, ClientTooltipHoverObservation>
             requestGameItemToolTipRefresh)
     {
+        this.clientManager = clientManager ??
+            throw new ArgumentNullException(nameof(clientManager));
         this.clientInstance = clientInstance;
         this.clientDockingService = clientDockingService;
         this.closeRequested = closeRequested;
@@ -262,7 +275,9 @@ public sealed partial class ClientHostForm : Form
         this.Icon = ResourceLoader.EarthAndBeyondIcon;
         this.StartPosition = FormStartPosition.Manual;
         this.FormBorderStyle = FormBorderStyle.None;
-        this.MinimumSize = new Size(640, 480 + TitleBarHeight);
+        this.MinimumSize = new Size(
+            width: 640,
+            height: 480 + HostedClientWindowMetrics.TitleBarHeight);
 
         this.titleBar = this.CreateTitleBar();
         this.gamePanel = this.CreateGamePanel();
@@ -277,6 +292,10 @@ public sealed partial class ClientHostForm : Form
 
         this.titleBlinkTimer.Interval = 500;
         this.titleBlinkTimer.Tick += this.TitleBlinkTimer_OnTick;
+
+        this.titleBarHoverTimer.Interval =
+            HoverTitleBarPollIntervalMilliseconds;
+        this.titleBarHoverTimer.Tick += this.TitleBarHoverTimer_OnTick;
 
         this.Load += this.ClientHostForm_OnLoad;
         this.Shown += this.ClientHostForm_OnShown;
@@ -340,7 +359,7 @@ public sealed partial class ClientHostForm : Form
 
         this.ClientSize = new Size(
             width,
-            height + TitleBarHeight);
+            height + this.CurrentTitleBarHeight);
 
         _ = this.clientDockingService.TryResizeDockedWindow(
             this.clientInstance.GameWindowHandle,
@@ -352,7 +371,19 @@ public sealed partial class ClientHostForm : Form
         var slotChanged = this.appliedSlotId != slot.Id;
         this.appliedSlotId = slot.Id;
 
+        if (slotChanged)
+        {
+            this.CloseNavigationCompanion(
+                preserveOpenPreference: true);
+            this.navigationInGamePresenter?.Hide();
+        }
+
+        this.navigationPresentationMode =
+            slot.NavigationPresentationMode;
         this.appliedSlotName = slot.Name;
+        this.ApplyTitleBarMode(
+            slot.EffectiveTitleBarMode,
+            slot.TitleBarHoverDelaySeconds);
         this.ApplyCurrentHostTitle();
 
         this.StartPosition = FormStartPosition.Manual;
@@ -360,7 +391,7 @@ public sealed partial class ClientHostForm : Form
 
         this.ClientSize = new Size(
             width: slot.Bounds.Width,
-            height: slot.Bounds.Height + TitleBarHeight);
+            height: slot.Bounds.Height + this.CurrentTitleBarHeight);
 
         _ = this.clientDockingService.TryResizeDockedWindow(
             this.clientInstance.GameWindowHandle,
@@ -381,6 +412,8 @@ public sealed partial class ClientHostForm : Form
             this.QueueAddonWindowStateReload();
         }
 
+        this.SyncNavigationPresentation();
+
         this.SyncMissionWiki();
         this.SyncBuildSkillsCompanion();
         this.SyncBuildEquipmentCompanion();
@@ -398,6 +431,11 @@ public sealed partial class ClientHostForm : Form
         this.appliedSlotId = null;
 
         this.appliedSlotName = null;
+        this.navigationPresentationMode =
+            NavigationPresentationMode.Companion;
+        this.CloseNavigationCompanion(
+            preserveOpenPreference: true);
+        this.navigationInGamePresenter?.Hide();
         this.ClearTitleStatus();
         this.SetMissionWikiEnabled(enabled: false);
 
@@ -1036,6 +1074,7 @@ public sealed partial class ClientHostForm : Form
 
         this.ApplyAddonPresentationState();
         this.SyncAddonOverlay();
+        this.SyncNavigationPresentation();
         this.SyncMissionWiki();
         this.SyncJobTerminalRoute();
         this.SyncFactionDetails();
@@ -1145,6 +1184,11 @@ public sealed partial class ClientHostForm : Form
             this.titleBlinkTimer.Tick -= this.TitleBlinkTimer_OnTick;
             this.titleBlinkTimer.Dispose();
 
+            this.titleBarHoverTimer.Stop();
+            this.titleBarHoverTimer.Tick -=
+                this.TitleBarHoverTimer_OnTick;
+            this.titleBarHoverTimer.Dispose();
+
             this.Load -= this.ClientHostForm_OnLoad;
             this.Shown -= this.ClientHostForm_OnShown;
             this.Resize -= this.ClientHostForm_OnResize;
@@ -1162,6 +1206,9 @@ public sealed partial class ClientHostForm : Form
             {
                 this.addonOverlayForm.UiInteractionRaised -=
                     this.AddonOverlayForm_OnUiInteractionRaised;
+
+                this.addonOverlayForm.NavigationRequested -=
+                    this.AddonOverlayForm_OnNavigationRequested;
 
                 this.addonOverlayForm.GalaxyAtlasRequested -=
                     this.AddonOverlayForm_OnGalaxyAtlasRequested;
@@ -1195,6 +1242,10 @@ public sealed partial class ClientHostForm : Form
             }
             this.addonOverlayForm = null;
 
+            this.navigationInGamePresenter?.Dispose();
+            this.navigationInGamePresenter = null;
+            this.CloseNavigationCompanion(
+                preserveOpenPreference: true);
             this.CloseMissionWikiForm();
             this.CloseJobTerminalRouteForm();
             this.CloseFactionDetailsForm();
@@ -1218,7 +1269,7 @@ public sealed partial class ClientHostForm : Form
         return new HostedClientTitleBar
         {
             Dock = DockStyle.Top,
-            Height = TitleBarHeight,
+            Height = HostedClientWindowMetrics.TitleBarHeight,
             ShowHelpButton = false,
             HelpTopicId = HelpTopicIds.InGameTools,
             HelpProcessIdProvider = () => this.clientInstance.ProcessId,
@@ -1246,7 +1297,9 @@ public sealed partial class ClientHostForm : Form
         if (bounds == null)
         {
             this.StartPosition = FormStartPosition.CenterScreen;
-            this.ClientSize = new Size(width: 1280, height: 720 + TitleBarHeight);
+            this.ClientSize = new Size(
+                width: 1280,
+                height: 720 + this.CurrentTitleBarHeight);
             return;
         }
 
@@ -1254,7 +1307,120 @@ public sealed partial class ClientHostForm : Form
 
         this.ClientSize = new Size(
             width: bounds.Value.Width,
-            height: bounds.Value.Height + TitleBarHeight);
+            height: bounds.Value.Height + this.CurrentTitleBarHeight);
+    }
+
+    private int CurrentTitleBarHeight =>
+        this.titleBarMode == ClientTitleBarMode.Always
+            ? HostedClientWindowMetrics.TitleBarHeight
+            : 0;
+
+    private void ApplyTitleBarMode(
+        ClientTitleBarMode mode,
+        decimal hoverDelaySeconds)
+    {
+        this.titleBarMode = mode;
+        this.titleBarHoverDelaySeconds = Math.Clamp(
+            hoverDelaySeconds,
+            0.10m,
+            5.00m);
+        this.titleBarHoverStartedAtUtc = null;
+        this.titleBarHoverTimer.Stop();
+
+        this.titleBar.Dock = mode == ClientTitleBarMode.Always
+            ? DockStyle.Top
+            : DockStyle.None;
+
+        this.UpdateHoverTitleBarBounds();
+
+        this.titleBar.Visible = mode == ClientTitleBarMode.Always;
+        this.SyncHoverTitleBarOverlayOcclusion();
+
+        if (mode == ClientTitleBarMode.OnHover)
+        {
+            this.titleBarHoverTimer.Start();
+        }
+
+        this.titleBar.BringToFront();
+        this.MinimumSize = new Size(
+            width: 640,
+            height: 480 + this.CurrentTitleBarHeight);
+        this.PerformLayout();
+    }
+
+    private void UpdateHoverTitleBarBounds()
+    {
+        if (this.titleBarMode == ClientTitleBarMode.Always)
+        {
+            return;
+        }
+
+        this.titleBar.Bounds = new Rectangle(
+            x: 0,
+            y: 0,
+            width: this.ClientSize.Width,
+            height: HostedClientWindowMetrics.TitleBarHeight);
+    }
+
+    private void HideHoverTitleBar()
+    {
+        if (this.titleBarMode != ClientTitleBarMode.OnHover)
+        {
+            return;
+        }
+
+        this.titleBar.Visible = false;
+        this.titleBarHoverStartedAtUtc = null;
+        this.SyncHoverTitleBarOverlayOcclusion();
+    }
+
+    private void SyncHoverTitleBarOverlayOcclusion()
+    {
+        if (this.addonOverlayForm == null ||
+            this.addonOverlayForm.IsDisposed ||
+            this.addonOverlayForm.Disposing)
+        {
+            return;
+        }
+
+        var occlusionHeight = 0;
+
+        if (this.titleBarMode == ClientTitleBarMode.OnHover &&
+            this.titleBar.Visible)
+        {
+            // The host and overlay can run at a scaled monitor DPI. Use the
+            // actual on-screen overlap instead of the logical 34-pixel
+            // design height, otherwise the lower edge of the in-game menu
+            // can still paint over the revealed title bar.
+            if (this.titleBar.IsHandleCreated &&
+                this.addonOverlayForm.IsHandleCreated)
+            {
+                var titleBarBounds = this.titleBar.RectangleToScreen(
+                    this.titleBar.ClientRectangle);
+                var overlayBounds =
+                    this.addonOverlayForm.RectangleToScreen(
+                        this.addonOverlayForm.ClientRectangle);
+                var overlap = Rectangle.Intersect(
+                    titleBarBounds,
+                    overlayBounds);
+
+                if (!overlap.IsEmpty &&
+                    overlap.Top <= overlayBounds.Top)
+                {
+                    occlusionHeight = Math.Clamp(
+                        overlap.Bottom - overlayBounds.Top,
+                        0,
+                        overlayBounds.Height);
+                }
+            }
+            else
+            {
+                occlusionHeight = this.titleBar.Height;
+            }
+        }
+
+        this.addonOverlayForm.SetTopOcclusionHeight(
+            occlusionHeight);
     }
 
     private void ApplyCurrentHostTitle()
@@ -1292,6 +1458,75 @@ public sealed partial class ClientHostForm : Form
         this.ApplyCurrentHostTitle();
     }
 
+    private void TitleBarHoverTimer_OnTick(object? sender, EventArgs e)
+    {
+        if (this.titleBarMode != ClientTitleBarMode.OnHover ||
+            this.IsDisposed ||
+            this.Disposing ||
+            !this.IsHandleCreated ||
+            !this.Visible ||
+            this.WindowState == FormWindowState.Minimized)
+        {
+            this.HideHoverTitleBar();
+            return;
+        }
+
+        var cursorPosition = Cursor.Position;
+
+        if (this.titleBar.Visible)
+        {
+            if (Control.MouseButtons != MouseButtons.None)
+            {
+                return;
+            }
+
+            var titleBarBounds = this.titleBar.RectangleToScreen(
+                this.titleBar.ClientRectangle);
+
+            if (!titleBarBounds.Contains(cursorPosition))
+            {
+                this.HideHoverTitleBar();
+            }
+
+            return;
+        }
+
+        if (Control.MouseButtons != MouseButtons.None)
+        {
+            this.titleBarHoverStartedAtUtc = null;
+            return;
+        }
+
+        var clientPoint = this.PointToClient(cursorPosition);
+        var insideRevealZone =
+            clientPoint.X >= 0 &&
+            clientPoint.X < this.ClientSize.Width &&
+            clientPoint.Y >= 0 &&
+            clientPoint.Y < Math.Min(
+                HoverTitleBarRevealZoneHeight,
+                this.ClientSize.Height);
+
+        if (!insideRevealZone)
+        {
+            this.titleBarHoverStartedAtUtc = null;
+            return;
+        }
+
+        this.titleBarHoverStartedAtUtc ??= DateTime.UtcNow;
+
+        if ((DateTime.UtcNow - this.titleBarHoverStartedAtUtc.Value)
+            .TotalSeconds < (double)this.titleBarHoverDelaySeconds)
+        {
+            return;
+        }
+
+        this.UpdateHoverTitleBarBounds();
+        this.titleBar.Visible = true;
+        this.SyncHoverTitleBarOverlayOcclusion();
+        this.titleBar.BringToFront();
+        this.titleBarHoverStartedAtUtc = null;
+    }
+
     private void ClientHostForm_OnLoad(object? sender, EventArgs e)
     {
         var docked = this.clientDockingService.Dock(
@@ -1321,6 +1556,9 @@ public sealed partial class ClientHostForm : Form
             this.EnsureAddonOverlay();
             this.ApplyAddonPresentationState();
             this.FlushPendingUiCommands();
+
+            this.SyncNavigationPresentation();
+
             this.SyncAddonOverlay();
             this.SyncMissionWiki();
             this.SyncJobTerminalRoute();
@@ -1338,6 +1576,8 @@ public sealed partial class ClientHostForm : Form
         {
             return;
         }
+
+        this.UpdateHoverTitleBarBounds();
 
         _ = this.clientDockingService.TryResizeDockedWindow(
             this.clientInstance.GameWindowHandle,
@@ -1434,6 +1674,9 @@ public sealed partial class ClientHostForm : Form
         this.addonOverlayForm.UiInteractionRaised +=
             this.AddonOverlayForm_OnUiInteractionRaised;
 
+        this.addonOverlayForm.NavigationRequested +=
+            this.AddonOverlayForm_OnNavigationRequested;
+
         this.addonOverlayForm.GalaxyAtlasRequested +=
             this.AddonOverlayForm_OnGalaxyAtlasRequested;
 
@@ -1464,6 +1707,7 @@ public sealed partial class ClientHostForm : Form
         this.addonOverlayForm.GameMenuOpened +=
             this.AddonOverlayForm_OnGameMenuOpened;
 
+        this.SyncHoverTitleBarOverlayOcclusion();
         this.ApplyAddonPresentationState();
     }
 
@@ -1693,6 +1937,7 @@ public sealed partial class ClientHostForm : Form
         this.addonOverlayForm.Bounds = new Rectangle(
             screenLocation,
             this.gamePanel.ClientSize);
+        this.SyncHoverTitleBarOverlayOcclusion();
 
         if (!this.addonOverlayForm.Visible)
         {
@@ -2104,6 +2349,11 @@ public sealed partial class ClientHostForm : Form
                 "Options",
                 "Choose how Client Manager behaves for this hosted client, including overlays, histories, tooltips, and other in-game helpers."),
             new(
+                "navigation",
+                OpenMenu: true,
+                "Navigation",
+                "Open built-in Navigation in its last chosen presentation. Keep it over Earth & Beyond, or pop it into a desktop companion beside the game or on another monitor."),
+            new(
                 "atlas",
                 OpenMenu: true,
                 "Galaxy Atlas",
@@ -2334,7 +2584,9 @@ public sealed partial class ClientHostForm : Form
         this.EnsureBuildSkillsToggleForm();
         var companionVisible =
             this.ResolveBuildSkillsCompanionVisibility();
-        this.skillBuildSkillsToggleForm!.Bounds =
+        this.skillBuildSkillsToggleForm!.SetScale(
+            this.CalculateBuildToggleScale());
+        this.skillBuildSkillsToggleForm.Bounds =
             this.CalculateBuildSkillsToggleBounds();
         this.skillBuildSkillsToggleForm.SetActive(companionVisible);
         if (!this.skillBuildSkillsToggleForm.Visible)
@@ -2474,6 +2726,19 @@ public sealed partial class ClientHostForm : Form
         return new Rectangle(
             this.gamePanel.PointToScreen(new Point(x, y)),
             new Size(width, height));
+    }
+
+    private float CalculateBuildToggleScale()
+    {
+        var scaleX = this.gamePanel.ClientSize.Width /
+                     (float)BuildSkillsCompanionBaseCanvasWidth;
+        var scaleY = this.gamePanel.ClientSize.Height /
+                     (float)BuildSkillsCompanionBaseCanvasHeight;
+
+        return Math.Clamp(
+            Math.Min(scaleX, scaleY),
+            0.5f,
+            2f);
     }
 
     private Rectangle CalculateBuildSkillsToggleBounds()
@@ -2704,7 +2969,9 @@ public sealed partial class ClientHostForm : Form
         this.EnsureBuildEquipmentToggleForm();
         var companionVisible =
             this.ResolveBuildEquipmentCompanionVisibility();
-        this.skillBuildEquipmentToggleForm!.Bounds =
+        this.skillBuildEquipmentToggleForm!.SetScale(
+            this.CalculateBuildToggleScale());
+        this.skillBuildEquipmentToggleForm.Bounds =
             this.CalculateBuildEquipmentToggleBounds();
         this.skillBuildEquipmentToggleForm.SetActive(companionVisible);
         if (!this.skillBuildEquipmentToggleForm.Visible)
@@ -3276,11 +3543,259 @@ public sealed partial class ClientHostForm : Form
             overlay.Handle);
     }
 
-    private void AddonOverlayForm_OnUiInteractionRaised(
+    private async void AddonOverlayForm_OnUiInteractionRaised(
         object? sender,
         AddonUiInteractionEventArgs e)
     {
+        if (this.navigationInGamePresenter?.Owns(e.Interaction) == true)
+        {
+            try
+            {
+                await this.navigationInGamePresenter
+                    .HandleInteractionAsync(e.Interaction)
+                    .ConfigureAwait(true);
+            }
+            catch (Exception exception)
+            {
+                Debug.WriteLine(
+                    $"[Navigation] Built-in interaction failed: {exception}");
+            }
+
+            return;
+        }
+
         this.addonUiInteractionRaised(e.Interaction);
+    }
+
+    private void AddonOverlayForm_OnNavigationRequested(
+        object? sender,
+        EventArgs e)
+    {
+        if (this.navigationPresentationMode ==
+            NavigationPresentationMode.InGame)
+        {
+            this.ShowNavigationInGame();
+            return;
+        }
+
+        this.ShowNavigationCompanion();
+    }
+
+    private bool CanPresentNavigation =>
+        this.addonLifecycleState == ClientLifecycleState.InGame;
+
+    private void SyncNavigationPresentation()
+    {
+        if (!this.IsHandleCreated)
+        {
+            return;
+        }
+
+        if (!this.CanPresentNavigation)
+        {
+            this.navigationInGamePresenter?.Hide();
+            this.CloseNavigationCompanion(
+                preserveOpenPreference: true);
+            return;
+        }
+
+        if (this.navigationPresentationMode ==
+            NavigationPresentationMode.InGame)
+        {
+            this.CloseNavigationCompanion(
+                preserveOpenPreference: true);
+            this.EnsureNavigationInGamePresenter();
+            this.navigationInGamePresenter!.Show(reopen: false);
+            return;
+        }
+
+        this.navigationInGamePresenter?.Hide();
+
+        var placement = this.resolveAddonWindowPlacement(
+            NavigationPresentationIds.BuiltInAddonId,
+            NavigationPresentationIds.CompanionWindowId);
+
+        if (placement is { IsVisible: true, IsClosed: false })
+        {
+            this.ShowNavigationCompanion(
+                persistMode: false,
+                activate: false);
+        }
+    }
+
+    private void ShowNavigationCompanion(
+        bool persistMode = true,
+        bool activate = true)
+    {
+        this.navigationInGamePresenter?.Hide();
+
+        if (persistMode)
+        {
+            this.SetNavigationPresentationMode(
+                NavigationPresentationMode.Companion);
+        }
+
+        if (!this.CanPresentNavigation)
+        {
+            return;
+        }
+
+        if (this.navigationCompanionForm is { IsDisposed: false })
+        {
+            this.navigationCompanionForm.RestorePlacement(this.Bounds);
+            this.navigationCompanionForm.MarkOpen();
+            this.navigationCompanionForm.RefreshNow();
+
+            if (this.navigationCompanionForm.WindowState ==
+                FormWindowState.Minimized)
+            {
+                this.navigationCompanionForm.WindowState =
+                    FormWindowState.Normal;
+            }
+
+            this.navigationCompanionForm.Show();
+
+            if (activate)
+            {
+                this.navigationCompanionForm.BringToFront();
+                this.navigationCompanionForm.Activate();
+            }
+
+            return;
+        }
+
+        this.navigationCompanionForm = new NavigationCompanionForm(
+            this.clientManager,
+            this.clientInstance.ProcessId,
+            this.resolveAddonWindowPlacement,
+            this.saveAddonWindowPlacement,
+            () => this.ShowNavigationInGame());
+        this.navigationCompanionForm.FormClosed +=
+            this.NavigationCompanionForm_OnFormClosed;
+        this.navigationCompanionForm.RestorePlacement(this.Bounds);
+        this.navigationCompanionForm.Show(this);
+        this.navigationCompanionForm.MarkOpen();
+
+        if (activate)
+        {
+            this.navigationCompanionForm.Activate();
+        }
+    }
+
+    private void ShowNavigationInGame(bool persistMode = true)
+    {
+        this.CloseNavigationCompanion(
+            preserveOpenPreference: false);
+
+        if (persistMode)
+        {
+            this.SetNavigationPresentationMode(
+                NavigationPresentationMode.InGame);
+        }
+
+        if (!this.CanPresentNavigation)
+        {
+            return;
+        }
+
+        this.EnsureNavigationInGamePresenter();
+        this.navigationInGamePresenter!.Show();
+    }
+
+    private void EnsureNavigationInGamePresenter()
+    {
+        if (this.navigationInGamePresenter != null)
+        {
+            return;
+        }
+
+        this.navigationInGamePresenter = new NavigationInGamePresenter(
+            this.clientManager,
+            this.clientInstance.ProcessId,
+            this.ApplyBuiltInNavigationUiCommand,
+            () => this.ShowNavigationCompanion());
+    }
+
+    private void ApplyBuiltInNavigationUiCommand(AddonUiCommand command)
+    {
+        if (this.IsDisposed || this.Disposing)
+        {
+            return;
+        }
+
+        if (command.Kind != AddonUiCommandKind.ClearAddon &&
+            !this.CanPresentNavigation)
+        {
+            return;
+        }
+
+        this.EnsureAddonOverlay();
+        this.addonOverlayForm!.Apply(command);
+        this.SyncAddonOverlay();
+    }
+
+    private void SetNavigationPresentationMode(
+        NavigationPresentationMode mode)
+    {
+        this.navigationPresentationMode = mode;
+        this.clientManager.SetNavigationPresentationMode(
+            this.clientInstance.ProcessId,
+            mode);
+    }
+
+    internal bool ShowNavigationCompanionForHelp()
+    {
+        if (this.IsDisposed ||
+            this.Disposing ||
+            !this.CanPresentNavigation)
+        {
+            return false;
+        }
+
+        this.ShowNavigationCompanion();
+        this.navigationCompanionForm?.BeginInvoke(
+            () => this.navigationCompanionForm?.ShowHelpTour());
+        return this.navigationCompanionForm is
+            { IsDisposed: false, Visible: true };
+    }
+
+    private void NavigationCompanionForm_OnFormClosed(
+        object? sender,
+        FormClosedEventArgs e)
+    {
+        if (sender is NavigationCompanionForm form)
+        {
+            form.FormClosed -=
+                this.NavigationCompanionForm_OnFormClosed;
+        }
+
+        this.navigationCompanionForm = null;
+    }
+
+    private void CloseNavigationCompanion(
+        bool preserveOpenPreference)
+    {
+        var form = this.navigationCompanionForm;
+        this.navigationCompanionForm = null;
+
+        if (form == null || form.IsDisposed)
+        {
+            return;
+        }
+
+        form.FormClosed -=
+            this.NavigationCompanionForm_OnFormClosed;
+
+        if (preserveOpenPreference)
+        {
+            form.ClosePreservingOpenState();
+        }
+        else
+        {
+            form.Close();
+        }
+
+        form.Dispose();
     }
 
     private void AddonOverlayForm_OnGalaxyAtlasRequested(

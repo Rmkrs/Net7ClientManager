@@ -47,15 +47,22 @@ internal static class SlotPlacementDefaults
     public static SlotResolutionPreset SelectBestFitResolution(
         IReadOnlyList<SlotResolutionPreset> presets,
         SlotResolutionPreset preferredPreset,
-        Rectangle screenBounds)
+        Rectangle screenBounds,
+        int additionalHeight = 0)
     {
-        if (FitsScreen(preferredPreset, screenBounds))
+        if (FitsScreen(
+                preferredPreset,
+                screenBounds,
+                additionalHeight))
         {
             return preferredPreset;
         }
 
         return presets
-                   .Where(preset => FitsScreen(preset, screenBounds))
+                   .Where(preset => FitsScreen(
+                       preset,
+                       screenBounds,
+                       additionalHeight))
                    .OrderByDescending(preset =>
                        (long)preset.Width * preset.Height)
                    .ThenByDescending(preset => preset.Width)
@@ -78,9 +85,11 @@ internal static class SlotPlacementDefaults
 
     private static bool FitsScreen(
         SlotResolutionPreset preset,
-        Rectangle screenBounds)
+        Rectangle screenBounds,
+        int additionalHeight)
     {
         return preset.Width <= screenBounds.Width &&
-               preset.Height <= screenBounds.Height;
+               preset.Height + Math.Max(0, additionalHeight) <=
+               screenBounds.Height;
     }
 }

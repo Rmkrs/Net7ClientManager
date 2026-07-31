@@ -32,6 +32,16 @@ public sealed record ClientShipRuntimeStateObservation
         this.PrivateWarpState is > 0 ||
         this.GlobalWarpState is > 0;
 
+    /// <summary>
+    /// Starting or active Warp travel and the native gate-transition lock
+    /// block a new Auto Pilot run. Recovery value 3 intentionally does not:
+    /// the global state can retain 3 after travel has ended, and an already
+    /// available Gate/Dock/Land verb remains safe to activate during recovery.
+    /// </summary>
+    public bool BlocksAutoPilotStart =>
+        this.PrivateWarpState is 1 or 2 or 4 ||
+        this.GlobalWarpState is 1 or 2 or 4;
+
     public bool HasEngineThrust =>
         this.EngineThrustState is > 0;
 

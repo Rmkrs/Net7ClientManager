@@ -24,6 +24,7 @@ public sealed class LayoutDesignerControl : Control
     private static readonly Color slotColor = MainWindowTheme.ElevatedPanel;
     private static readonly Color slotAssignedColor = Color.FromArgb(23, 58, 57);
     private static readonly Color slotSelectedColor = MainWindowTheme.Accent;
+    private static readonly Color slotTitleBarColor = MainWindowTheme.Header;
     private static readonly Color slotBorderColor = MainWindowTheme.Border;
     private static readonly Color snapGuideColor = MainWindowTheme.Accent;
     private static readonly Color textColor = MainWindowTheme.Text;
@@ -128,7 +129,9 @@ public sealed class LayoutDesignerControl : Control
         if (slot != null)
         {
             var layoutMonitors = this.BuildMonitorLayout();
-            var monitor = this.FindBestLayoutMonitorForBounds(slot.Bounds, layoutMonitors);
+            var monitor = this.FindBestLayoutMonitorForBounds(
+                HostedClientWindowMetrics.GetHostedWindowBounds(slot),
+                layoutMonitors);
             this.selectedMonitorDeviceName = monitor?.Monitor.DeviceName;
         }
 
@@ -254,7 +257,9 @@ public sealed class LayoutDesignerControl : Control
         this.activeSnapGuides.Clear();
 
         var layoutMonitors = this.BuildMonitorLayout();
-        var monitor = this.FindBestLayoutMonitorForBounds(this.SelectedSlot.Bounds, layoutMonitors);
+        var monitor = this.FindBestLayoutMonitorForBounds(
+            HostedClientWindowMetrics.GetHostedWindowBounds(this.SelectedSlot),
+            layoutMonitors);
         this.selectedMonitorDeviceName = monitor?.Monitor.DeviceName;
 
         this.SlotBoundsChanged?.Invoke(this, new SlotBoundsChangedEventArgs(this.SelectedSlot));
@@ -799,24 +804,25 @@ public sealed class LayoutDesignerControl : Control
 
     private RectangleF ProjectSlotToView(ClientSlot slot, IReadOnlyList<LayoutMonitor> layoutMonitors)
     {
-        var monitor = this.FindBestLayoutMonitorForBounds(slot.Bounds, layoutMonitors)
+        var hostedBounds =
+            HostedClientWindowMetrics.GetHostedWindowBounds(slot);
+        var monitor = this.FindBestLayoutMonitorForBounds(
+                          hostedBounds,
+                          layoutMonitors)
                       ?? this.FindSelectedLayoutMonitor(layoutMonitors)
                       ?? layoutMonitors[0];
 
-        var realBounds = new Rectangle(
-            x: slot.Bounds.Left,
-            y: slot.Bounds.Top,
-            width: slot.Bounds.Width,
-            height: slot.Bounds.Height);
-
-        return this.ProjectRealToView(realBounds, monitor);
+        return this.ProjectRealToView(hostedBounds, monitor);
     }
 
     private SizeF GetSlotViewSize(ClientSlot slot, LayoutMonitor monitor)
     {
+        var hostedHeight =
+            HostedClientWindowMetrics.GetHostedWindowHeight(slot);
+
         return new SizeF(
             width: slot.Bounds.Width * monitor.ViewBounds.Width / monitor.Monitor.RealBounds.Width,
-            height: slot.Bounds.Height * monitor.ViewBounds.Height / monitor.Monitor.RealBounds.Height);
+            height: hostedHeight * monitor.ViewBounds.Height / monitor.Monitor.RealBounds.Height);
     }
 
     private RectangleF ProjectRealToView(Rectangle realBounds, LayoutMonitor monitor)
@@ -1040,22 +1046,24 @@ public sealed class LayoutDesignerControl : Control
             .First();
     }
 
-    private LayoutMonitor? FindBestLayoutMonitorForBounds(WindowBounds bounds, IReadOnlyList<LayoutMonitor> layoutMonitors)
+    private LayoutMonitor? FindBestLayoutMonitorForBounds(
+        Rectangle slotRectangle,
+        IReadOnlyList<LayoutMonitor> layoutMonitors)
     {
         if (layoutMonitors.Count == 0)
         {
             return null;
         }
 
-        var slotRectangle = new Rectangle(
-            x: bounds.Left,
-            y: bounds.Top,
-            width: bounds.Width,
-            height: bounds.Height);
-
         return layoutMonitors
-            .OrderByDescending(monitor => GetIntersectionArea(monitor.Monitor.RealBounds, slotRectangle))
-            .ThenBy(monitor => GetDistanceToRectangle(GetRectangleCenter(slotRectangle), monitor.Monitor.RealBounds))
+            .OrderByDescending(monitor =>
+                GetIntersectionArea(
+                    monitor.Monitor.RealBounds,
+                    slotRectangle))
+            .ThenBy(monitor =>
+                GetDistanceToRectangle(
+                    GetRectangleCenter(slotRectangle),
+                    monitor.Monitor.RealBounds))
             .First();
     }
 
@@ -1189,38 +1197,77 @@ public sealed class LayoutDesignerControl : Control
                 : slotBorderColor;
 
         var borderWidth = isSelected ? 3 : hasInputRisk ? 2 : 1;
+        var titleBarHeight =
+            slot.EffectiveTitleBarMode == ClientTitleBarMode.Always
+            ? Math.Min(
+                bounds.Height,
+                Math.Max(
+                    1.5f,
+                    bounds.Height *
+                    HostedClientWindowMetrics.TitleBarHeight /
+                    HostedClientWindowMetrics.GetHostedWindowHeight(slot)))
+            : 0.0f;
 
         using var fillBrush = new SolidBrush(fillColor);
         using var borderPen = new Pen(borderColor, borderWidth);
 
         graphics.FillRoundedRectangle(fillBrush, bounds, radius: 8);
-        graphics.DrawRoundedRectangle(borderPen, bounds, radius: 8);
 
-        if (this.zoomFactor < 0.60f)
+        if (titleBarHeight > 0)
         {
-            return;
+            var titleBounds = new RectangleF(
+                x: bounds.Left + borderWidth,
+                y: bounds.Top + borderWidth,
+                width: Math.Max(0, bounds.Width - borderWidth * 2),
+                height: Math.Max(0, titleBarHeight - borderWidth));
+
+            using var titleBrush = new SolidBrush(slotTitleBarColor);
+            using var separatorPen = new Pen(slotBorderColor, width: 1);
+
+            graphics.FillRectangle(titleBrush, titleBounds);
+            graphics.DrawLine(
+                separatorPen,
+                bounds.Left + borderWidth,
+                bounds.Top + titleBarHeight,
+                bounds.Right - borderWidth,
+                bounds.Top + titleBarHeight);
         }
 
-        // draw title
+        graphics.DrawRoundedRectangle(borderPen, bounds, radius: 8);
 
         if (this.zoomFactor < 0.85f)
         {
             return;
         }
 
-        // draw account / PID / input risk
-        using var titleFont = new Font(this.Font.FontFamily, emSize: 9, FontStyle.Bold);
-        using var detailFont = new Font(this.Font.FontFamily, emSize: 8, FontStyle.Regular);
+        using var titleFont = new Font(
+            this.Font.FontFamily,
+            emSize: 9,
+            FontStyle.Bold);
+        using var detailFont = new Font(
+            this.Font.FontFamily,
+            emSize: 8,
+            FontStyle.Regular);
         using var textBrush = new SolidBrush(textColor);
         using var mutedBrush = new SolidBrush(mutedTextColor);
         using var riskBrush = new SolidBrush(inputRiskTextColor);
 
         var x = bounds.Left + 10;
-        var y = bounds.Top + 8;
+        float y;
 
-        graphics.DrawString(slot.Name, titleFont, textBrush, x, y);
-
-        y += 20;
+        if (titleBarHeight >= titleFont.Height + 2)
+        {
+            y = bounds.Top +
+                Math.Max(1, (titleBarHeight - titleFont.Height) / 2);
+            graphics.DrawString(slot.Name, titleFont, textBrush, x, y);
+            y = bounds.Top + titleBarHeight + 8;
+        }
+        else
+        {
+            y = bounds.Top + titleBarHeight + 8;
+            graphics.DrawString(slot.Name, titleFont, textBrush, x, y);
+            y += 20;
+        }
 
         var accountText = slot.AccountId == null
             ? "No account"
@@ -1232,9 +1279,16 @@ public sealed class LayoutDesignerControl : Control
 
         var clientText = assignedClient == null
             ? "Empty"
-            : string.Create(CultureInfo.InvariantCulture, $"PID {assignedClient.ProcessId}");
+            : string.Create(
+                CultureInfo.InvariantCulture,
+                $"PID {assignedClient.ProcessId}");
 
-        graphics.DrawString(clientText, detailFont, hasInputRisk ? riskBrush : mutedBrush, x, y);
+        graphics.DrawString(
+            clientText,
+            detailFont,
+            hasInputRisk ? riskBrush : mutedBrush,
+            x,
+            y);
 
         if (!hasInputRisk)
         {

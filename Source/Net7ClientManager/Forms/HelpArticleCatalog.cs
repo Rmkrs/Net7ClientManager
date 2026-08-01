@@ -89,6 +89,9 @@ internal static class HelpArticleCatalog
                         "Route Planner",
                         "Search for a destination, filter by type, preview every hop and warning, then send the route to the selected hosted pilot."),
                     new HelpArticleSection(
+                        "Group wormholes",
+                        "Routes combine the learned Create Wormhole and Extended Wormhole destinations of every managed pilot in the in-game group, regardless of who leads. Put each usable wormhole skill on any normal or alternate shortcut slot; Auto Pilot finds the caster and shortcut, selects the required destination, and accepts the trip for the managed fleet."),
+                    new HelpArticleSection(
                         "Pop out or show in game",
                         "Open Navigation from the in-game Client Manager menu. Use Pop out to move the same route into a desktop companion beside or below the game, or onto another monitor. Use Show in game to return it to a movable window over Earth & Beyond. Route and Auto Pilot state continue unchanged."),
                     new HelpArticleSection(

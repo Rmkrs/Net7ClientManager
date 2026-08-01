@@ -172,6 +172,14 @@ internal static class ClientGameUiCoordinates
             1238,
             196);
 
+    public static readonly ClientGameUiPoint ConfirmDialog =
+        new(
+            "confirm dialog",
+            1280,
+            720,
+            492,
+            381);
+
     public static readonly ClientGameUiPoint ShortcutBarSlot1 =
         new(
             "shortcut bar slot 1",
@@ -236,6 +244,15 @@ internal static class ClientGameUiCoordinates
             719,
             689);
 
+    // Memory-probe calibration for the native wormhole destination menu.
+    // At 1280x720 the final unlocked destination is centred at Y=615 and
+    // preceding ranks are spaced 50 pixels upward. Because the list grows
+    // upward, learning Endriago shifts every earlier Create Wormhole row by
+    // one slot automatically. The menu is horizontally aligned with the
+    // shortcut that opened it.
+    private const double WormholeMenuBottomCenterY = 615d;
+    private const double WormholeMenuRowSpacing = 50d;
+
     public static bool TryGetFormationMenu(
         Size clientSize,
         out Point clientPoint)
@@ -270,5 +287,105 @@ internal static class ClientGameUiCoordinates
         return PrimaryTargetVerb.TryScaleToClient(
             clientSize,
             out clientPoint);
+    }
+
+    public static bool TryGetShortcutBarSlot(
+        int visibleKey,
+        Size clientSize,
+        out Point clientPoint)
+    {
+        var coordinate = visibleKey switch
+        {
+            1 => ShortcutBarSlot1,
+            2 => ShortcutBarSlot2,
+            3 => ShortcutBarSlot3,
+            4 => ShortcutBarSlot4,
+            5 => ShortcutBarSlot5,
+            6 => ShortcutBarSlot6,
+            _ => default,
+        };
+
+        if (visibleKey is < 1 or > 6)
+        {
+            clientPoint = Point.Empty;
+            return false;
+        }
+
+        return coordinate.TryScaleToClient(
+            clientSize,
+            out clientPoint);
+    }
+
+    public static bool TryGetShortcutBankToggle(
+        int bar,
+        Size clientSize,
+        out Point clientPoint)
+    {
+        var coordinate = bar switch
+        {
+            0 => LeftShortcutBankToggle,
+            1 => RightShortcutBankToggle,
+            _ => default,
+        };
+
+        if (bar is < 0 or > 1)
+        {
+            clientPoint = Point.Empty;
+            return false;
+        }
+
+        return coordinate.TryScaleToClient(
+            clientSize,
+            out clientPoint);
+    }
+
+    public static bool TryGetConfirmDialog(
+        Size clientSize,
+        out Point clientPoint)
+    {
+        return ConfirmDialog.TryScaleToClient(
+            clientSize,
+            out clientPoint);
+    }
+
+    public static bool TryGetWormholeDestinationMenuItem(
+        Point shortcutClientPoint,
+        int unlockedDestinationCount,
+        int destinationMenuIndex,
+        Size clientSize,
+        out Point clientPoint)
+    {
+        clientPoint = Point.Empty;
+
+        if (clientSize.Width <= 0 ||
+            clientSize.Height <= 0 ||
+            unlockedDestinationCount <= 0 ||
+            destinationMenuIndex < 0 ||
+            destinationMenuIndex >= unlockedDestinationCount)
+        {
+            return false;
+        }
+
+        var rowFromBottom =
+            unlockedDestinationCount - 1 - destinationMenuIndex;
+        var baseY =
+            WormholeMenuBottomCenterY -
+            rowFromBottom * WormholeMenuRowSpacing;
+        var scaledY = (int)Math.Round(
+            baseY *
+            clientSize.Height /
+            720d,
+            MidpointRounding.AwayFromZero);
+
+        clientPoint = new Point(
+            Math.Clamp(
+                shortcutClientPoint.X,
+                0,
+                clientSize.Width - 1),
+            Math.Clamp(
+                scaledY,
+                0,
+                clientSize.Height - 1));
+        return true;
     }
 }

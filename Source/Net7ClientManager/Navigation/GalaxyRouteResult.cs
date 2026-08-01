@@ -8,20 +8,24 @@ public sealed record GalaxyRouteResult
 
     public IReadOnlyList<GalaxySectorDefinition> Sectors { get; init; } = [];
 
-    public int HopCount => Math.Max(0, this.Sectors.Count - 1);
+    public IReadOnlyList<GalaxyRouteTransition> Transitions { get; init; } = [];
+
+    public int HopCount => this.Transitions.Count;
 
     public GalaxySectorDefinition? NextSector =>
-        this.Sectors.Count > 1
-            ? this.Sectors[1]
+        this.Transitions.Count > 0
+            ? this.Transitions[0].To
             : null;
 
     public static GalaxyRouteResult Success(
-        IReadOnlyList<GalaxySectorDefinition> sectors)
+        IReadOnlyList<GalaxySectorDefinition> sectors,
+        IReadOnlyList<GalaxyRouteTransition>? transitions = null)
     {
         return new GalaxyRouteResult
         {
             Succeeded = true,
             Sectors = sectors,
+            Transitions = transitions ?? [],
         };
     }
 

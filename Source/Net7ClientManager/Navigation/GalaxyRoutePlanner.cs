@@ -7,7 +7,8 @@ public sealed class GalaxyRoutePlanner(GalaxyTopology topology)
         string? toSectorNameOrKey,
         string? pilotProfession,
         Func<GalaxySectorDefinition, GalaxySectorDefinition, bool>?
-            canTraverse)
+            canTraverse,
+        NavigationWormholeAvailability? wormholes = null)
     {
         if (!topology.TryResolve(fromSectorNameOrKey, out var source))
         {
@@ -38,7 +39,8 @@ public sealed class GalaxyRoutePlanner(GalaxyTopology topology)
             [source.Key] = 0,
         };
 
-        var previous = new Dictionary<string, string>(StringComparer.Ordinal);
+        var previous = new Dictionary<string, GalaxyRouteTransition>(
+            StringComparer.Ordinal);
         frontier.Enqueue(
             source.Key,
             new RoutePriority(0, source.Key));
@@ -55,8 +57,7 @@ public sealed class GalaxyRoutePlanner(GalaxyTopology topology)
 
             if (string.Equals(currentKey, destination.Key, StringComparison.Ordinal))
             {
-                return GalaxyRouteResult.Success(
-                    BuildRoute(topology, previous, destination.Key));
+                return BuildRoute(previous, destination.Key);
             }
 
             var current = topology.GetByKey(currentKey);
@@ -72,21 +73,50 @@ public sealed class GalaxyRoutePlanner(GalaxyTopology topology)
                     continue;
                 }
 
-                var candidateDistance = currentDistance + 1;
+                TryEnqueue(
+                    neighbour,
+                    new GalaxyRouteTransition
+                    {
+                        Kind = GalaxyRouteTransitionKind.Departure,
+                        From = current,
+                        To = neighbour,
+                    },
+                    currentDistance,
+                    distance,
+                    previous,
+                    frontier);
+            }
 
-                if (distance.TryGetValue(neighbourKey, out var knownDistance) &&
-                    knownDistance <= candidateDistance)
+            if (string.Equals(current.Key, source.Key, StringComparison.Ordinal))
+            {
+                foreach (var wormhole in wormholes?.Destinations ?? [])
                 {
-                    continue;
-                }
+                    if (string.Equals(
+                            wormhole.Destination.SectorKey,
+                            current.Key,
+                            StringComparison.Ordinal) ||
+                        !topology.TryGetByKey(
+                            wormhole.Destination.SectorKey,
+                            out var wormholeDestination) ||
+                        !wormholeDestination.CanEnter(pilotProfession))
+                    {
+                        continue;
+                    }
 
-                distance[neighbourKey] = candidateDistance;
-                previous[neighbourKey] = currentKey;
-                frontier.Enqueue(
-                    neighbourKey,
-                    new RoutePriority(
-                        candidateDistance,
-                        neighbourKey));
+                    TryEnqueue(
+                        wormholeDestination,
+                        new GalaxyRouteTransition
+                        {
+                            Kind = GalaxyRouteTransitionKind.Wormhole,
+                            From = current,
+                            To = wormholeDestination,
+                            Wormhole = wormhole,
+                        },
+                        currentDistance,
+                        distance,
+                        previous,
+                        frontier);
+                }
             }
         }
 
@@ -102,7 +132,8 @@ public sealed class GalaxyRoutePlanner(GalaxyTopology topology)
         string? fromSectorNameOrKey,
         string? pilotProfession,
         Func<GalaxySectorDefinition, GalaxySectorDefinition, bool>?
-            canTraverse)
+            canTraverse,
+        NavigationWormholeAvailability? wormholes = null)
     {
         if (!topology.TryResolve(fromSectorNameOrKey, out var source))
         {
@@ -143,20 +174,35 @@ public sealed class GalaxyRoutePlanner(GalaxyTopology topology)
                     continue;
                 }
 
-                var candidateDistance = currentDistance + 1;
+                TryEnqueueDistance(
+                    neighbour,
+                    currentDistance,
+                    distance,
+                    frontier);
+            }
 
-                if (distance.TryGetValue(neighbourKey, out var knownDistance) &&
-                    knownDistance <= candidateDistance)
+            if (string.Equals(current.Key, source.Key, StringComparison.Ordinal))
+            {
+                foreach (var wormhole in wormholes?.Destinations ?? [])
                 {
-                    continue;
-                }
+                    if (string.Equals(
+                            wormhole.Destination.SectorKey,
+                            current.Key,
+                            StringComparison.Ordinal) ||
+                        !topology.TryGetByKey(
+                            wormhole.Destination.SectorKey,
+                            out var wormholeDestination) ||
+                        !wormholeDestination.CanEnter(pilotProfession))
+                    {
+                        continue;
+                    }
 
-                distance[neighbourKey] = candidateDistance;
-                frontier.Enqueue(
-                    neighbourKey,
-                    new RoutePriority(
-                        candidateDistance,
-                        neighbourKey));
+                    TryEnqueueDistance(
+                        wormholeDestination,
+                        currentDistance,
+                        distance,
+                        frontier);
+                }
             }
         }
 
@@ -167,28 +213,77 @@ public sealed class GalaxyRoutePlanner(GalaxyTopology topology)
                 StringComparer.Ordinal));
     }
 
-    private static IReadOnlyList<GalaxySectorDefinition> BuildRoute(
-        GalaxyTopology topology,
-        IReadOnlyDictionary<string, string> previous,
-        string destinationKey)
+    private static void TryEnqueue(
+        GalaxySectorDefinition to,
+        GalaxyRouteTransition transition,
+        int currentDistance,
+        IDictionary<string, int> distance,
+        IDictionary<string, GalaxyRouteTransition> previous,
+        PriorityQueue<string, RoutePriority> frontier)
     {
-        List<GalaxySectorDefinition> route = [];
-        var currentKey = destinationKey;
+        var candidateDistance = currentDistance + 1;
 
-        while (true)
+        if (distance.TryGetValue(to.Key, out var knownDistance) &&
+            knownDistance <= candidateDistance)
         {
-            route.Add(topology.GetByKey(currentKey));
-
-            if (!previous.TryGetValue(currentKey, out var previousKey))
-            {
-                break;
-            }
-
-            currentKey = previousKey;
+            return;
         }
 
-        route.Reverse();
-        return route;
+        distance[to.Key] = candidateDistance;
+        previous[to.Key] = transition;
+        frontier.Enqueue(
+            to.Key,
+            new RoutePriority(candidateDistance, to.Key));
+    }
+
+    private static void TryEnqueueDistance(
+        GalaxySectorDefinition to,
+        int currentDistance,
+        IDictionary<string, int> distance,
+        PriorityQueue<string, RoutePriority> frontier)
+    {
+        var candidateDistance = currentDistance + 1;
+
+        if (distance.TryGetValue(to.Key, out var knownDistance) &&
+            knownDistance <= candidateDistance)
+        {
+            return;
+        }
+
+        distance[to.Key] = candidateDistance;
+        frontier.Enqueue(
+            to.Key,
+            new RoutePriority(candidateDistance, to.Key));
+    }
+
+    private GalaxyRouteResult BuildRoute(
+        IReadOnlyDictionary<string, GalaxyRouteTransition> previous,
+        string destinationKey)
+    {
+        List<GalaxyRouteTransition> transitions = [];
+        var currentKey = destinationKey;
+
+        while (previous.TryGetValue(currentKey, out var transition))
+        {
+            transitions.Add(transition);
+            currentKey = transition.From.Key;
+        }
+
+        transitions.Reverse();
+
+        List<GalaxySectorDefinition> sectors = [];
+
+        if (transitions.Count == 0)
+        {
+            sectors.Add(topology.GetByKey(destinationKey));
+        }
+        else
+        {
+            sectors.Add(transitions[0].From);
+            sectors.AddRange(transitions.Select(transition => transition.To));
+        }
+
+        return GalaxyRouteResult.Success(sectors, transitions);
     }
 
     private readonly record struct RoutePriority(
@@ -238,4 +333,3 @@ public sealed class GalaxyRoutePlanner(GalaxyTopology topology)
         }
     }
 }
-

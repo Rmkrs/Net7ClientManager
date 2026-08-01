@@ -36,6 +36,7 @@ internal sealed class NavigationAutoPilotCoordinator : IDisposable
     private readonly GameCommandCoordinator gameCommandCoordinator;
     private readonly ForegroundInputCoordinator foregroundInputCoordinator;
     private readonly NavigationAutoPilotFleetSupport fleetSupport;
+    private readonly NavigationWormholeAutomationService wormholeAutomationService;
     private readonly Dictionary<int, AutoPilotRun> runs = [];
     private bool disposed;
 
@@ -44,13 +45,15 @@ internal sealed class NavigationAutoPilotCoordinator : IDisposable
         NavigationRouteCoordinator routeCoordinator,
         NavigationTargetSelectionService targetSelectionService,
         GameCommandCoordinator gameCommandCoordinator,
-        ForegroundInputCoordinator foregroundInputCoordinator)
+        ForegroundInputCoordinator foregroundInputCoordinator,
+        NavigationWormholeAutomationService wormholeAutomationService)
     {
         this.observationCoordinator = observationCoordinator;
         this.routeCoordinator = routeCoordinator;
         this.targetSelectionService = targetSelectionService;
         this.gameCommandCoordinator = gameCommandCoordinator;
         this.foregroundInputCoordinator = foregroundInputCoordinator;
+        this.wormholeAutomationService = wormholeAutomationService;
         this.fleetSupport = new NavigationAutoPilotFleetSupport(
             observationCoordinator,
             gameCommandCoordinator,
@@ -129,6 +132,18 @@ internal sealed class NavigationAutoPilotCoordinator : IDisposable
         {
             return NavigationAutoPilotCommandResult.Failure(
                 "Auto Pilot cannot safely operate the remaining final route target; that step remains manual.");
+        }
+
+        if (nextStep.Kind ==
+                NavigationRouteStepKind.WormholeTransition &&
+            !nextStep.WormholeHasReadyCaster)
+        {
+            return NavigationAutoPilotCommandResult.Failure(
+                string.Concat(
+                    nextStep.WormholeSkillFamilyName,
+                    " is learned for ",
+                    nextStep.ToSectorName,
+                    ", but an eligible managed pilot must place that skill on any normal or alternate shortcut slot before Auto Pilot can use it."));
         }
 
         if (TryReadWarpState(
@@ -433,24 +448,6 @@ internal sealed class NavigationAutoPilotCoordinator : IDisposable
             {
                 run.Cancellation.Token.ThrowIfCancellationRequested();
 
-                if (run.Fleet.HasFollowers &&
-                    run.MachineState.Phase ==
-                        NavigationAutoPilotMachinePhase.ReconcilingStep)
-                {
-                    var fleetReady = await this.fleetSupport
-                        .EnsureReadyForLegAsync(
-                            run.Fleet,
-                            status => this.PublishFleetStatus(run, status),
-                            run.Cancellation.Token)
-                        .ConfigureAwait(false);
-
-                    if (!fleetReady.Succeeded)
-                    {
-                        this.ApplyFleetFailure(run, fleetReady);
-                        return;
-                    }
-                }
-
                 var frame = this.CaptureFrame(run);
                 var transition = NavigationAutoPilotStateMachine
                     .Observe(run.MachineState, frame);
@@ -516,6 +513,28 @@ internal sealed class NavigationAutoPilotCoordinator : IDisposable
 
                     case NavigationAutoPilotEffectKind.EngageWarp:
                     {
+                        // Formation is a Warp prerequisite, not a general
+                        // route-step prerequisite. Gate/Dock/Land verbs and
+                        // wormholes move each managed client explicitly, so
+                        // forming first only adds delay and needless UI input.
+                        if (run.Fleet.HasFollowers)
+                        {
+                            var fleetReady = await this.fleetSupport
+                                .EnsureReadyForLegAsync(
+                                    run.Fleet,
+                                    status => this.PublishFleetStatus(
+                                        run,
+                                        status),
+                                    run.Cancellation.Token)
+                                .ConfigureAwait(false);
+
+                            if (!fleetReady.Succeeded)
+                            {
+                                this.ApplyFleetFailure(run, fleetReady);
+                                return;
+                            }
+                        }
+
                         var outcome = await this.ExecuteWarpCommandAsync(run)
                             .ConfigureAwait(false);
 
@@ -578,6 +597,43 @@ internal sealed class NavigationAutoPilotCoordinator : IDisposable
                         var completed =
                             NavigationAutoPilotStateMachine
                                 .ApplyVerbActivation(
+                                    run.MachineState,
+                                    outcome,
+                                    DateTimeOffset.UtcNow);
+
+                        this.ApplyTransition(
+                            run,
+                            completed,
+                            this.CaptureFrame(run));
+
+                        if (completed.State.IsTerminal)
+                        {
+                            return;
+                        }
+
+                        break;
+                    }
+
+                    case NavigationAutoPilotEffectKind.ActivateWormhole:
+                    {
+                        var step = run.MachineState.Step;
+                        var outcome = step == null
+                            ? NavigationAutoPilotEffectOutcome.Failure(
+                                NavigationAutoPilotStopReason.InternalError,
+                                "Auto Pilot could not activate the wormhole because route-step state was incomplete.")
+                            : await this.wormholeAutomationService
+                                .ExecuteAsync(
+                                    run.Fleet,
+                                    step,
+                                    status => this.PublishFleetStatus(
+                                        run,
+                                        status),
+                                    run.Cancellation.Token)
+                                .ConfigureAwait(false);
+
+                        var completed =
+                            NavigationAutoPilotStateMachine
+                                .ApplyWormholeActivation(
                                     run.MachineState,
                                     outcome,
                                     DateTimeOffset.UtcNow);

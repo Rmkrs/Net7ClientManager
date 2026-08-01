@@ -866,6 +866,35 @@ public static partial class NativeMethods
         RightButtonUpAtCurrentCursor();
     }
 
+    public static async Task StableRightClickAtCurrentCursorAsync(
+        CancellationToken cancellationToken)
+    {
+        var buttonDown = false;
+
+        try
+        {
+            RightButtonDownAtCurrentCursor();
+            buttonDown = true;
+
+            await Task.Delay(
+                    TimeSpan.FromMilliseconds(50),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            if (buttonDown)
+            {
+                RightButtonUpAtCurrentCursor();
+            }
+        }
+
+        await Task.Delay(
+                TimeSpan.FromMilliseconds(125),
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     public static bool TryGetCursorPositionRelativeToClient(
         IntPtr clientWindowHandle,
         out Point point)
@@ -1065,14 +1094,14 @@ public static partial class NativeMethods
             return false;
         }
 
-        var heldKeys = new List<HeldKeyboardKey>(4);
+        HeldChordLease? heldLease = null;
 
         try
         {
             if (heldChord != null &&
-                !PressChordDown(
+                !HeldChordLease.TryAcquire(
                     heldChord,
-                    heldKeys))
+                    out heldLease))
             {
                 return false;
             }
@@ -1084,7 +1113,19 @@ public static partial class NativeMethods
                 return false;
             }
 
+            if (heldLease != null &&
+                !heldLease.EnsureDown())
+            {
+                return false;
+            }
+
             if (!MoveCursorToScreenPoint(screenPoint))
+            {
+                return false;
+            }
+
+            if (heldLease != null &&
+                !heldLease.EnsureDown())
             {
                 return false;
             }
@@ -1094,7 +1135,112 @@ public static partial class NativeMethods
         }
         finally
         {
-            ReleaseHeldKeys(heldKeys);
+            if (heldLease != null)
+            {
+                await heldLease.DisposeAsync()
+                    .ConfigureAwait(false);
+            }
+        }
+
+        return true;
+    }
+
+    internal static async Task<bool>
+        TryForegroundOpenShortcutMenuAndSelectAsync(
+            IntPtr windowHandle,
+            Point shortcutScreenPoint,
+            Point menuItemScreenPoint,
+            GameKeyChord? heldChord,
+            Func<CancellationToken, Task<bool>>? waitAfterHeldChordAsync,
+            CancellationToken cancellationToken)
+    {
+        if (windowHandle == IntPtr.Zero ||
+            !TryFocusWindowForKeyboardInput(windowHandle))
+        {
+            return false;
+        }
+
+        await Task.Delay(
+                TimeSpan.FromMilliseconds(50),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (!TryFocusWindowForKeyboardInput(windowHandle))
+        {
+            return false;
+        }
+
+        HeldChordLease? heldLease = null;
+
+        try
+        {
+            if (heldChord != null &&
+                !HeldChordLease.TryAcquire(
+                    heldChord,
+                    out heldLease))
+            {
+                return false;
+            }
+
+            if (waitAfterHeldChordAsync != null &&
+                !await waitAfterHeldChordAsync(cancellationToken)
+                    .ConfigureAwait(false))
+            {
+                return false;
+            }
+
+            if (heldLease != null &&
+                !heldLease.EnsureDown())
+            {
+                return false;
+            }
+
+            if (!MoveCursorToScreenPoint(shortcutScreenPoint))
+            {
+                return false;
+            }
+
+            if (heldLease != null &&
+                !heldLease.EnsureDown())
+            {
+                return false;
+            }
+
+            await StableRightClickAtCurrentCursorAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            await Task.Delay(
+                    TimeSpan.FromMilliseconds(150),
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            if (heldLease != null &&
+                !heldLease.EnsureDown())
+            {
+                return false;
+            }
+
+            if (!MoveCursorToScreenPoint(menuItemScreenPoint))
+            {
+                return false;
+            }
+
+            if (heldLease != null &&
+                !heldLease.EnsureDown())
+            {
+                return false;
+            }
+
+            await StableLeftClickAtCurrentCursorAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            if (heldLease != null)
+            {
+                await heldLease.DisposeAsync()
+                    .ConfigureAwait(false);
+            }
         }
 
         return true;
@@ -1123,14 +1269,14 @@ public static partial class NativeMethods
             return false;
         }
 
-        var heldKeys = new List<HeldKeyboardKey>(4);
+        HeldChordLease? heldLease = null;
 
         try
         {
             if (heldChord != null &&
-                !PressChordDown(
+                !HeldChordLease.TryAcquire(
                     heldChord,
-                    heldKeys))
+                    out heldLease))
             {
                 return false;
             }
@@ -1138,6 +1284,12 @@ public static partial class NativeMethods
             if (waitAfterHeldChordAsync != null &&
                 !await waitAfterHeldChordAsync(cancellationToken)
                     .ConfigureAwait(false))
+            {
+                return false;
+            }
+
+            if (heldLease != null &&
+                !heldLease.EnsureDown())
             {
                 return false;
             }
@@ -1152,7 +1304,11 @@ public static partial class NativeMethods
         }
         finally
         {
-            ReleaseHeldKeys(heldKeys);
+            if (heldLease != null)
+            {
+                await heldLease.DisposeAsync()
+                    .ConfigureAwait(false);
+            }
         }
 
         return true;
@@ -1430,6 +1586,195 @@ public static partial class NativeMethods
             Keys.Down or
             Keys.NumLock or
             Keys.Divide;
+    }
+
+    private sealed class HeldChordLease : IAsyncDisposable
+    {
+        private static readonly TimeSpan ModifierRefreshInterval =
+            TimeSpan.FromMilliseconds(20);
+
+        private readonly List<HeldKeyboardKey> heldKeys = [];
+        private readonly CancellationTokenSource refreshCancellation = new();
+
+        private Keys standaloneModifierKey = Keys.None;
+        private Task? refreshTask;
+        private int disposed;
+
+        private HeldChordLease()
+        {
+        }
+
+        public static bool TryAcquire(
+            GameKeyChord chord,
+            out HeldChordLease? lease)
+        {
+            lease = new HeldChordLease();
+
+            if (TryGetStandaloneModifierKey(
+                    chord,
+                    out var modifierKey))
+            {
+                lease.standaloneModifierKey = modifierKey;
+                PressVirtualKeyDown(modifierKey);
+                lease.refreshTask = lease.RefreshModifierAsync();
+                return true;
+            }
+
+            if (PressChordDown(
+                    chord,
+                    lease.heldKeys))
+            {
+                return true;
+            }
+
+            lease.ReleaseImmediately();
+            lease = null;
+            return false;
+        }
+
+        public bool EnsureDown()
+        {
+            if (Volatile.Read(ref this.disposed) != 0)
+            {
+                return false;
+            }
+
+            if (this.standaloneModifierKey != Keys.None)
+            {
+                PressVirtualKeyDown(this.standaloneModifierKey);
+            }
+
+            return true;
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            if (Interlocked.Exchange(ref this.disposed, 1) != 0)
+            {
+                return;
+            }
+
+            this.refreshCancellation.Cancel();
+
+            if (this.refreshTask != null)
+            {
+                try
+                {
+                    await this.refreshTask.ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Expected when the held-modifier gesture completes.
+                }
+            }
+
+            if (this.standaloneModifierKey != Keys.None)
+            {
+                ReleaseVirtualKey(this.standaloneModifierKey);
+            }
+
+            ReleaseHeldKeys(this.heldKeys);
+            this.refreshCancellation.Dispose();
+        }
+
+        private async Task RefreshModifierAsync()
+        {
+            try
+            {
+                while (true)
+                {
+                    await Task.Delay(
+                            ModifierRefreshInterval,
+                            this.refreshCancellation.Token)
+                        .ConfigureAwait(false);
+
+                    if (Volatile.Read(ref this.disposed) != 0)
+                    {
+                        return;
+                    }
+
+                    // Earth & Beyond samples the modifier continuously. Keep
+                    // asserting the down state until the whole mouse gesture
+                    // has completed, then release it exactly once.
+                    PressVirtualKeyDown(this.standaloneModifierKey);
+                }
+            }
+            catch (OperationCanceledException)
+                when (this.refreshCancellation.IsCancellationRequested)
+            {
+                // Normal lease completion.
+            }
+        }
+
+        private void ReleaseImmediately()
+        {
+            Interlocked.Exchange(ref this.disposed, 1);
+            this.refreshCancellation.Cancel();
+
+            if (this.standaloneModifierKey != Keys.None)
+            {
+                ReleaseVirtualKey(this.standaloneModifierKey);
+            }
+
+            ReleaseHeldKeys(this.heldKeys);
+            this.refreshCancellation.Dispose();
+        }
+
+        private static bool TryGetStandaloneModifierKey(
+            GameKeyChord chord,
+            out Keys modifierKey)
+        {
+            modifierKey = chord.KeyCode;
+
+            return chord.Modifiers == Keys.None &&
+                modifierKey is
+                    Keys.Menu or
+                    Keys.LMenu or
+                    Keys.RMenu or
+                    Keys.ControlKey or
+                    Keys.LControlKey or
+                    Keys.RControlKey or
+                    Keys.ShiftKey or
+                    Keys.LShiftKey or
+                    Keys.RShiftKey;
+        }
+
+        private static void PressVirtualKeyDown(Keys key)
+        {
+            var keyCode = key & Keys.KeyCode;
+            var scanCode = MapVirtualKey(
+                (uint)keyCode,
+                MapVirtualKeyToScanCode);
+            var flags = IsExtendedPhysicalKey(keyCode)
+                ? KeyEventExtendedKey
+                : 0u;
+
+            keybd_event(
+                (byte)keyCode,
+                (byte)scanCode,
+                flags,
+                UIntPtr.Zero);
+        }
+
+        private static void ReleaseVirtualKey(Keys key)
+        {
+            var keyCode = key & Keys.KeyCode;
+            var scanCode = MapVirtualKey(
+                (uint)keyCode,
+                MapVirtualKeyToScanCode);
+            var flags = KeyEventKeyUp;
+
+            if (IsExtendedPhysicalKey(keyCode))
+            {
+                flags |= KeyEventExtendedKey;
+            }
+
+            keybd_event(
+                (byte)keyCode,
+                (byte)scanCode,
+                flags,
+                UIntPtr.Zero);
+        }
     }
 
     private readonly record struct HeldKeyboardKey(

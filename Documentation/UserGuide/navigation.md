@@ -24,6 +24,12 @@ Filter results to sectors, navigation points, stations, landable planets, gates,
 
 The planner displays the current location, selected destination, route status, hop count, route preview, and any known access warning or condition.
 
+### Group wormholes
+
+Navigation treats learned **Create Wormhole** and **Extended Wormhole** destinations as shortcuts from the fleet's current sector. The route uses the combined skills of every managed pilot in the in-game group, so the selected pilot does not need to be the group leader or the wormhole caster.
+
+For Auto Pilot, an eligible caster must place the relevant wormhole skill somewhere on either shortcut bank. The slot is not fixed: once the caster is in space, Client Manager finds the live shortcut, selects the required destination from the native menu, verifies the selection, invokes the skill, waits for the game to report that the wormhole is opening, and then accepts it for the managed group. Stations do not expose shortcut bars, so shortcut readiness is checked after undocking. Job Terminal journey counts use these same wormhole-aware route steps.
+
 ### Set and follow the route
 
 Select **Set destination** to give the pilot the route. **Close after setting destination** makes this a one-action workflow.
@@ -47,7 +53,7 @@ The former Navigation HUD addon is retired. Client Manager uninstalls an install
 
 A destination can be followed manually or from the built-in Navigation companion.
 
-Auto Pilot works from the saved route rather than inventing its own journey. It can select route targets, warp, pass through gates or accelerators, dock at stations, and land on planets. It watches sector transitions, reactor energy, target changes, confirmations, and interruptions, and stops with an explanation when the next safe step cannot be completed.
+Auto Pilot works from the saved route rather than inventing its own journey. It can select route targets, warp, pass through gates or accelerators, use an eligible managed pilot's wormhole, dock at stations, and land on planets. It watches sector transitions, reactor energy, target changes, confirmations, and interruptions, and stops with an explanation when the next safe step cannot be completed.
 
 The route remains associated with the pilot across ordinary window refreshes and sector changes.
 

@@ -745,11 +745,16 @@ internal sealed class NavigationInGamePresenter : IDisposable
             return "Route reconciliation in progress";
         }
 
-        return step.Kind == "sector_transition"
-            ? string.Create(
+        return step.Kind switch
+        {
+            "sector_transition" => string.Create(
                 CultureInfo.CurrentCulture,
-                $"Next sector · {step.To.SectorName}")
-            : "Final navigation target";
+                $"Next sector · {step.To.SectorName}"),
+            "wormhole_transition" => string.Create(
+                CultureInfo.CurrentCulture,
+                $"Wormhole · {step.To.SectorName}"),
+            _ => "Final navigation target",
+        };
     }
 
     private static string ResolveStepDescription(
@@ -760,9 +765,12 @@ internal sealed class NavigationInGamePresenter : IDisposable
             return "Waiting for the next route step.";
         }
 
-        var target = step.Kind == "sector_transition"
-            ? step.DepartureTarget?.Name
-            : step.FinalTarget?.Name;
+        var target = step.Kind switch
+        {
+            "sector_transition" => step.DepartureTarget?.Name,
+            "wormhole_transition" => step.Wormhole?.AbilityName,
+            _ => step.FinalTarget?.Name,
+        };
 
         return string.IsNullOrWhiteSpace(target)
             ? string.Create(

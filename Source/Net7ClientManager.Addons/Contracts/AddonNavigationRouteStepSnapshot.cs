@@ -12,6 +12,8 @@ public sealed record AddonNavigationRouteStepSnapshot
 
     public AddonNavigationTargetSnapshot? DepartureTarget { get; init; }
 
+    public AddonNavigationWormholeSnapshot? Wormhole { get; init; }
+
     public AddonNavigationTargetSnapshot? FinalTarget { get; init; }
 
     public string? AccessRequirement { get; init; }

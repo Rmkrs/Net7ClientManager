@@ -15,6 +15,7 @@ internal static class NavigationAutoPilotStateMachineScenarios
         ValidateSameSectorStationJourney();
         ValidateAlreadyInRangeStationJourney();
         ValidateGateThenStationJourney();
+        ValidateWormholeThenStationJourney();
         ValidateSlowGateTransition();
         ValidateLatePostSectorTargetPublication();
         ValidateRouteLagAfterSectorTransition();
@@ -527,6 +528,89 @@ internal static class NavigationAutoPilotStateMachineScenarios
             state,
             NavigationAutoPilotMachinePhase.ResolvingTarget,
             "gate transition reconciles station step");
+    }
+
+    private static void ValidateWormholeThenStationJourney()
+    {
+        var now = DateTimeOffset.Parse(
+            "2026-08-01T06:00:00+00:00",
+            CultureInfo.InvariantCulture);
+        var wormhole = CreateWormholeStep(
+            number: 1,
+            fromSectorKey: "glenn",
+            fromSectorName: "Glenn",
+            toSectorKey: "valkyrie-twins",
+            toSectorName: "Valkyrie Twins",
+            abilityName: "Valkyrie Twins Gate");
+        var station = CreateStationStep(
+            number: 2,
+            sectorKey: "valkyrie-twins",
+            sectorName: "Valkyrie Twins",
+            targetName: "Valkyrie Twins Station");
+        var state = CreateState(
+            now,
+            "glenn",
+            "Glenn",
+            "Valkyrie Twins Station");
+
+        var activating = NavigationAutoPilotStateMachine.Observe(
+            state,
+            CreateFrame(
+                state,
+                now,
+                "glenn",
+                "Glenn",
+                wormhole));
+        AssertEffect(
+            activating,
+            NavigationAutoPilotEffectKind.ActivateWormhole,
+            "wormhole activation request");
+        AssertPhase(
+            activating.State,
+            NavigationAutoPilotMachinePhase.ActivatingWormhole,
+            "wormhole activation phase");
+
+        state = NavigationAutoPilotStateMachine.ApplyWormholeActivation(
+                activating.State,
+                NavigationAutoPilotEffectOutcome.Success(),
+                now.AddMilliseconds(100))
+            .State;
+        AssertPhase(
+            state,
+            NavigationAutoPilotMachinePhase.WaitingForTransition,
+            "wormhole transition wait");
+
+        state = NavigationAutoPilotStateMachine.Observe(
+            state,
+            CreateFrame(
+                state,
+                now.AddSeconds(1),
+                "glenn",
+                "Glenn",
+                wormhole,
+                loading: 1,
+                worldAvailable: false,
+                generationChanged: true))
+            .State;
+        AssertPhase(
+            state,
+            NavigationAutoPilotMachinePhase.WaitingForTransition,
+            "wormhole loading transition");
+
+        state = NavigationAutoPilotStateMachine.Observe(
+            state,
+            CreateFrame(
+                state,
+                now.AddSeconds(2),
+                "valkyrie-twins",
+                "Valkyrie Twins",
+                station,
+                generationSequence: 2))
+            .State;
+        AssertPhase(
+            state,
+            NavigationAutoPilotMachinePhase.ReconcilingStep,
+            "wormhole arrival reconciliation");
     }
 
     private static void ValidateSlowGateTransition()
@@ -1656,6 +1740,34 @@ internal static class NavigationAutoPilotStateMachineScenarios
             ToSystemName = "System B",
             DepartureTargetName = targetName,
             DepartureTargetRawObjectType = 8,
+        };
+    }
+
+    private static NavigationRouteStep CreateWormholeStep(
+        int number,
+        string fromSectorKey,
+        string fromSectorName,
+        string toSectorKey,
+        string toSectorName,
+        string abilityName)
+    {
+        return new NavigationRouteStep
+        {
+            Number = number,
+            Kind = NavigationRouteStepKind.WormholeTransition,
+            FromSectorKey = fromSectorKey,
+            FromSectorName = fromSectorName,
+            FromSystemName = "System A",
+            ToSectorKey = toSectorKey,
+            ToSectorName = toSectorName,
+            ToSystemName = "System B",
+            WormholeSkillFamilyName =
+                NavigationWormholeCatalog.CreateWormholeFamilyName,
+            WormholeAbilityName = abilityName,
+            WormholeRequiredRank = 4,
+            WormholeMenuIndex = 3,
+            WormholeHasReadyCaster = true,
+            WormholeCasterNames = ["Jenquai Explorer"],
         };
     }
 

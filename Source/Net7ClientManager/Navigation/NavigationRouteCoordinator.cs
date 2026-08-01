@@ -54,10 +54,12 @@ public sealed class NavigationRouteCoordinator
 
     public NavigationRouteSnapshot Observe(
         ClientObservationSnapshot observation,
-        ClientLiveCharacterIdentity identity)
+        ClientLiveCharacterIdentity identity,
+        NavigationWormholeAvailability? wormholes = null)
     {
         ArgumentNullException.ThrowIfNull(observation);
         ArgumentNullException.ThrowIfNull(identity);
+        wormholes ??= NavigationWormholeAvailability.None;
 
         lock (this.lockObject)
         {
@@ -173,7 +175,8 @@ public sealed class NavigationRouteCoordinator
                 identity.Profession,
                 currentSector,
                 persisted,
-                observation.LocalPlayer.Reputation);
+                observation.LocalPlayer.Reputation,
+                wormholes);
 
             this.processStates[observation.ProcessId] =
                 new ProcessRouteState
@@ -184,6 +187,7 @@ public sealed class NavigationRouteCoordinator
                     CurrentSector = currentSector,
                     CurrentLocation = currentLocation,
                     Environment = observation.World.Environment,
+                    Wormholes = wormholes,
                     Snapshot = snapshot,
                 };
 
@@ -239,7 +243,8 @@ public sealed class NavigationRouteCoordinator
                         out _) &&
                     (!string.IsNullOrWhiteSpace(state.Profession) ||
                      string.IsNullOrWhiteSpace(
-                         to.RequiredProfession)));
+                         to.RequiredProfession)),
+                state.Wormholes);
         }
     }
 
@@ -285,7 +290,8 @@ public sealed class NavigationRouteCoordinator
             return this.BuildPlan(
                 preview,
                 state.Profession,
-                state.CurrentSector!);
+                state.CurrentSector!,
+                state.Wormholes);
         }
     }
 
@@ -333,7 +339,8 @@ public sealed class NavigationRouteCoordinator
             var planResult = this.BuildPlan(
                 route,
                 state.Profession,
-                state.CurrentSector!);
+                state.CurrentSector!,
+                state.Wormholes);
 
             if (!planResult.Succeeded || planResult.Plan == null)
             {
@@ -371,7 +378,8 @@ public sealed class NavigationRouteCoordinator
                 state.Profession,
                 state.CurrentSector!,
                 route,
-                state.Snapshot.CurrentPilotReputation);
+                state.Snapshot.CurrentPilotReputation,
+                state.Wormholes);
         }
 
         this.RouteChanged?.Invoke(
@@ -452,7 +460,8 @@ public sealed class NavigationRouteCoordinator
             var previousPlan = this.BuildPlan(
                 previousRoute,
                 state.Profession,
-                state.CurrentSector!);
+                state.CurrentSector!,
+                state.Wormholes);
 
             if (!previousPlan.Succeeded || previousPlan.Plan == null)
             {
@@ -523,7 +532,8 @@ public sealed class NavigationRouteCoordinator
             var planResult = this.BuildPlan(
                 route,
                 state.Profession,
-                state.CurrentSector!);
+                state.CurrentSector!,
+                state.Wormholes);
 
             if (!planResult.Succeeded || planResult.Plan == null)
             {
@@ -550,7 +560,8 @@ public sealed class NavigationRouteCoordinator
                 state.Profession,
                 state.CurrentSector!,
                 route,
-                state.Snapshot.CurrentPilotReputation);
+                state.Snapshot.CurrentPilotReputation,
+                state.Wormholes);
         }
 
         this.RouteChanged?.Invoke(
@@ -632,7 +643,8 @@ public sealed class NavigationRouteCoordinator
         string? profession,
         GalaxySectorDefinition currentSector,
         NavigationPersistedRoute? route,
-        ClientReputationObservation currentPilotReputation)
+        ClientReputationObservation currentPilotReputation,
+        NavigationWormholeAvailability wormholes)
     {
         if (route == null)
         {
@@ -655,7 +667,8 @@ public sealed class NavigationRouteCoordinator
         var planResult = this.BuildPlan(
             route,
             profession,
-            currentSector);
+            currentSector,
+            wormholes);
 
         if (!planResult.Succeeded || planResult.Plan == null)
         {
@@ -756,7 +769,8 @@ public sealed class NavigationRouteCoordinator
     private NavigationRoutePlanResult BuildPlan(
         NavigationPersistedRoute route,
         string? profession,
-        GalaxySectorDefinition currentSector)
+        GalaxySectorDefinition currentSector,
+        NavigationWormholeAvailability wormholes)
     {
         if (!this.TryValidateDestination(
                 route.Destination,
@@ -789,7 +803,8 @@ public sealed class NavigationRouteCoordinator
                     out _) &&
                 (!string.IsNullOrWhiteSpace(profession) ||
                  string.IsNullOrWhiteSpace(
-                     to.RequiredProfession)));
+                     to.RequiredProfession)),
+            wormholes);
 
         if (!sectorRoute.Succeeded)
         {
@@ -819,21 +834,10 @@ public sealed class NavigationRouteCoordinator
             warnings.Add(this.persistenceWarning);
         }
 
-        for (var index = 0;
-             index + 1 < sectorRoute.Sectors.Count;
-             index++)
+        foreach (var transition in sectorRoute.Transitions)
         {
-            var from = sectorRoute.Sectors[index];
-            var to = sectorRoute.Sectors[index + 1];
-
-            if (!this.Catalog.TryGetVerifiedDeparture(
-                    from.Key,
-                    to.Key,
-                    out var departure))
-            {
-                return NavigationRoutePlanResult.Failure(
-                        $"The catalog has no verified departure from {from.Name} to {to.Name}.");
-            }
+            var from = transition.From;
+            var to = transition.To;
 
             if (!string.IsNullOrWhiteSpace(
                     to.RequiredProfession) ||
@@ -842,6 +846,62 @@ public sealed class NavigationRouteCoordinator
             {
                 warnings.Add(
                         $"{to.Name}: {to.GetAccessRequirementDescription()}");
+            }
+
+            if (transition.Kind == GalaxyRouteTransitionKind.Wormhole)
+            {
+                var wormhole = transition.Wormhole;
+
+                if (wormhole == null)
+                {
+                    return NavigationRoutePlanResult.Failure(
+                        $"The wormhole route from {from.Name} to {to.Name} has no caster information.");
+                }
+
+                if (!wormhole.HasReadyCaster &&
+                    wormhole.IsShortcutReadinessKnown)
+                {
+                    warnings.Add(string.Concat(
+                        wormhole.Destination.SkillFamilyName,
+                        " is learned for ",
+                        to.Name,
+                        ", but no eligible managed pilot currently has that skill on a shortcut."));
+                }
+
+                steps.Add(new NavigationRouteStep
+                {
+                    Number = steps.Count + 1,
+                    Kind = NavigationRouteStepKind.WormholeTransition,
+                    FromSectorKey = from.Key,
+                    FromSectorName = from.Name,
+                    FromSystemName = from.SystemName,
+                    ToSectorKey = to.Key,
+                    ToSectorName = to.Name,
+                    ToSystemName = to.SystemName,
+                    WormholeSkillFamilyName =
+                        wormhole.Destination.SkillFamilyName,
+                    WormholeAbilityName =
+                        wormhole.Destination.AbilityName,
+                    WormholeRequiredRank =
+                        wormhole.Destination.RequiredRank,
+                    WormholeMenuIndex =
+                        wormhole.Destination.MenuIndex,
+                    WormholeHasReadyCaster =
+                        wormhole.HasReadyCaster,
+                    WormholeCasterNames =
+                        wormhole.CasterNames,
+                });
+
+                continue;
+            }
+
+            if (!this.Catalog.TryGetVerifiedDeparture(
+                    from.Key,
+                    to.Key,
+                    out var departure))
+            {
+                return NavigationRoutePlanResult.Failure(
+                        $"The catalog has no verified departure from {from.Name} to {to.Name}.");
             }
 
             if (!string.IsNullOrWhiteSpace(
@@ -1328,6 +1388,9 @@ public sealed class NavigationRouteCoordinator
         public NavigationDestination? CurrentLocation { get; init; }
 
         public ClientWorldEnvironment Environment { get; init; }
+
+        public NavigationWormholeAvailability Wormholes { get; init; } =
+            NavigationWormholeAvailability.None;
 
         public required NavigationRouteSnapshot Snapshot { get; set; }
     }

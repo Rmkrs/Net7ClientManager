@@ -1085,7 +1085,7 @@ public sealed class NavigationPlannerForm : Form
     {
         var fingerprint = string.Create(
             CultureInfo.InvariantCulture,
-            $"{processId}|{isPreview}|{(isPreview ? Guid.Empty : plan.RouteId)}|{plan.UpdatedAt:O}|{plan.Current.Key}|{plan.Destination.SectorKey}|{plan.Destination.TargetKey}|{plan.Status}|{plan.StatusText}|{plan.CompletedHopCount}|{plan.RemainingHopCount}|{string.Join(';', plan.Steps.Select(step => $"{step.Kind}:{step.FromSectorKey}:{step.ToSectorKey}:{step.DepartureTargetName}:{step.FinalTargetKey}"))}|{string.Join(';', plan.Warnings)}");
+            $"{processId}|{isPreview}|{(isPreview ? Guid.Empty : plan.RouteId)}|{plan.UpdatedAt:O}|{plan.Current.Key}|{plan.Destination.SectorKey}|{plan.Destination.TargetKey}|{plan.Status}|{plan.StatusText}|{plan.CompletedHopCount}|{plan.RemainingHopCount}|{string.Join(';', plan.Steps.Select(step => $"{step.Kind}:{step.FromSectorKey}:{step.ToSectorKey}:{step.DepartureTargetName}:{step.WormholeAbilityName}:{step.FinalTargetKey}"))}|{string.Join(';', plan.Warnings)}");
 
         this.pilotValueLabel.Text = plan.CharacterName;
         this.currentValueLabel.Text = $"{plan.Current.SystemName} / {plan.Current.Name}";
@@ -1641,13 +1641,20 @@ public sealed class NavigationPlannerForm : Form
     private static string FormatRouteStep(
         NavigationRouteStep step)
     {
-        return step.Kind == NavigationRouteStepKind.SectorTransition
-            ? string.Create(
+        return step.Kind switch
+        {
+            NavigationRouteStepKind.SectorTransition =>
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"{step.Number,2}. {step.DepartureTargetName}  →  {step.ToSystemName} / {step.ToSectorName}"),
+            NavigationRouteStepKind.WormholeTransition =>
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"{step.Number,2}. Wormhole · {step.WormholeAbilityName}  →  {step.ToSystemName} / {step.ToSectorName}"),
+            _ => string.Create(
                 CultureInfo.InvariantCulture,
-                $"{step.Number,2}. {step.DepartureTargetName}  →  {step.ToSystemName} / {step.ToSectorName}")
-            : string.Create(
-                CultureInfo.InvariantCulture,
-                $"{step.Number,2}. Final nav  →  {step.FinalTargetName}");
+                $"{step.Number,2}. Final nav  →  {step.FinalTargetName}"),
+        };
     }
 
     private static string BuildClientDisplayName(

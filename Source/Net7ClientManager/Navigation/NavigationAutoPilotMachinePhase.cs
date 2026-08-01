@@ -13,6 +13,7 @@ internal enum NavigationAutoPilotMachinePhase
     WaitingForArrival,
     WaitingForVerb,
     ActivatingVerb,
+    ActivatingWormhole,
     WaitingForTransition,
     WaitingForDestination,
     ManualFinalLeg,

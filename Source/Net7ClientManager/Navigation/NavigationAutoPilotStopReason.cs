@@ -21,4 +21,7 @@ public enum NavigationAutoPilotStopReason
     ClientUnavailable,
     EnergyUnavailable,
     InternalError,
+    WormholeUnavailable,
+    WormholeActivationFailed,
+    WormholeTransitionTimedOut,
 }

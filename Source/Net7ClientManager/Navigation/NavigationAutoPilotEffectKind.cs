@@ -6,4 +6,5 @@ internal enum NavigationAutoPilotEffectKind
     SelectTarget,
     EngageWarp,
     ActivateVerb,
+    ActivateWormhole,
 }

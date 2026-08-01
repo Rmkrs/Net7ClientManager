@@ -36,8 +36,25 @@ internal sealed class GameShortcutInvocationService(
             return GameCommandExecutionResult.Failure(error);
         }
 
-        if (currentGroup == shortcut.Group)
+        if (shortcut.Group == 0)
         {
+            if (currentGroup != 0 &&
+                !await this.EnsureNormalGroupAsync(
+                        client,
+                        shortcut.Bar,
+                        cancellationToken)
+                    .ConfigureAwait(false))
+            {
+                return GameCommandExecutionResult.Failure(
+                    string.Concat(
+                        "Cannot invoke '",
+                        shortcut.Name,
+                        "' because shortcut bar ",
+                        shortcut.Bar.ToString(
+                            System.Globalization.CultureInfo.InvariantCulture),
+                        " did not return to its normal bank."));
+            }
+
             return await gameCommandCoordinator
                 .ExecuteAsync(
                     client,
@@ -46,15 +63,9 @@ internal sealed class GameShortcutInvocationService(
                 .ConfigureAwait(false);
         }
 
-        if (shortcut.Group == 0)
-        {
-            return GameCommandExecutionResult.Failure(
-                string.Concat(
-                    "Cannot invoke '",
-                    shortcut.Name,
-                    "' because the shortcut-bank modifier is currently active."));
-        }
-
+        // Alternate shortcuts are momentary. Always hold the configured
+        // Swap Shortcut Banks command while invoking the slot rather than
+        // trusting a transient CurrentGroup sample from the game.
         return await gameCommandCoordinator
             .ExecuteWithHeldCommandAsync(
                 client,
@@ -68,6 +79,43 @@ internal sealed class GameShortcutInvocationService(
                         token),
                 cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    private async Task<bool> EnsureNormalGroupAsync(
+        ClientInstance client,
+        int bar,
+        CancellationToken cancellationToken)
+    {
+        // A released Alt modifier normally returns the bar immediately. Give
+        // the observer a compact grace period first so a stale sample does not
+        // trigger unnecessary input.
+        if (await this.WaitForGroupAsync(
+                client.ProcessId,
+                bar,
+                expectedGroup: 0,
+                cancellationToken)
+            .ConfigureAwait(false))
+        {
+            return true;
+        }
+
+        // Shift Shortcuts is a hold-style Alt command. A clean tap followed by
+        // release safely normalizes a bar that remained on the alternate bank
+        // after an interrupted interaction.
+        var normalized = await gameCommandCoordinator
+            .ExecuteAsync(
+                client,
+                GameCommand.SwapShortcutBanks,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        return normalized.Succeeded &&
+            await this.WaitForGroupAsync(
+                    client.ProcessId,
+                    bar,
+                    expectedGroup: 0,
+                    cancellationToken)
+                .ConfigureAwait(false);
     }
 
     private async Task<bool> WaitForGroupAsync(

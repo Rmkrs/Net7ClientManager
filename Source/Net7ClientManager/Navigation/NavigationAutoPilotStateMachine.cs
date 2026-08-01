@@ -95,6 +95,8 @@ internal static class NavigationAutoPilotStateMachine
                 ObserveWaitingForVerb(state, frame),
             NavigationAutoPilotMachinePhase.ActivatingVerb =>
                 new NavigationAutoPilotMachineTransition(state),
+            NavigationAutoPilotMachinePhase.ActivatingWormhole =>
+                new NavigationAutoPilotMachineTransition(state),
             NavigationAutoPilotMachinePhase.WaitingForTransition =>
                 ObserveWaitingForTransition(state, frame),
             NavigationAutoPilotMachinePhase.WaitingForDestination =>
@@ -288,6 +290,49 @@ internal static class NavigationAutoPilotStateMachine
             now);
     }
 
+    public static NavigationAutoPilotMachineTransition
+        ApplyWormholeActivation(
+            NavigationAutoPilotMachineState state,
+            NavigationAutoPilotEffectOutcome outcome,
+            DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+
+        if (state.Phase !=
+                NavigationAutoPilotMachinePhase.ActivatingWormhole ||
+            state.Step is not { IsWormholeTransition: true } step)
+        {
+            return Stop(
+                state,
+                NavigationAutoPilotStopReason.InternalError,
+                "Auto Pilot stopped because wormhole-activation state became inconsistent.",
+                now);
+        }
+
+        if (!outcome.Succeeded)
+        {
+            return Stop(
+                state,
+                outcome.StopReason == NavigationAutoPilotStopReason.None
+                    ? step.ActivationFailedReason
+                    : outcome.StopReason,
+                string.IsNullOrWhiteSpace(outcome.StatusText)
+                    ? $"Auto Pilot could not activate {step.TargetName}."
+                    : outcome.StatusText,
+                now);
+        }
+
+        return Move(
+            state with
+            {
+                TransitionAccepted = false,
+            },
+            NavigationAutoPilotMachinePhase.WaitingForTransition,
+            NavigationAutoPilotState.WaitingForSector,
+            $"Waiting for {step.TargetName} to begin the wormhole transition.",
+            now);
+    }
+
     public static NavigationAutoPilotMachineTransition StopByUser(
         NavigationAutoPilotMachineState state,
         DateTimeOffset now)
@@ -437,6 +482,38 @@ internal static class NavigationAutoPilotStateMachine
                 frame.RouteCurrentSectorName ??
                 frame.WorldSectorName,
                 frame.Now);
+        }
+
+        if (step.IsWormholeTransition)
+        {
+            return new NavigationAutoPilotMachineTransition(
+                state with
+                {
+                    Phase = NavigationAutoPilotMachinePhase.ActivatingWormhole,
+                    PhaseStartedAt = frame.Now,
+                    Step = step,
+                    StepStartedAt = frame.Now,
+                    TargetObjectId = null,
+                    VerbMissingSince = null,
+                    StepGenerationSequence =
+                        frame.NavigationGenerationSequence,
+                    WarpRequestNavigationSequence = 0,
+                    WarpRequestGenerationSequence = 0,
+                    WarpRequestedAt = null,
+                    WarpRequestAccepted = false,
+                    WarpReachedActiveState = false,
+                    TransitionAccepted = false,
+                    ExpectedCurrentSectorName =
+                        frame.RouteCurrentSectorName ??
+                        state.ExpectedCurrentSectorName,
+                    PublicState =
+                        NavigationAutoPilotState.ActivatingWormhole,
+                    StopReason = NavigationAutoPilotStopReason.None,
+                    StatusText =
+                        $"Preparing {step.TargetName} for {step.ToSectorName}.",
+                    CurrentEnergy = frame.CurrentEnergy,
+                },
+                NavigationAutoPilotEffectKind.ActivateWormhole);
         }
 
         return new NavigationAutoPilotMachineTransition(
@@ -1179,8 +1256,9 @@ internal static class NavigationAutoPilotStateMachine
             ? state with
             {
                 TransitionAccepted = true,
-                StatusText =
-                    $"Gate transition accepted; waiting to enter sector {step.ToSectorName}.",
+                StatusText = step.IsWormholeTransition
+                    ? $"Wormhole transition accepted; waiting to enter sector {step.ToSectorName}."
+                    : $"Gate transition accepted; waiting to enter sector {step.ToSectorName}.",
             }
             : state;
 
@@ -1191,10 +1269,12 @@ internal static class NavigationAutoPilotStateMachine
                 waitingState,
                 transitionAccepted
                     ? step.TransitionTimedOutReason
-                    : NavigationAutoPilotStopReason.GateActivationFailed,
+                    : step.ActivationFailedReason,
                 transitionAccepted
                     ? $"Auto Pilot stopped because sector {step.ToSectorName} did not become ready within 30 seconds."
-                    : $"Auto Pilot activated Gate on {step.TargetName}, but the client never entered gate-transition control.",
+                    : step.IsWormholeTransition
+                        ? $"Auto Pilot activated {step.TargetName}, but the client never entered wormhole-transition control."
+                        : $"Auto Pilot activated Gate on {step.TargetName}, but the client never entered gate-transition control.",
                 frame.Now);
         }
 
@@ -1203,8 +1283,12 @@ internal static class NavigationAutoPilotStateMachine
             {
                 PublicState = NavigationAutoPilotState.WaitingForSector,
                 StatusText = transitionAccepted
-                    ? $"Gate transition accepted; waiting to enter sector {step.ToSectorName}."
-                    : $"Waiting for {step.TargetName} to begin the gate transition.",
+                    ? step.IsWormholeTransition
+                        ? $"Wormhole transition accepted; waiting to enter sector {step.ToSectorName}."
+                        : $"Gate transition accepted; waiting to enter sector {step.ToSectorName}."
+                    : step.IsWormholeTransition
+                        ? $"Waiting for {step.TargetName} to begin the wormhole transition."
+                        : $"Waiting for {step.TargetName} to begin the gate transition.",
             });
     }
 

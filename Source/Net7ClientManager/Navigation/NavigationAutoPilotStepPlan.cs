@@ -30,6 +30,16 @@ internal sealed record NavigationAutoPilotStepPlan
 
     public required bool IsSectorTransition { get; init; }
 
+    public bool IsWormholeTransition { get; init; }
+
+    public string WormholeSkillFamilyName { get; init; } = "";
+
+    public int WormholeRequiredRank { get; init; }
+
+    public int WormholeMenuIndex { get; init; } = -1;
+
+    public IReadOnlyList<string> WormholeCasterNames { get; init; } = [];
+
     public required NavigationAutoPilotState ActivatingState { get; init; }
 
     public required NavigationAutoPilotStopReason UnavailableReason { get; init; }
@@ -55,6 +65,18 @@ internal sealed record NavigationAutoPilotStepPlan
             return false;
         }
 
+        if (this.IsWormholeTransition)
+        {
+            return string.Equals(
+                       step.WormholeAbilityName,
+                       this.TargetName,
+                       StringComparison.Ordinal) &&
+                   string.Equals(
+                       step.WormholeSkillFamilyName,
+                       this.WormholeSkillFamilyName,
+                       StringComparison.Ordinal);
+        }
+
         var targetName = step.Kind ==
             NavigationRouteStepKind.SectorTransition
                 ? step.DepartureTargetName
@@ -77,6 +99,50 @@ internal sealed record NavigationAutoPilotStepPlan
         out NavigationAutoPilotStepPlan plan)
     {
         ArgumentNullException.ThrowIfNull(step);
+
+        if (step.Kind ==
+                NavigationRouteStepKind.WormholeTransition &&
+            !string.IsNullOrWhiteSpace(
+                step.WormholeSkillFamilyName) &&
+            !string.IsNullOrWhiteSpace(
+                step.WormholeAbilityName) &&
+            step.WormholeRequiredRank > 0)
+        {
+            plan = new NavigationAutoPilotStepPlan
+            {
+                Number = step.Number,
+                Kind = step.Kind,
+                FromSectorKey = step.FromSectorKey,
+                FromSectorName = step.FromSectorName,
+                ToSectorKey = step.ToSectorKey,
+                ToSectorName = step.ToSectorName,
+                TargetName = step.WormholeAbilityName,
+                TargetRawObjectType = 0,
+                Verb = ClientTargetVerb.NotApplicable,
+                VerbName = "Wormhole",
+                RequiresInteraction = true,
+                IsSectorTransition = true,
+                IsWormholeTransition = true,
+                WormholeSkillFamilyName =
+                    step.WormholeSkillFamilyName,
+                WormholeRequiredRank =
+                    step.WormholeRequiredRank,
+                WormholeMenuIndex =
+                    step.WormholeMenuIndex,
+                WormholeCasterNames =
+                    step.WormholeCasterNames,
+                ActivatingState =
+                    NavigationAutoPilotState.ActivatingWormhole,
+                UnavailableReason =
+                    NavigationAutoPilotStopReason.WormholeUnavailable,
+                ActivationFailedReason =
+                    NavigationAutoPilotStopReason.WormholeActivationFailed,
+                TransitionTimedOutReason =
+                    NavigationAutoPilotStopReason.WormholeTransitionTimedOut,
+            };
+
+            return true;
+        }
 
         if (step.Kind ==
                 NavigationRouteStepKind.SectorTransition &&

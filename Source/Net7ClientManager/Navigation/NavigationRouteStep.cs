@@ -38,6 +38,18 @@ public sealed record NavigationRouteStep
 
     public float DepartureTargetZ { get; init; }
 
+    public string? WormholeSkillFamilyName { get; init; }
+
+    public string? WormholeAbilityName { get; init; }
+
+    public int WormholeRequiredRank { get; init; }
+
+    public int WormholeMenuIndex { get; init; } = -1;
+
+    public bool WormholeHasReadyCaster { get; init; }
+
+    public IReadOnlyList<string> WormholeCasterNames { get; init; } = [];
+
     public string? FinalTargetKey { get; init; }
 
     public string? FinalTargetName { get; init; }

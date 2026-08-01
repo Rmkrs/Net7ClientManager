@@ -208,6 +208,8 @@ internal sealed class NavigationCompanionForm : ThemedForm
                 this.SecondaryRouteButton_OnClick;
             this.clearRouteButton.Click -=
                 this.ClearRouteButton_OnClick;
+            this.routeCard.ClientSizeChanged -=
+                this.RouteCard_OnClientSizeChanged;
         }
 
         base.Dispose(disposing);
@@ -364,7 +366,7 @@ internal sealed class NavigationCompanionForm : ThemedForm
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
         this.destinationLabel.AutoSize = true;
@@ -384,8 +386,9 @@ internal sealed class NavigationCompanionForm : ThemedForm
         this.nextTargetLabel.ForeColor = MainWindowTheme.MutedText;
         this.nextTargetLabel.Margin = new Padding(0, 0, 0, 5);
 
-        this.warningLabel.Dock = DockStyle.Fill;
-        this.warningLabel.AutoEllipsis = true;
+        this.warningLabel.AutoSize = true;
+        this.warningLabel.AutoEllipsis = false;
+        this.warningLabel.Dock = DockStyle.Top;
         this.warningLabel.Font = MainWindowTheme.CreateBodyFont(8.5f);
         this.warningLabel.ForeColor = MainWindowTheme.Warning;
         this.warningLabel.Margin = new Padding(0, 3, 0, 3);
@@ -401,6 +404,9 @@ internal sealed class NavigationCompanionForm : ThemedForm
         layout.Controls.Add(this.warningLabel, 0, 3);
         layout.Controls.Add(this.hopsLabel, 0, 4);
         this.routeCard.Controls.Add(layout);
+        this.routeCard.ClientSizeChanged +=
+            this.RouteCard_OnClientSizeChanged;
+        this.UpdateWarningLabelMaximumSize();
     }
 
     private void BuildJourneyCard()
@@ -513,7 +519,7 @@ internal sealed class NavigationCompanionForm : ThemedForm
                     ? "Open the planner to choose a destination."
                     : snapshot.StatusText;
             this.hopsLabel.Text = "0 hops remaining";
-            this.warningLabel.Text = "";
+            this.SetWarning(null);
         }
         else if (snapshot.Status == "destination_reached")
         {
@@ -524,7 +530,7 @@ internal sealed class NavigationCompanionForm : ThemedForm
             this.hopsLabel.Text = string.Create(
                 CultureInfo.CurrentCulture,
                 $"0 hops remaining · {route.CompletedHopCount} completed");
-            this.warningLabel.Text = "";
+            this.SetWarning(null);
         }
         else
         {
@@ -533,7 +539,7 @@ internal sealed class NavigationCompanionForm : ThemedForm
             this.hopsLabel.Text = string.Create(
                 CultureInfo.CurrentCulture,
                 $"{route.RemainingHopCount} hops remaining · {route.CompletedHopCount} completed");
-            this.warningLabel.Text = route.Warnings.FirstOrDefault() ?? "";
+            this.SetWarning(route.Warnings.FirstOrDefault());
         }
 
         var journey = snapshot.Journey;
@@ -572,13 +578,36 @@ internal sealed class NavigationCompanionForm : ThemedForm
             !this.commandBusy && journey.CanClear;
     }
 
+    private void RouteCard_OnClientSizeChanged(
+        object? sender,
+        EventArgs e)
+    {
+        this.UpdateWarningLabelMaximumSize();
+    }
+
+    private void UpdateWarningLabelMaximumSize()
+    {
+        var width = Math.Max(
+            1,
+            this.routeCard.ClientSize.Width -
+            this.routeCard.Padding.Horizontal);
+        this.warningLabel.MaximumSize = new Size(width, 0);
+    }
+
+    private void SetWarning(string? warning)
+    {
+        var text = warning?.Trim() ?? "";
+        this.warningLabel.Text = text;
+        this.warningLabel.Visible = text.Length > 0;
+    }
+
     private void ShowUnavailable(string status)
     {
         this.destinationLabel.Text = "Navigation";
         this.routeStateLabel.Text = "Waiting for route state";
         this.nextTargetLabel.Text = status;
         this.hopsLabel.Text = "";
-        this.warningLabel.Text = "";
+        this.SetWarning(null);
         this.journeyStateLabel.Text = "AUTO PILOT · UNAVAILABLE";
         this.journeyStateLabel.ForeColor = MainWindowTheme.MutedText;
         this.journeyStatusLabel.Text = status;
@@ -821,11 +850,16 @@ internal sealed class NavigationCompanionForm : ThemedForm
             return "Route reconciliation in progress";
         }
 
-        return step.Kind == "sector_transition"
-            ? string.Create(
+        return step.Kind switch
+        {
+            "sector_transition" => string.Create(
                 CultureInfo.CurrentCulture,
-                $"Next sector · {step.To.SectorName}")
-            : "Final navigation target";
+                $"Next sector · {step.To.SectorName}"),
+            "wormhole_transition" => string.Create(
+                CultureInfo.CurrentCulture,
+                $"Wormhole · {step.To.SectorName}"),
+            _ => "Final navigation target",
+        };
     }
 
     private static string ResolveStepDescription(
@@ -836,9 +870,12 @@ internal sealed class NavigationCompanionForm : ThemedForm
             return "Waiting for the next route step.";
         }
 
-        var target = step.Kind == "sector_transition"
-            ? step.DepartureTarget?.Name
-            : step.FinalTarget?.Name;
+        var target = step.Kind switch
+        {
+            "sector_transition" => step.DepartureTarget?.Name,
+            "wormhole_transition" => step.Wormhole?.AbilityName,
+            _ => step.FinalTarget?.Name,
+        };
 
         return string.IsNullOrWhiteSpace(target)
             ? string.Create(

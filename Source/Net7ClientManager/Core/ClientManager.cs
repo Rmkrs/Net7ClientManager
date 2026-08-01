@@ -328,13 +328,20 @@ public sealed class ClientManager : IDisposable
                 this.NavigationRoutes,
                 this.gameCommandCoordinator);
 
+        var navigationWormholeAutomationService =
+            new NavigationWormholeAutomationService(
+                this.clientObservationCoordinator,
+                this.gameShortcutPaletteService,
+                this.foregroundInputCoordinator);
+
         this.navigationAutoPilotCoordinator =
             new NavigationAutoPilotCoordinator(
                 this.clientObservationCoordinator,
                 this.NavigationRoutes,
                 this.navigationTargetSelectionService,
                 this.gameCommandCoordinator,
-                this.foregroundInputCoordinator);
+                this.foregroundInputCoordinator,
+                navigationWormholeAutomationService);
 
         this.addonRuntimeCoordinator =
             new AddonRuntimeCoordinator(
@@ -7162,6 +7169,93 @@ public sealed class ClientManager : IDisposable
             client.ProcessId == selectedProcessId);
     }
 
+    private NavigationWormholeAvailability
+        BuildNavigationWormholeAvailability(
+            ClientObservationSnapshot sourceSnapshot)
+    {
+        List<NavigationWormholeCasterAvailability> casters = [];
+
+        foreach (var client in this.GetControlledGroupClients(sourceSnapshot))
+        {
+            if (!this.clientObservationCoordinator.TryGetSnapshot(
+                    client.ProcessId,
+                    out var snapshot) ||
+                snapshot.LifecycleState != ClientLifecycleState.InGame)
+            {
+                continue;
+            }
+
+            var pilotName = GetObservedCharacterName(client) ??
+                ClientLiveCharacterIdentityResolver.Resolve(snapshot).Name;
+
+            if (string.IsNullOrWhiteSpace(pilotName))
+            {
+                continue;
+            }
+
+            var canInspectShortcuts =
+                snapshot.LoadingOrTransitionFlag == 0 &&
+                snapshot.World is
+                {
+                    IsAvailable: true,
+                    Environment: ClientWorldEnvironment.Space,
+                };
+            var shortcuts = canInspectShortcuts &&
+                            this.clientObservationCoordinator.TryReadShortcutState(
+                                client.ProcessId,
+                                out var directShortcuts,
+                                out _)
+                ? directShortcuts
+                : snapshot.Shortcuts;
+
+            IReadOnlyList<GameShortcutPaletteEntry> shortcutEntries =
+                canInspectShortcuts
+                    ? this.gameShortcutPaletteService
+                        .BuildEntries(client, snapshot, shortcuts)
+                    : [];
+
+            foreach (var familyName in new[]
+                     {
+                         NavigationWormholeCatalog.CreateWormholeFamilyName,
+                         NavigationWormholeCatalog.ExtendedWormholeFamilyName,
+                     })
+            {
+                var skill = snapshot.LocalPlayer.CharacterProgression
+                    .Skills.Skills
+                    .FirstOrDefault(candidate =>
+                        NavigationWormholeCatalog.FamilyMatches(
+                            familyName,
+                            candidate.Name));
+
+                if (skill?.CurrentRank is not > 0)
+                {
+                    continue;
+                }
+
+                var hasShortcut = shortcutEntries.Any(entry =>
+                    entry.Kind == GameShortcutKind.Skill &&
+                    (NavigationWormholeCatalog.FamilyMatches(
+                         familyName,
+                         entry.FamilyName) ||
+                     NavigationWormholeCatalog.FamilyMatches(
+                         familyName,
+                         entry.SkillDetails?.SkillFamilyName)));
+
+                casters.Add(new NavigationWormholeCasterAvailability
+                {
+                    ProcessId = client.ProcessId,
+                    PilotName = pilotName,
+                    SkillFamilyName = familyName,
+                    SkillRank = skill.CurrentRank,
+                    CanInspectShortcuts = canInspectShortcuts,
+                    HasShortcut = hasShortcut,
+                });
+            }
+        }
+
+        return new NavigationWormholeAvailability(casters);
+    }
+
     private IReadOnlyList<ClientInstance> GetControlledGroupClients(
         ClientObservationSnapshot leaderSnapshot)
     {
@@ -9452,7 +9546,8 @@ public sealed class ClientManager : IDisposable
 
         var navigationRoute = this.NavigationRoutes.Observe(
             e.Snapshot,
-            ClientLiveCharacterIdentityResolver.Resolve(e.Snapshot));
+            ClientLiveCharacterIdentityResolver.Resolve(e.Snapshot),
+            this.BuildNavigationWormholeAvailability(e.Snapshot));
 
         this.navigationAutoPilotCoordinator
             .ReconcileDestinationArrival(e.Snapshot.ProcessId);
@@ -9950,7 +10045,9 @@ public sealed class ClientManager : IDisposable
             !autoPilot.IsActive &&
             (autoPilot.StopReason is
                 NavigationAutoPilotStopReason.GateActivationFailed or
-                NavigationAutoPilotStopReason.SectorTransitionTimedOut) &&
+                NavigationAutoPilotStopReason.SectorTransitionTimedOut or
+                NavigationAutoPilotStopReason.WormholeActivationFailed or
+                NavigationAutoPilotStopReason.WormholeTransitionTimedOut) &&
             !string.IsNullOrWhiteSpace(
                 autoPilot.ExpectedSectorKey) &&
             string.Equals(
@@ -10002,7 +10099,9 @@ public sealed class ClientManager : IDisposable
         var canSelectNextTarget =
             hasStableSpaceContext &&
             !autoPilotRunning &&
-            route?.NextStep != null;
+            route?.NextStep != null &&
+            route.NextStep.Kind !=
+                NavigationRouteStepKind.WormholeTransition;
         var destinationArrivalConfirmed =
             route != null &&
             (snapshot.Status ==
@@ -10141,10 +10240,14 @@ public sealed class ClientManager : IDisposable
             return false;
         }
 
-        var stepTargetName = step.Kind ==
-            NavigationRouteStepKind.SectorTransition
-                ? step.DepartureTargetName
-                : step.FinalTargetName;
+        var stepTargetName = step.Kind switch
+        {
+            NavigationRouteStepKind.SectorTransition =>
+                step.DepartureTargetName,
+            NavigationRouteStepKind.WormholeTransition =>
+                step.WormholeAbilityName,
+            _ => step.FinalTargetName,
+        };
 
         return !string.IsNullOrWhiteSpace(stepTargetName) &&
             string.Equals(
@@ -10206,10 +10309,14 @@ public sealed class ClientManager : IDisposable
         return new AddonNavigationRouteStepSnapshot
         {
             Number = step.Number,
-            Kind = step.Kind ==
-                NavigationRouteStepKind.SectorTransition
-                    ? "sector_transition"
-                    : "final_target",
+            Kind = step.Kind switch
+            {
+                NavigationRouteStepKind.SectorTransition =>
+                    "sector_transition",
+                NavigationRouteStepKind.WormholeTransition =>
+                    "wormhole_transition",
+                _ => "final_target",
+            },
             From = new AddonNavigationLocationSnapshot
             {
                 SectorKey = step.FromSectorKey,
@@ -10242,6 +10349,23 @@ public sealed class ClientManager : IDisposable
                     X = step.DepartureTargetX,
                     Y = step.DepartureTargetY,
                     Z = step.DepartureTargetZ,
+                },
+            Wormhole = step.Kind !=
+                    NavigationRouteStepKind.WormholeTransition ||
+                string.IsNullOrWhiteSpace(
+                    step.WormholeSkillFamilyName) ||
+                string.IsNullOrWhiteSpace(
+                    step.WormholeAbilityName)
+                ? null
+                : new AddonNavigationWormholeSnapshot
+                {
+                    SkillFamilyName =
+                        step.WormholeSkillFamilyName,
+                    AbilityName = step.WormholeAbilityName,
+                    RequiredRank = step.WormholeRequiredRank,
+                    HasReadyCaster =
+                        step.WormholeHasReadyCaster,
+                    CasterNames = step.WormholeCasterNames,
                 },
             FinalTarget = string.IsNullOrWhiteSpace(
                     step.FinalTargetKey) ||
@@ -10316,6 +10440,8 @@ public sealed class ClientManager : IDisposable
                 "verifying_arrival",
             NavigationAutoPilotState.ActivatingGate =>
                 "activating_gate",
+            NavigationAutoPilotState.ActivatingWormhole =>
+                "activating_wormhole",
             NavigationAutoPilotState.WaitingForSector =>
                 "waiting_for_sector",
             NavigationAutoPilotState.ActivatingDestination =>
@@ -10351,6 +10477,12 @@ public sealed class ClientManager : IDisposable
                 "gate_unavailable",
             NavigationAutoPilotStopReason.GateActivationFailed =>
                 "gate_activation_failed",
+            NavigationAutoPilotStopReason.WormholeUnavailable =>
+                "wormhole_unavailable",
+            NavigationAutoPilotStopReason.WormholeActivationFailed =>
+                "wormhole_activation_failed",
+            NavigationAutoPilotStopReason.WormholeTransitionTimedOut =>
+                "wormhole_transition_timed_out",
             NavigationAutoPilotStopReason.SectorTransitionTimedOut =>
                 "sector_transition_timed_out",
             NavigationAutoPilotStopReason.DestinationUnavailable =>
@@ -11621,18 +11753,20 @@ public sealed class ClientManager : IDisposable
             };
         }
 
+        var actionableHopCount = preview.Plan.Steps.Count;
+
         return new JobTerminalRoutePresentation
         {
             IsVisible = true,
             JobId = terminal.SelectedJobId,
-            HopCount = preview.Plan.RemainingHopCount,
+            HopCount = actionableHopCount,
             Destination = destination.RouteDestination,
             DestinationName =
                 destination.RouteDestination.DisplayName,
             StatusText = string.Concat(
-                preview.Plan.RemainingHopCount == 1
+                actionableHopCount == 1
                     ? "1 hop to "
-                    : $"{preview.Plan.RemainingHopCount} hops to ",
+                    : $"{actionableHopCount} hops to ",
                 destination.RouteDestination.DisplayName,
                 "."),
         };

@@ -1878,6 +1878,19 @@ public sealed partial class GameSnapshotProjector
             ["departure_target"] = step.DepartureTarget == null
                 ? null
                 : MapNavigationTarget(step.DepartureTarget),
+            ["wormhole"] = step.Wormhole == null
+                ? null
+                : new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    ["skill_family_name"] =
+                        step.Wormhole.SkillFamilyName,
+                    ["ability_name"] = step.Wormhole.AbilityName,
+                    ["required_rank"] = step.Wormhole.RequiredRank,
+                    ["has_ready_caster"] =
+                        step.Wormhole.HasReadyCaster,
+                    ["caster_names"] =
+                        step.Wormhole.CasterNames.Cast<object?>().ToArray(),
+                },
             ["final_target"] = step.FinalTarget == null
                 ? null
                 : MapNavigationTarget(step.FinalTarget),

@@ -17,4 +17,5 @@ public enum NavigationAutoPilotState
     ManualFinalLeg,
     Arrived,
     Stopped,
+    ActivatingWormhole,
 }

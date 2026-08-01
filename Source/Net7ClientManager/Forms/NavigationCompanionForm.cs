@@ -36,8 +36,8 @@ internal sealed class NavigationCompanionForm : ThemedForm
     };
 
     private readonly Panel contentPanel = new();
-    private readonly Panel routeCard = new();
-    private readonly Panel journeyCard = new();
+    private readonly NavigationCardPanel routeCard = new();
+    private readonly NavigationCardPanel journeyCard = new();
     private readonly Label pilotLabel = new();
     private readonly Label destinationLabel = new();
     private readonly Label routeStateLabel = new();
@@ -54,7 +54,12 @@ internal sealed class NavigationCompanionForm : ThemedForm
     private readonly Button clearRouteButton = new();
 
     private Rectangle placementOwnerBounds;
+    private Rectangle pendingInitialBounds;
     private bool placementRestored;
+    private bool hasPersistedInitialSize;
+    private bool initialPlacementApplied;
+    private bool initialDpiReconciliationScheduled;
+    private bool initialDpiReconciliationCompleted;
     private bool preserveOpenStateOnClose;
     private bool commandBusy;
     private string transientStatus = "";
@@ -122,9 +127,11 @@ internal sealed class NavigationCompanionForm : ThemedForm
         var placement = this.resolveWindowPlacement(
             PlacementAddonId,
             PlacementWidgetId);
-        var size = placement is { Width: > 0, Height: > 0 }
+        this.hasPersistedInitialSize =
+            placement is { Width: > 0, Height: > 0 };
+        var size = this.hasPersistedInitialSize
             ? new Size(
-                Math.Max(this.MinimumSize.Width, placement.Width),
+                Math.Max(this.MinimumSize.Width, placement!.Width),
                 Math.Max(this.MinimumSize.Height, placement.Height))
             : defaultSize;
         var defaultLocation = ResolveDefaultLocation(ownerBounds, size);
@@ -134,10 +141,89 @@ internal sealed class NavigationCompanionForm : ThemedForm
                 defaultLocation.X + placement.OffsetX,
                 defaultLocation.Y + placement.OffsetY);
 
-        this.Bounds = ClampToWorkingArea(
+        this.pendingInitialBounds = ClampToWorkingArea(
             new Rectangle(location, size),
             ownerBounds);
+
+        // Place the not-yet-created top-level window on its destination monitor
+        // before Windows chooses the native handle's initial DPI. Restoring the
+        // full saved bounds before handle creation makes WinForms reinterpret
+        // those physical pixels using the game monitor's DPI. The first manual
+        // move then triggers WM_DPICHANGED and appears to repair the window.
+        this.Location = this.pendingInitialBounds.Location;
         this.placementRestored = true;
+    }
+
+    public void PrepareForInitialShow()
+    {
+        if (!this.placementRestored || this.initialPlacementApplied)
+        {
+            return;
+        }
+
+        // Create the hidden native handle at the destination location first.
+        // DeviceDpi is then correct before applying the persisted physical size,
+        // so the first visible frame matches later manual moves.
+        _ = this.Handle;
+
+        var size = this.hasPersistedInitialSize
+            ? this.pendingInitialBounds.Size
+            : this.Size;
+        this.Bounds = ClampToWorkingArea(
+            new Rectangle(this.pendingInitialBounds.Location, size),
+            this.placementOwnerBounds);
+        this.initialPlacementApplied = true;
+    }
+
+    public void ScheduleInitialDpiReconciliation()
+    {
+        if (this.initialDpiReconciliationScheduled ||
+            this.initialDpiReconciliationCompleted ||
+            this.IsDisposed ||
+            !this.IsHandleCreated ||
+            !this.Visible)
+        {
+            return;
+        }
+
+        this.initialDpiReconciliationScheduled = true;
+        this.BeginInvoke(() =>
+        {
+            this.initialDpiReconciliationScheduled = false;
+
+            if (this.initialDpiReconciliationCompleted ||
+                this.IsDisposed ||
+                this.Disposing ||
+                !this.Visible ||
+                this.WindowState != FormWindowState.Normal)
+            {
+                return;
+            }
+
+            // Initial Show can create the native window with the DPI of the
+            // game monitor before WinForms applies the saved location on a
+            // differently-scaled monitor. A real drag makes Windows reconcile
+            // that stale monitor DPI immediately. Reproduce that exact native
+            // move once, after the window is visible, without changing its
+            // persisted placement or size.
+            var originalLocation = this.Location;
+            var workingArea = Screen.FromRectangle(this.Bounds).WorkingArea;
+            var offsetX = originalLocation.X + this.Width < workingArea.Right
+                ? 1
+                : -1;
+
+            if (offsetX < 0 && originalLocation.X <= workingArea.Left)
+            {
+                this.initialDpiReconciliationCompleted = true;
+                return;
+            }
+
+            this.Location = new Point(
+                originalLocation.X + offsetX,
+                originalLocation.Y);
+            this.Location = originalLocation;
+            this.initialDpiReconciliationCompleted = true;
+        });
     }
 
     public void MarkOpen()
@@ -232,8 +318,11 @@ internal sealed class NavigationCompanionForm : ThemedForm
         };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 48));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 36));
+        // Route details can include an extra access-requirement line. Give
+        // that card the larger share by default instead of leaving unused
+        // space in the Auto Pilot card while the hops line is clipped.
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 66));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 34));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
@@ -329,27 +418,12 @@ internal sealed class NavigationCompanionForm : ThemedForm
         this.contentPanel.Controls.Add(layout);
     }
 
-    private void ConfigureCard(Panel panel)
+    private void ConfigureCard(NavigationCardPanel panel)
     {
         panel.Dock = DockStyle.Fill;
         panel.BackColor = MainWindowTheme.Panel;
         panel.Padding = new Padding(14);
         panel.Margin = new Padding(0, 0, 0, 10);
-        panel.Paint += static (sender, e) =>
-        {
-            if (sender is not Panel card)
-            {
-                return;
-            }
-
-            using var pen = new Pen(MainWindowTheme.Border);
-            e.Graphics.DrawRectangle(
-                pen,
-                0,
-                0,
-                Math.Max(0, card.ClientSize.Width - 1),
-                Math.Max(0, card.ClientSize.Height - 1));
-        };
     }
 
     private void BuildRouteCard()
@@ -948,4 +1022,37 @@ internal sealed class NavigationCompanionForm : ThemedForm
 
         return new Rectangle(x, y, width, height);
     }
+    private sealed class NavigationCardPanel : Panel
+    {
+        public NavigationCardPanel()
+        {
+            this.DoubleBuffered = true;
+            this.ResizeRedraw = true;
+        }
+
+        protected override void OnResize(EventArgs eventArgs)
+        {
+            base.OnResize(eventArgs);
+
+            // A normal Panel only invalidates the newly exposed strip while
+            // it grows. Its old custom-painted border can therefore remain
+            // stranded inside the enlarged card. Repaint the complete card
+            // whenever its bounds change.
+            this.Invalidate();
+        }
+
+        protected override void OnPaint(PaintEventArgs eventArgs)
+        {
+            base.OnPaint(eventArgs);
+
+            using var pen = new Pen(MainWindowTheme.Border);
+            eventArgs.Graphics.DrawRectangle(
+                pen,
+                0,
+                0,
+                Math.Max(0, this.ClientSize.Width - 1),
+                Math.Max(0, this.ClientSize.Height - 1));
+        }
+    }
+
 }

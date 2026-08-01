@@ -1,5 +1,7 @@
 namespace Net7ClientManager.Navigation;
 
+using Net7ClientManager.Observations.Models;
+
 public sealed record NavigationRouteStep
 {
     public required int Number { get; init; }
@@ -57,6 +59,13 @@ public sealed record NavigationRouteStep
     public string? FinalTargetType { get; init; }
 
     public byte? FinalTargetRawObjectType { get; init; }
+
+    public ClientTargetVerb FinalTargetVerb { get; init; } =
+        ClientTargetVerb.NotApplicable;
+
+    public string? FinalTargetArrivalSectorKey { get; init; }
+
+    public string? FinalTargetArrivalSectorName { get; init; }
 
     public GalaxyNavigationTargetSelectionContext
         FinalTargetSelectionContext { get; init; } =

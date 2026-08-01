@@ -310,12 +310,15 @@ internal static class HelpArticleCatalog
                 [
                     "Open Atlas, Finder, Social, Pilot Archive, Builds, Forge Contributions, and Addon Center from one in-game menu",
                     "Use the Command Palette and Action HUD for fast keyboard and on-screen actions",
-                    "Enable Mission Wiki, histories, vendor assistance, Finder behaviour, and enhanced item tooltips",
+                    "Open Mission Wiki in game or beside the game, with a live mission list, current objective, and observed mission history",
                 ],
                 [
                     new HelpArticleSection(
                         "The Client Manager menu",
                         "The small Client Manager tab belongs to the hosted game window. Open it to launch the major features and toggle addon windows without returning to the desktop dashboard."),
+                    new HelpArticleSection(
+                        "Mission Wiki in game or beside it",
+                        "Enable Mission Wiki in In-game Options. The in-game reader follows the mission selected in Earth & Beyond. Pop it out for a resizable desktop companion with the pilot's mission list, current objective, observed mission steps, Wiki guidance, and Set destination actions."),
                     new HelpArticleSection(
                         "Options for the active game experience",
                         "In-game Options controls the menu, Command Palette, history recording, Mission Wiki, Finder behaviour, vendor companion, and enhanced item tooltips."),

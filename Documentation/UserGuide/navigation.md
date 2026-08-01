@@ -107,7 +107,9 @@ This is especially useful for comparing several jobs without repeatedly opening 
 
 With Mission Wiki enabled, selecting a mission opens a reader-style Net-7 Wiki page when an exact page can be found, or a prefilled Wiki search when it cannot.
 
-The mission helper recognizes locations mentioned by the page and adds route actions beside them. A **Mission navigation** section gathers recognized destinations so they can be sent straight to the Route Planner.
+Use **Pop out** to move Mission Wiki into a resizable desktop companion. Mission information is stacked on the left: the current mission list, the selected mission's current objective, and the mission summary followed by every observed step so far. The Wiki page remains on the right. All three left-hand sections and the left/right division are adjustable and remembered per slot. The game mission window may then remain closed. Closing the companion returns Mission Wiki to its in-game presentation.
+
+The mission helper recognizes locations mentioned by the page and adds route actions beside them. A **Mission navigation** section gathers recognized destinations so they can be sent straight to the Route Planner in either presentation.
 
 ![Mission journal with Mission Wiki open and a Mission navigation destination visible.](assets/screenshots/mission-wiki.png)
 

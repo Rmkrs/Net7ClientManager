@@ -12,11 +12,11 @@ internal static partial class MissionWikiFeature
         "Mission Wiki";
 
     public const string Version =
-        "2.3.0";
+        "2.4.0";
 
     public const string Description =
-        "Shows the selected mission's Net-7 Wiki page or a pre-filled wiki search, "
-        + "adds navigation helpers, and steps aside for game confirmations.";
+        "Shows mission details and Net-7 Wiki guidance in game or in a resizable "
+        + "desktop companion, with navigation helpers for recognized locations.";
 
     public static IReadOnlyList<string>
         CreatePageTitleCandidates(string missionName)

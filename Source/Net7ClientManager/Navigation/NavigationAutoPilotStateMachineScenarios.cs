@@ -32,7 +32,436 @@ internal static class NavigationAutoPilotStateMachineScenarios
         ValidateUserStop();
         ValidateDestinationArrivalAfterStop();
         ValidateNavigationPointJourney();
+        ValidateAlreadyAtNavigationPoint();
+        ValidateJustOutsideNoWarpRangeStillWarps();
+        ValidateLandablePlanetJourney();
+        ValidateLandablePlanetSectorTransitionJourney();
+        ValidateLandSectorTransitionUsesLand();
+        ValidateFinalGateStopsBeforeCrossing();
         ValidateIncompleteFinalTargetRemainsManual();
+    }
+
+    private static void ValidateAlreadyAtNavigationPoint()
+    {
+        var now = DateTimeOffset.Parse(
+            "2026-08-01T11:00:00+00:00",
+            CultureInfo.InvariantCulture);
+        var navigationPoint = CreateNavigationPointStep(
+            number: 1,
+            sectorKey: "glenn",
+            sectorName: "Glenn",
+            targetName: "Glenn Nav 1");
+        var state = Reconcile(
+            CreateState(
+                now,
+                "glenn",
+                "Glenn",
+                navigationPoint.FinalTargetName!),
+            now,
+            "glenn",
+            "Glenn",
+            navigationPoint);
+
+        state = NavigationAutoPilotStateMachine
+            .ApplyTargetSelection(
+                state with
+                {
+                    Phase = NavigationAutoPilotMachinePhase.SelectingTarget,
+                },
+                NavigationAutoPilotTargetSelectionOutcome.Success(
+                    450,
+                    navigationPoint.FinalTargetName!),
+                now.AddMilliseconds(50))
+            .State;
+
+        var arrived = NavigationAutoPilotStateMachine.Observe(
+            state,
+            CreateFrame(
+                state,
+                now.AddMilliseconds(100),
+                "glenn",
+                "Glenn",
+                navigationPoint,
+                selectedTargetObjectId: 450,
+                verbState: NavigationAutoPilotVerbState.Missing,
+                targetDistance: 1400.0f));
+
+        AssertPhase(
+            arrived.State,
+            NavigationAutoPilotMachinePhase.Arrived,
+            "already-at navigation point");
+        AssertEffect(
+            arrived,
+            NavigationAutoPilotEffectKind.None,
+            "already-at navigation point does not warp");
+    }
+
+    private static void ValidateJustOutsideNoWarpRangeStillWarps()
+    {
+        var now = DateTimeOffset.Parse(
+            "2026-08-01T11:05:00+00:00",
+            CultureInfo.InvariantCulture);
+        var navigationPoint = CreateNavigationPointStep(
+            number: 1,
+            sectorKey: "glenn",
+            sectorName: "Glenn",
+            targetName: "Glenn Nav 1");
+        var state = Reconcile(
+            CreateState(
+                now,
+                "glenn",
+                "Glenn",
+                navigationPoint.FinalTargetName!),
+            now,
+            "glenn",
+            "Glenn",
+            navigationPoint);
+
+        state = NavigationAutoPilotStateMachine
+            .ApplyTargetSelection(
+                state with
+                {
+                    Phase = NavigationAutoPilotMachinePhase.SelectingTarget,
+                },
+                NavigationAutoPilotTargetSelectionOutcome.Success(
+                    453,
+                    navigationPoint.FinalTargetName!),
+                now.AddMilliseconds(50))
+            .State;
+
+        var waiting = NavigationAutoPilotStateMachine.Observe(
+            state,
+            CreateFrame(
+                state,
+                now.AddMilliseconds(100),
+                "glenn",
+                "Glenn",
+                navigationPoint,
+                selectedTargetObjectId: 453,
+                verbState: NavigationAutoPilotVerbState.Missing,
+                targetDistance: 1420.0f));
+
+        AssertPhase(
+            waiting.State,
+            NavigationAutoPilotMachinePhase.WaitingForWarp,
+            "just outside no-warp range");
+
+        var engage = NavigationAutoPilotStateMachine.Observe(
+            waiting.State,
+            CreateFrame(
+                waiting.State,
+                now.AddMilliseconds(150),
+                "glenn",
+                "Glenn",
+                navigationPoint,
+                selectedTargetObjectId: 453,
+                verbState: NavigationAutoPilotVerbState.Missing,
+                targetDistance: 1420.0f));
+
+        AssertEffect(
+            engage,
+            NavigationAutoPilotEffectKind.EngageWarp,
+            "just outside no-warp range still warps");
+    }
+
+    private static void ValidateLandablePlanetJourney()
+    {
+        var now = DateTimeOffset.Parse(
+            "2026-08-01T11:10:00+00:00",
+            CultureInfo.InvariantCulture);
+        var planet = CreateLandablePlanetStep(
+            number: 1,
+            sectorKey: "swooping-eagle",
+            sectorName: "Swooping Eagle",
+            targetName: "Swooping Eagle");
+        var state = Reconcile(
+            CreateState(
+                now,
+                "swooping-eagle",
+                "Swooping Eagle",
+                planet.FinalTargetName!),
+            now,
+            "swooping-eagle",
+            "Swooping Eagle",
+            planet);
+
+        state = NavigationAutoPilotStateMachine
+            .ApplyTargetSelection(
+                state with
+                {
+                    Phase = NavigationAutoPilotMachinePhase.SelectingTarget,
+                },
+                NavigationAutoPilotTargetSelectionOutcome.Success(
+                    451,
+                    planet.FinalTargetName!),
+                now.AddMilliseconds(50))
+            .State;
+
+        state = NavigationAutoPilotStateMachine.Observe(
+            state,
+            CreateFrame(
+                state,
+                now.AddMilliseconds(100),
+                "swooping-eagle",
+                "Swooping Eagle",
+                planet,
+                selectedTargetObjectId: 451,
+                detectedVerb: ClientTargetVerb.Land,
+                verbState: NavigationAutoPilotVerbState.TooFar,
+                targetDistance: 30000.0f))
+            .State;
+        AssertPhase(
+            state,
+            NavigationAutoPilotMachinePhase.WaitingForWarp,
+            "landable planet approach");
+
+        var engage = NavigationAutoPilotStateMachine.Observe(
+            state,
+            CreateFrame(
+                state,
+                now.AddMilliseconds(150),
+                "swooping-eagle",
+                "Swooping Eagle",
+                planet,
+                selectedTargetObjectId: 451,
+                detectedVerb: ClientTargetVerb.Land,
+                verbState: NavigationAutoPilotVerbState.TooFar,
+                targetDistance: 30000.0f));
+        AssertEffect(
+            engage,
+            NavigationAutoPilotEffectKind.EngageWarp,
+            "landable planet warp");
+
+        state = NavigationAutoPilotStateMachine.ApplyWarpCommand(
+                engage.State,
+                NavigationAutoPilotEffectOutcome.Success(),
+                now.AddMilliseconds(200))
+            .State;
+
+        state = NavigationAutoPilotStateMachine.Observe(
+            state,
+            CreateFrame(
+                state,
+                now.AddMilliseconds(250),
+                "swooping-eagle",
+                "Swooping Eagle",
+                planet,
+                privateWarpState: 2,
+                globalWarpState: 2))
+            .State;
+
+        var land = NavigationAutoPilotStateMachine.Observe(
+            state,
+            CreateFrame(
+                state,
+                now.AddSeconds(1),
+                "swooping-eagle",
+                "Swooping Eagle",
+                planet,
+                selectedTargetObjectId: 451,
+                detectedVerb: ClientTargetVerb.Land,
+                verbState: NavigationAutoPilotVerbState.Executable,
+                targetDistance: 9070.0f,
+                privateWarpState: 3,
+                globalWarpState: 3,
+                interactionControlReady: false,
+                pathBuildBusy: true));
+        AssertEffect(
+            land,
+            NavigationAutoPilotEffectKind.ActivateVerb,
+            "landable planet activates Land");
+
+        state = NavigationAutoPilotStateMachine.ApplyVerbActivation(
+                land.State,
+                NavigationAutoPilotEffectOutcome.Success(),
+                now.AddSeconds(1.1))
+            .State;
+        AssertPhase(
+            state,
+            NavigationAutoPilotMachinePhase.WaitingForDestination,
+            "landable planet transition");
+
+        state = NavigationAutoPilotStateMachine.Observe(
+            state,
+            CreateFrame(
+                state,
+                now.AddSeconds(2),
+                "swooping-eagle",
+                "Swooping Eagle",
+                planet,
+                environment: ClientWorldEnvironment.Planet))
+            .State;
+        AssertPhase(
+            state,
+            NavigationAutoPilotMachinePhase.Arrived,
+            "landable planet arrival");
+    }
+
+    private static void ValidateLandablePlanetSectorTransitionJourney()
+    {
+        var now = DateTimeOffset.Parse(
+            "2026-08-01T12:00:00+00:00",
+            CultureInfo.InvariantCulture);
+        var planet = CreateLandablePlanetStep(
+            number: 1,
+            sectorKey: "arduinne",
+            sectorName: "Arduinne",
+            targetName: "Arduinne",
+            arrivalSectorKey: "arduinne-gas-cloud",
+            arrivalSectorName: "Arduinne Gas Cloud");
+        var state = Reconcile(
+            CreateState(
+                now,
+                "arduinne",
+                "Arduinne",
+                planet.FinalTargetName!),
+            now,
+            "arduinne",
+            "Arduinne",
+            planet);
+
+        state = NavigationAutoPilotStateMachine
+            .ApplyTargetSelection(
+                state with
+                {
+                    Phase = NavigationAutoPilotMachinePhase.SelectingTarget,
+                },
+                NavigationAutoPilotTargetSelectionOutcome.Success(
+                    454,
+                    planet.FinalTargetName!),
+                now.AddMilliseconds(50))
+            .State;
+
+        var land = NavigationAutoPilotStateMachine.Observe(
+            state,
+            CreateFrame(
+                state,
+                now.AddMilliseconds(100),
+                "arduinne",
+                "Arduinne",
+                planet,
+                selectedTargetObjectId: 454,
+                detectedVerb: ClientTargetVerb.Land,
+                verbState: NavigationAutoPilotVerbState.Executable,
+                targetDistance: 1000.0f));
+        AssertEffect(
+            land,
+            NavigationAutoPilotEffectKind.ActivateVerb,
+            "landable sector-transition planet activates Land");
+
+        state = NavigationAutoPilotStateMachine.ApplyVerbActivation(
+                land.State,
+                NavigationAutoPilotEffectOutcome.Success(),
+                now.AddMilliseconds(150))
+            .State;
+
+        state = NavigationAutoPilotStateMachine.Observe(
+            state,
+            CreateFrame(
+                state,
+                now.AddSeconds(2),
+                "arduinne-gas-cloud",
+                "Arduinne Gas Cloud",
+                step: null,
+                generationSequence: 2,
+                generationChanged: true,
+                environment: ClientWorldEnvironment.Space))
+            .State;
+
+        AssertPhase(
+            state,
+            NavigationAutoPilotMachinePhase.Arrived,
+            "landable planet arrival in a separate space sector");
+    }
+
+    private static void ValidateLandSectorTransitionUsesLand()
+    {
+        var step = new NavigationRouteStep
+        {
+            Number = 1,
+            Kind = NavigationRouteStepKind.SectorTransition,
+            FromSectorKey = "swooping-eagle",
+            FromSectorName = "Swooping Eagle",
+            FromSystemName = "Sirius",
+            ToSectorKey = "swooping-eagle-planet",
+            ToSectorName = "Yasuragi Area",
+            ToSystemName = "Sirius",
+            DepartureTargetName = "Swooping Eagle",
+            DepartureTargetRawObjectType = 3,
+        };
+        var plan = CreatePlan(step);
+
+        if (plan.Verb != ClientTargetVerb.Land ||
+            !plan.RequiresInteraction ||
+            !plan.IsSectorTransition ||
+            plan.ActivatingState !=
+                NavigationAutoPilotState.ActivatingDestination)
+        {
+            throw new InvalidOperationException(
+                "Auto Pilot scenario 'land sector transition uses Land' did not classify the planet departure as a Land interaction.");
+        }
+    }
+
+    private static void ValidateFinalGateStopsBeforeCrossing()
+    {
+        var now = DateTimeOffset.Parse(
+            "2026-08-01T11:20:00+00:00",
+            CultureInfo.InvariantCulture);
+        var gate = CreateNavigationPointStep(
+            number: 1,
+            sectorKey: "glenn",
+            sectorName: "Glenn",
+            targetName: "Gate to Sol");
+        var state = Reconcile(
+            CreateState(
+                now,
+                "glenn",
+                "Glenn",
+                gate.FinalTargetName!),
+            now,
+            "glenn",
+            "Glenn",
+            gate);
+
+        state = NavigationAutoPilotStateMachine
+            .ApplyTargetSelection(
+                state with
+                {
+                    Phase = NavigationAutoPilotMachinePhase.SelectingTarget,
+                },
+                NavigationAutoPilotTargetSelectionOutcome.Success(
+                    452,
+                    gate.FinalTargetName!),
+                now.AddMilliseconds(50))
+            .State;
+
+        var arrived = NavigationAutoPilotStateMachine.Observe(
+            state,
+            CreateFrame(
+                state,
+                now.AddMilliseconds(100),
+                "glenn",
+                "Glenn",
+                gate,
+                selectedTargetObjectId: 452,
+                detectedVerb: ClientTargetVerb.Gate,
+                verbState: NavigationAutoPilotVerbState.Executable,
+                targetDistance: 1000.0f));
+
+        AssertPhase(
+            arrived.State,
+            NavigationAutoPilotMachinePhase.Arrived,
+            "final gate stops before crossing");
+        AssertEffect(
+            arrived,
+            NavigationAutoPilotEffectKind.None,
+            "final gate does not activate Gate");
+
+        if (arrived.State.Step?.RequiresInteraction == true)
+        {
+            throw new InvalidOperationException(
+                "Auto Pilot scenario 'final gate stops before crossing' incorrectly promoted the final gate to an interaction step.");
+        }
     }
 
     private static void ValidateNavigationPointJourney()
@@ -1631,7 +2060,13 @@ internal static class NavigationAutoPilotStateMachineScenarios
         bool worldAvailable = true,
         ClientWorldEnvironment environment =
             ClientWorldEnvironment.Space,
-        Guid? observedRouteId = null)
+        Guid? observedRouteId = null,
+        ClientTargetVerb detectedVerb =
+            ClientTargetVerb.NotApplicable,
+        float? targetDistance = null,
+        bool? interactionControlReady = null,
+        bool pathBuildStateKnown = true,
+        bool pathBuildBusy = false)
     {
         var privateState = privateWarpState ??
             (isWarping ? 2 : 0);
@@ -1692,8 +2127,9 @@ internal static class NavigationAutoPilotStateMachineScenarios
             IsWarpRecovering = warpRecovering,
             IsGateTransitionLocked = gateTransitionLocked,
             IsInteractionControlReady =
-                privateState is 0 or 3 &&
-                globalState is 0 or 3,
+                interactionControlReady ??
+                (privateState is 0 or 3 &&
+                 globalState is 0 or 3),
             IsClientWarpReady =
                 warpIdle &&
                 warpAvailable == 2 &&
@@ -1702,11 +2138,13 @@ internal static class NavigationAutoPilotStateMachineScenarios
                 !isWarping && warpAvailable == 2
                     ? "Ready"
                     : "Warp capability is unavailable",
-            PathBuildStateKnown = true,
+            PathBuildStateKnown = pathBuildStateKnown,
+            PathBuildBusy = pathBuildBusy,
             LockSpeed = false,
             LockOrient = false,
             LastTerminalWarpReason = terminalWarpReason,
             LastTerminalWarpReasonAt = terminalWarpReasonAt,
+            TargetDistance = targetDistance,
             TargetResolution = targetResolution ??
                 NavigationTargetResolutionResult.Waiting(
                     "Not published yet"),
@@ -1716,6 +2154,7 @@ internal static class NavigationAutoPilotStateMachineScenarios
                 selectedTargetObjectId.HasValue,
             SelectedTargetObjectId =
                 selectedTargetObjectId ?? 0,
+            DetectedVerb = detectedVerb,
             VerbState = verbState,
         };
     }
@@ -1789,6 +2228,32 @@ internal static class NavigationAutoPilotStateMachineScenarios
             ToSystemName = "System",
             FinalTargetName = targetName,
             FinalTargetRawObjectType = 12,
+        };
+    }
+
+    private static NavigationRouteStep CreateLandablePlanetStep(
+        int number,
+        string sectorKey,
+        string sectorName,
+        string targetName,
+        string? arrivalSectorKey = null,
+        string? arrivalSectorName = null)
+    {
+        return new NavigationRouteStep
+        {
+            Number = number,
+            Kind = NavigationRouteStepKind.FinalTarget,
+            FromSectorKey = sectorKey,
+            FromSectorName = sectorName,
+            FromSystemName = "System",
+            ToSectorKey = sectorKey,
+            ToSectorName = sectorName,
+            ToSystemName = "System",
+            FinalTargetName = targetName,
+            FinalTargetRawObjectType = 3,
+            FinalTargetVerb = ClientTargetVerb.Land,
+            FinalTargetArrivalSectorKey = arrivalSectorKey,
+            FinalTargetArrivalSectorName = arrivalSectorName,
         };
     }
 

@@ -166,6 +166,32 @@ public sealed class AppSettings
                 slot.NavigationPresentationMode =
                     NavigationPresentationMode.Companion;
             }
+
+            if (!Enum.IsDefined(slot.MissionWikiPresentationMode))
+            {
+                slot.MissionWikiPresentationMode =
+                    MissionWikiPresentationMode.InGame;
+            }
+
+            slot.MissionWikiLeftPaneRatio = Math.Clamp(
+                slot.MissionWikiLeftPaneRatio,
+                0.30,
+                0.62);
+            slot.MissionWikiListPaneRatio = Math.Clamp(
+                slot.MissionWikiListPaneRatio,
+                0.18,
+                0.60);
+            slot.MissionWikiDetailsPaneRatio = Math.Clamp(
+                slot.MissionWikiDetailsPaneRatio,
+                0.18,
+                0.60);
+
+            if (slot.MissionWikiListPaneRatio +
+                slot.MissionWikiDetailsPaneRatio > 0.82)
+            {
+                slot.MissionWikiDetailsPaneRatio =
+                    0.82 - slot.MissionWikiListPaneRatio;
+            }
         }
 
         foreach (var defaultPreset in defaultSlotResolutionPresets)

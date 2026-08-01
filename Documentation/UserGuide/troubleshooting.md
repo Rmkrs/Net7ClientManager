@@ -34,7 +34,7 @@ Contextual tools appear only when their game panel and required information are 
 - Vendor shopping needs an active list, a matching vendor, and the option enabled.
 - Build companions need an active build and the matching Equipment or Skills panel.
 - Jobs Terminal routing needs a selected offer with a recognized destination.
-- Mission Wiki needs a selected mission and the option enabled.
+- The in-game Mission Wiki needs a selected mission and the option enabled. The popped-out companion can select from the full current mission list.
 - Fleet Loot needs observed loot on the current corpse.
 - Enhanced faction details need the native faction detail panel and a selected faction.
 

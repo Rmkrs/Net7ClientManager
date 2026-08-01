@@ -179,7 +179,23 @@ public sealed class GalaxyNavigationCatalog
     {
         ArgumentNullException.ThrowIfNull(target);
 
-        if (target.Kind != GalaxyNavigationTargetKind.Planet ||
+        return this.IsLandablePlanetTarget(
+                sectorKey,
+                target.Name,
+                target.Kind) ||
+            this.IsLandablePlanetTarget(
+                sectorKey,
+                target.MapDisplayName,
+                target.Kind);
+    }
+
+    public bool IsLandablePlanetTarget(
+        string sectorKey,
+        string? targetName,
+        GalaxyNavigationTargetKind targetKind)
+    {
+        if (targetKind != GalaxyNavigationTargetKind.Planet ||
+            string.IsNullOrWhiteSpace(targetName) ||
             !this.landablePlanetTargetNamesBySector.TryGetValue(
                 sectorKey,
                 out var targetNames))
@@ -188,10 +204,40 @@ public sealed class GalaxyNavigationCatalog
         }
 
         return targetNames.Contains(
-                   GalaxyTopology.NormalizeName(target.Name)) ||
-               targetNames.Contains(
-                   GalaxyTopology.NormalizeName(
-                       target.MapDisplayName));
+            GalaxyTopology.NormalizeName(targetName));
+    }
+
+    public bool TryGetVerifiedLandDeparture(
+        string fromSectorKey,
+        string? targetName,
+        out GalaxyNavigationCatalogDeparture departure)
+    {
+        departure = null!;
+
+        if (string.IsNullOrWhiteSpace(targetName) ||
+            !this.sectorsByKey.TryGetValue(
+                fromSectorKey,
+                out var sector))
+        {
+            return false;
+        }
+
+        var normalizedTargetName =
+            GalaxyTopology.NormalizeName(targetName);
+
+        departure = sector.Departures.FirstOrDefault(candidate =>
+            candidate.Status ==
+                GalaxyNavigationDepartureStatus.Verified &&
+            candidate.Kind ==
+                GalaxyNavigationTargetKind.Planet &&
+            !string.IsNullOrWhiteSpace(candidate.ToSectorKey) &&
+            string.Equals(
+                GalaxyTopology.NormalizeName(
+                    candidate.DepartureTargetName),
+                normalizedTargetName,
+                StringComparison.Ordinal))!;
+
+        return departure != null;
     }
 
     public GalaxyNavigationCatalogSector? FindSectorByActiveSectorNumber(

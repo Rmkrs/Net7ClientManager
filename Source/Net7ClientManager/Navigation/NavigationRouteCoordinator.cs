@@ -6,7 +6,10 @@ using Net7ClientManager.Observations.Models;
 public sealed class NavigationRouteCoordinator
 {
     private const string CharacterEnvironmentKey = "net7";
-    private const float PreciseLocationMaximumSurfaceDistance = 5000.0f;
+    // Warp commonly finishes several kilometres from the selected nav.
+    // Keep that completed target as the precise route origin so a later
+    // return trip can lead back to the same nav instead of only its sector.
+    private const float PreciseLocationMaximumSurfaceDistance = 10000.0f;
 
     private readonly System.Threading.Lock lockObject = new();
     private GalaxyRoutePlanner routePlanner;
@@ -281,7 +284,8 @@ public sealed class NavigationRouteCoordinator
                 CreatedAt = now,
                 UpdatedAt = now,
                 OriginSectorKey = state.CurrentSector!.Key,
-                OriginDestination = state.CurrentLocation!,
+                OriginDestination =
+                    this.ResolveNewRouteOriginDestination(state),
                 Destination = validatedDestination,
                 VisitedSectorKeys = [state.CurrentSector!.Key],
                 LastKnownSectorKey = state.CurrentSector!.Key,
@@ -330,7 +334,8 @@ public sealed class NavigationRouteCoordinator
                 CreatedAt = now,
                 UpdatedAt = now,
                 OriginSectorKey = state.CurrentSector!.Key,
-                OriginDestination = state.CurrentLocation!,
+                OriginDestination =
+                    this.ResolveNewRouteOriginDestination(state),
                 Destination = validatedDestination,
                 VisitedSectorKeys = [state.CurrentSector!.Key],
                 LastKnownSectorKey = state.CurrentSector!.Key,
@@ -406,13 +411,28 @@ public sealed class NavigationRouteCoordinator
             var currentLocation = state.CurrentLocation;
             var route = state.Snapshot.Route;
 
-            return currentLocation != null &&
-                route != null &&
-                route.RouteId == routeId &&
-                IsDestinationReached(
+            if (currentLocation == null ||
+                route == null ||
+                route.RouteId != routeId)
+            {
+                return false;
+            }
+
+            if (IsDestinationReached(
                     currentLocation,
                     route.Destination,
-                    state.Environment);
+                    state.Environment))
+            {
+                return true;
+            }
+
+            return this.TryResolveLandArrivalSector(
+                    route.Destination,
+                    out var landArrivalSector) &&
+                string.Equals(
+                    currentLocation.SectorKey,
+                    landArrivalSector.Key,
+                    StringComparison.Ordinal);
         }
     }
 
@@ -494,14 +514,9 @@ public sealed class NavigationRouteCoordinator
             var currentLocation = state.CurrentLocation!;
 
             if (destinationArrivalConfirmed &&
-                currentLocation.Kind ==
-                    NavigationDestinationKind.Sector &&
-                previousPlan.Plan.Destination.Kind ==
-                    NavigationDestinationKind.Target &&
-                string.Equals(
-                    currentLocation.SectorKey,
-                    previousPlan.Plan.Destination.SectorKey,
-                    StringComparison.Ordinal))
+                this.IsCurrentRouteDestinationReached(
+                    state,
+                    previousPlan.Plan.Destination))
             {
                 currentLocation = previousPlan.Plan.Destination;
             }
@@ -792,19 +807,32 @@ public sealed class NavigationRouteCoordinator
             route,
             origin);
 
-        var sectorRoute = this.routePlanner.FindRoute(
-            currentSector.Key,
-            destination.SectorKey,
-            profession,
-            (from, to) =>
-                this.Catalog.TryGetVerifiedDeparture(
-                    from.Key,
-                    to.Key,
-                    out _) &&
-                (!string.IsNullOrWhiteSpace(profession) ||
-                 string.IsNullOrWhiteSpace(
-                     to.RequiredProfession)),
-            wormholes);
+        var hasLandArrivalSector =
+            this.TryResolveLandArrivalSector(
+                destination,
+                out var landArrivalSector);
+        var landDestinationReached =
+            hasLandArrivalSector &&
+            string.Equals(
+                currentSector.Key,
+                landArrivalSector.Key,
+                StringComparison.Ordinal);
+
+        var sectorRoute = landDestinationReached
+            ? GalaxyRouteResult.Success([currentSector])
+            : this.routePlanner.FindRoute(
+                currentSector.Key,
+                destination.SectorKey,
+                profession,
+                (from, to) =>
+                    this.Catalog.TryGetVerifiedDeparture(
+                        from.Key,
+                        to.Key,
+                        out _) &&
+                    (!string.IsNullOrWhiteSpace(profession) ||
+                     string.IsNullOrWhiteSpace(
+                         to.RequiredProfession)),
+                wormholes);
 
         if (!sectorRoute.Succeeded)
         {
@@ -942,8 +970,12 @@ public sealed class NavigationRouteCoordinator
         }
 
         if (destination.Kind ==
-            NavigationDestinationKind.Target)
+                NavigationDestinationKind.Target &&
+            !landDestinationReached)
         {
+            var finalTargetVerb =
+                this.ResolveFinalTargetVerb(destination);
+
             steps.Add(new NavigationRouteStep
             {
                 Number = steps.Count + 1,
@@ -959,6 +991,17 @@ public sealed class NavigationRouteCoordinator
                 FinalTargetType = destination.TargetType,
                 FinalTargetRawObjectType =
                     destination.TargetRawObjectType,
+                FinalTargetVerb = finalTargetVerb,
+                FinalTargetArrivalSectorKey =
+                    finalTargetVerb == ClientTargetVerb.Land &&
+                    hasLandArrivalSector
+                        ? landArrivalSector.Key
+                        : null,
+                FinalTargetArrivalSectorName =
+                    finalTargetVerb == ClientTargetVerb.Land &&
+                    hasLandArrivalSector
+                        ? landArrivalSector.Name
+                        : null,
                 FinalTargetSelectionContext =
                     destination.TargetSelectionContext,
                 HasFinalTargetPosition = destination.HasTargetPosition,
@@ -978,11 +1021,13 @@ public sealed class NavigationRouteCoordinator
         // origin, but it is not proof that the destination interaction has
         // finished.
         var destinationReached =
-            string.Equals(
-                currentSector.Key,
-                destination.SectorKey,
-                StringComparison.Ordinal) &&
-            destination.Kind == NavigationDestinationKind.Sector;
+            landDestinationReached ||
+            (string.Equals(
+                 currentSector.Key,
+                 destination.SectorKey,
+                 StringComparison.Ordinal) &&
+             destination.Kind ==
+                 NavigationDestinationKind.Sector);
 
         var status = destinationReached
             ? NavigationRouteStatus.DestinationReached
@@ -1063,6 +1108,49 @@ public sealed class NavigationRouteCoordinator
         return true;
     }
 
+    private bool TryResolveLandArrivalSector(
+        NavigationDestination destination,
+        out GalaxySectorDefinition sector)
+    {
+        sector = null!;
+
+        return destination.Kind ==
+                   NavigationDestinationKind.Target &&
+               this.Catalog.IsLandablePlanetTarget(
+                   destination.SectorKey,
+                   destination.TargetName,
+                   destination.TargetKind) &&
+               this.Catalog.TryGetVerifiedLandDeparture(
+                   destination.SectorKey,
+                   destination.TargetName,
+                   out var departure) &&
+               !string.IsNullOrWhiteSpace(
+                   departure.ToSectorKey) &&
+               this.Topology.TryGetByKey(
+                   departure.ToSectorKey,
+                   out sector);
+    }
+
+    private ClientTargetVerb ResolveFinalTargetVerb(
+        NavigationDestination destination)
+    {
+        if (destination.TargetKind ==
+            GalaxyNavigationTargetKind.Station)
+        {
+            return ClientTargetVerb.Dock;
+        }
+
+        if (this.Catalog.IsLandablePlanetTarget(
+                destination.SectorKey,
+                destination.TargetName,
+                destination.TargetKind))
+        {
+            return ClientTargetVerb.Land;
+        }
+
+        return ClientTargetVerb.NotApplicable;
+    }
+
     private NavigationDestination ResolveOriginDestination(
         NavigationPersistedRoute route,
         GalaxySectorDefinition fallbackSector)
@@ -1077,6 +1165,49 @@ public sealed class NavigationRouteCoordinator
         }
 
         return NavigationDestination.ForSector(fallbackSector);
+    }
+
+    private NavigationDestination ResolveNewRouteOriginDestination(
+        ProcessRouteState state)
+    {
+        var currentLocation = state.CurrentLocation!;
+        var previousRoute = state.Snapshot.Route;
+
+        if (previousRoute == null ||
+            previousRoute.Destination.Kind !=
+                NavigationDestinationKind.Target ||
+            !this.IsCurrentRouteDestinationReached(
+                state,
+                previousRoute.Destination))
+        {
+            return currentLocation;
+        }
+
+        // Direct observations become sector-only inside a landed area and
+        // can also lose the exact nav after Warp stops a few kilometres out.
+        // A completed route still proves the precise place we just reached.
+        return previousRoute.Destination;
+    }
+
+    private bool IsCurrentRouteDestinationReached(
+        ProcessRouteState state,
+        NavigationDestination destination)
+    {
+        if (IsDestinationReached(
+                state.CurrentLocation!,
+                destination,
+                state.Environment))
+        {
+            return true;
+        }
+
+        return this.TryResolveLandArrivalSector(
+                destination,
+                out var landArrivalSector) &&
+            string.Equals(
+                state.CurrentSector!.Key,
+                landArrivalSector.Key,
+                StringComparison.Ordinal);
     }
 
     private NavigationDestination ResolveCurrentLocation(

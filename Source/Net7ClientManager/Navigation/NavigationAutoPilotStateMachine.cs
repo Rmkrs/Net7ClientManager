@@ -1,5 +1,6 @@
 namespace Net7ClientManager.Navigation;
 
+using Net7ClientManager.Observations;
 using Net7ClientManager.Observations.Models;
 
 /// <summary>
@@ -10,6 +11,11 @@ using Net7ClientManager.Observations.Models;
 /// </summary>
 internal static class NavigationAutoPilotStateMachine
 {
+    // Runtime calibration shows Earth & Beyond rejects Warp below roughly
+    // 1.415k for every tested target type. Treat a final target inside that
+    // range as reached instead of issuing a command the game cannot accept.
+    private const float arrivalWithoutWarpMaximumDistance = 1415.0f;
+
     private static readonly TimeSpan stepReconcileTimeout =
         TimeSpan.FromSeconds(30);
 
@@ -195,8 +201,12 @@ internal static class NavigationAutoPilotStateMachine
 
         if (outcome.ActivateVerbInstead)
         {
+            var nextState = PromoteDetectedInteraction(
+                state,
+                outcome.DetectedVerb);
+
             return new NavigationAutoPilotMachineTransition(
-                state with
+                nextState with
                 {
                     Phase = NavigationAutoPilotMachinePhase.EvaluatingRange,
                     PhaseStartedAt = now,
@@ -209,7 +219,7 @@ internal static class NavigationAutoPilotStateMachine
                     PublicState = NavigationAutoPilotState.VerifyingArrival,
                     StopReason = NavigationAutoPilotStopReason.None,
                     StatusText =
-                        $"{state.Step?.TargetName ?? "The route target"} entered interaction range before Warp was issued.",
+                        $"{nextState.Step?.TargetName ?? "The route target"} is ready for interaction; warp is not required.",
                 });
         }
 
@@ -286,7 +296,7 @@ internal static class NavigationAutoPilotStateMachine
             state,
             NavigationAutoPilotMachinePhase.WaitingForDestination,
             NavigationAutoPilotState.WaitingForDestination,
-            $"Docking at {state.Step.TargetName}.",
+            GetDestinationActionStatus(state.Step),
             now);
     }
 
@@ -631,17 +641,26 @@ internal static class NavigationAutoPilotStateMachine
             frame,
             targetStateTimeout,
             NavigationAutoPilotStopReason.TargetSelectionFailed,
-            "Auto Pilot stopped because the selected target no longer matches the planned route target.");
+            "The selected route target changed.");
 
         if (targetFailure.HasValue)
         {
             return targetFailure.Value;
         }
 
+        state = PromoteDetectedInteraction(state, frame);
         var step = state.Step!;
 
         if (!step.RequiresInteraction)
         {
+            if (IsAlreadyAtFinalTarget(step, frame))
+            {
+                return Arrive(
+                    state,
+                    $"Arrived at destination {state.DestinationName}.",
+                    frame.Now);
+            }
+
             return BeginWaitingForWarp(
                 state,
                 frame.Now);
@@ -653,7 +672,7 @@ internal static class NavigationAutoPilotStateMachine
             return BeginVerbActivation(
                 state,
                 frame.Now,
-                $"{step.TargetName} is already in {step.VerbName} range; warp is not required.");
+                $"{step.TargetName} is ready for {step.VerbName}; warp is not required.");
         }
 
         if (frame.VerbState ==
@@ -690,11 +709,25 @@ internal static class NavigationAutoPilotStateMachine
                         PublicState =
                             NavigationAutoPilotState.VerifyingArrival,
                         StatusText =
-                            $"Waiting for {step.VerbName} readiness at {step.TargetName}.",
+                            $"Waiting for {step.VerbName} at {step.TargetName}.",
                     });
             }
 
+            if (IsAlreadyAtFinalTarget(step, frame))
+            {
+                return BeginWaitingForVerb(
+                    state,
+                    frame.Now);
+            }
+
             return BeginWaitingForWarp(
+                state,
+                frame.Now);
+        }
+
+        if (IsAlreadyAtFinalTarget(step, frame))
+        {
+            return BeginWaitingForVerb(
                 state,
                 frame.Now);
         }
@@ -730,13 +763,14 @@ internal static class NavigationAutoPilotStateMachine
             frame,
             warpAvailableTimeout,
             NavigationAutoPilotStopReason.WarpInterrupted,
-            "Auto Pilot was interrupted because the selected route target changed before warp started.");
+            "The selected route target changed before Warp started.");
 
         if (targetFailure.HasValue)
         {
             return targetFailure.Value;
         }
 
+        state = PromoteDetectedInteraction(state, frame);
         var step = state.Step!;
 
         if (step.RequiresInteraction &&
@@ -746,7 +780,7 @@ internal static class NavigationAutoPilotStateMachine
             return BeginVerbActivation(
                 state,
                 frame.Now,
-                $"{step.TargetName} entered {step.VerbName} range while Auto Pilot was waiting for warp.");
+                $"{step.TargetName} is ready for {step.VerbName}; warp is not required.");
         }
 
         if (step.RequiresInteraction &&
@@ -760,6 +794,26 @@ internal static class NavigationAutoPilotStateMachine
                 frame.Now);
         }
 
+        if (!step.RequiresInteraction &&
+            IsAlreadyAtFinalTarget(step, frame))
+        {
+            return Arrive(
+                state,
+                $"Arrived at destination {state.DestinationName}.",
+                frame.Now);
+        }
+
+        if (step.RequiresInteraction &&
+            IsAlreadyAtFinalTarget(step, frame) &&
+            frame.VerbState is
+                NavigationAutoPilotVerbState.Missing or
+                NavigationAutoPilotVerbState.Unknown)
+        {
+            return BeginWaitingForVerb(
+                state,
+                frame.Now);
+        }
+
         if (!frame.NavigationStateAvailable ||
             !frame.NavigationPropertiesAvailable)
         {
@@ -770,7 +824,7 @@ internal static class NavigationAutoPilotStateMachine
                 NavigationAutoPilotStopReason.ObservationUnavailable,
                 "Auto Pilot stopped because native Warp readiness remained unavailable.",
                 NavigationAutoPilotState.WaitingForWarp,
-                $"Waiting for native Warp readiness before approaching {step.TargetName}.");
+                $"Waiting for the warp drive before approaching {step.TargetName}.");
         }
 
         if (!frame.IsWarpIdle)
@@ -778,7 +832,7 @@ internal static class NavigationAutoPilotStateMachine
             return Stop(
                 state,
                 NavigationAutoPilotStopReason.WarpInterrupted,
-                "Auto Pilot stopped because native Warp state changed before it issued the Warp command.",
+                "Auto Pilot stopped because Warp state changed before the command was sent.",
                 frame.Now);
         }
 
@@ -808,7 +862,7 @@ internal static class NavigationAutoPilotStateMachine
             frame.Now,
             warpAvailableTimeout,
             NavigationAutoPilotStopReason.WarpUnavailable,
-            "Auto Pilot stopped because native Warp readiness did not become true within 30 seconds.",
+            "Auto Pilot stopped because Warp did not become ready.",
             NavigationAutoPilotState.WaitingForWarp,
             string.IsNullOrWhiteSpace(frame.ClientWarpReadinessReason)
                 ? $"Waiting for the warp drive before approaching {step.TargetName}."
@@ -829,6 +883,42 @@ internal static class NavigationAutoPilotStateMachine
         if (routeContextFailure.HasValue)
         {
             return routeContextFailure.Value;
+        }
+
+        state = PromoteDetectedInteraction(state, frame);
+        var step = state.Step;
+
+        if (frame.IsWarpIdle &&
+            step is { RequiresInteraction: true } &&
+            frame.VerbState ==
+                NavigationAutoPilotVerbState.Executable)
+        {
+            return BeginVerbActivation(
+                state,
+                frame.Now,
+                $"{step.TargetName} is ready for {step.VerbName}; warp is not required.");
+        }
+
+        if (frame.IsWarpIdle &&
+            step is { RequiresInteraction: false } &&
+            IsAlreadyAtFinalTarget(step, frame))
+        {
+            return Arrive(
+                state,
+                $"Arrived at destination {state.DestinationName}.",
+                frame.Now);
+        }
+
+        if (frame.IsWarpIdle &&
+            step is { RequiresInteraction: true } &&
+            IsAlreadyAtFinalTarget(step, frame) &&
+            frame.VerbState is
+                NavigationAutoPilotVerbState.Missing or
+                NavigationAutoPilotVerbState.Unknown)
+        {
+            return BeginWaitingForVerb(
+                state,
+                frame.Now);
         }
 
         var terminalFailure = TryStopForTerminalWarpReason(
@@ -932,6 +1022,8 @@ internal static class NavigationAutoPilotStateMachine
         {
             return terminalFailure.Value;
         }
+
+        state = PromoteDetectedInteraction(state, frame);
 
         if (!frame.NavigationStateAvailable ||
             !frame.NavigationPropertiesAvailable ||
@@ -1059,16 +1151,26 @@ internal static class NavigationAutoPilotStateMachine
             return terminalFailure.Value;
         }
 
+        state = PromoteDetectedInteraction(state, frame);
         var step = state.Step;
 
-        if (step == null ||
-            step.RequiresInteraction)
+        if (step == null)
         {
             return Stop(
                 state,
                 NavigationAutoPilotStopReason.InternalError,
                 "Auto Pilot stopped because final-arrival state became inconsistent.",
                 frame.Now);
+        }
+
+        if (step.RequiresInteraction)
+        {
+            return ObserveWaitingForVerb(
+                state with
+                {
+                    Phase = NavigationAutoPilotMachinePhase.WaitingForVerb,
+                },
+                frame);
         }
 
         if (!frame.SelectedTargetKnown ||
@@ -1168,7 +1270,7 @@ internal static class NavigationAutoPilotStateMachine
             frame.Now,
             targetVerbTimeout,
             NavigationAutoPilotStopReason.WarpInterrupted,
-            $"Auto Pilot stopped because Warp ended before {step.VerbName} became available at {step.TargetName}.",
+            $"Auto Pilot could not use {step.VerbName} at {step.TargetName}.",
             NavigationAutoPilotState.VerifyingArrival,
             $"Waiting for {step.VerbName} at {step.TargetName}.");
     }
@@ -1256,9 +1358,7 @@ internal static class NavigationAutoPilotStateMachine
             ? state with
             {
                 TransitionAccepted = true,
-                StatusText = step.IsWormholeTransition
-                    ? $"Wormhole transition accepted; waiting to enter sector {step.ToSectorName}."
-                    : $"Gate transition accepted; waiting to enter sector {step.ToSectorName}.",
+                StatusText = GetAcceptedTransitionStatus(step),
             }
             : state;
 
@@ -1272,9 +1372,7 @@ internal static class NavigationAutoPilotStateMachine
                     : step.ActivationFailedReason,
                 transitionAccepted
                     ? $"Auto Pilot stopped because sector {step.ToSectorName} did not become ready within 30 seconds."
-                    : step.IsWormholeTransition
-                        ? $"Auto Pilot activated {step.TargetName}, but the client never entered wormhole-transition control."
-                        : $"Auto Pilot activated Gate on {step.TargetName}, but the client never entered gate-transition control.",
+                    : GetTransitionActivationFailureStatus(step),
                 frame.Now);
         }
 
@@ -1283,12 +1381,8 @@ internal static class NavigationAutoPilotStateMachine
             {
                 PublicState = NavigationAutoPilotState.WaitingForSector,
                 StatusText = transitionAccepted
-                    ? step.IsWormholeTransition
-                        ? $"Wormhole transition accepted; waiting to enter sector {step.ToSectorName}."
-                        : $"Gate transition accepted; waiting to enter sector {step.ToSectorName}."
-                    : step.IsWormholeTransition
-                        ? $"Waiting for {step.TargetName} to begin the wormhole transition."
-                        : $"Waiting for {step.TargetName} to begin the gate transition.",
+                    ? GetAcceptedTransitionStatus(step)
+                    : GetPendingTransitionStatus(step),
             });
     }
 
@@ -1308,7 +1402,79 @@ internal static class NavigationAutoPilotStateMachine
                 frame.Now);
         }
 
-        if (frame.IsStableStarbase)
+        if (step.Verb == ClientTargetVerb.Gate)
+        {
+            var transitionAccepted =
+                state.TransitionAccepted ||
+                frame.IsGateTransitionLocked ||
+                frame.LoadingOrTransitionFlag != 0 ||
+                !frame.WorldAvailable ||
+                frame.NavigationGenerationChanged ||
+                frame.NavigationPhase is
+                    ClientNavigationStatePhase.GateTransitionLocked or
+                    ClientNavigationStatePhase.AwaitingWorldReplacement or
+                    ClientNavigationStatePhase.Loading;
+
+            if (frame.IsStableSpace &&
+                !string.IsNullOrWhiteSpace(
+                    frame.RouteCurrentSectorKey) &&
+                !string.Equals(
+                    frame.RouteCurrentSectorKey,
+                    step.FromSectorKey,
+                    StringComparison.Ordinal))
+            {
+                return Arrive(
+                    state,
+                    $"Arrived at destination {state.DestinationName}.",
+                    frame.Now);
+            }
+
+            var waitingState = transitionAccepted &&
+                               !state.TransitionAccepted
+                ? state with
+                {
+                    TransitionAccepted = true,
+                }
+                : state;
+
+            return WaitOrStop(
+                waitingState,
+                frame.Now,
+                destinationTransitionTimeout,
+                step.TransitionTimedOutReason,
+                $"Auto Pilot used Gate at {step.TargetName}, but the transition did not finish.",
+                NavigationAutoPilotState.WaitingForDestination,
+                transitionAccepted
+                    ? "Gate transition in progress."
+                    : $"Waiting for {step.TargetName} to begin the gate transition.");
+        }
+
+        var expectedLandSectorReached =
+            step.Verb == ClientTargetVerb.Land &&
+            !string.IsNullOrWhiteSpace(
+                step.ArrivalSectorKey) &&
+            frame.ObservationAvailable &&
+            frame.LifecycleState == ClientLifecycleState.InGame &&
+            frame.LoadingOrTransitionFlag == 0 &&
+            frame.WorldAvailable &&
+            string.Equals(
+                frame.RouteCurrentSectorKey,
+                step.ArrivalSectorKey,
+                StringComparison.Ordinal);
+
+        var destinationReady = step.Verb switch
+        {
+            ClientTargetVerb.Land =>
+                expectedLandSectorReached ||
+                (frame.ObservationAvailable &&
+                 frame.LifecycleState == ClientLifecycleState.InGame &&
+                 frame.LoadingOrTransitionFlag == 0 &&
+                 frame.WorldAvailable &&
+                 frame.Environment == ClientWorldEnvironment.Planet),
+            _ => frame.IsStableStarbase,
+        };
+
+        if (destinationReady)
         {
             return Arrive(
                 state,
@@ -1317,8 +1483,8 @@ internal static class NavigationAutoPilotStateMachine
         }
 
         var status = frame.DockingRequestObserved
-            ? $"Docking at {step.TargetName}."
-            : $"Waiting for {step.TargetName} to accept the docking request.";
+            ? GetDestinationActionStatus(step)
+            : $"Waiting for {step.TargetName} to accept {step.VerbName}.";
 
         return WaitOrStop(
             state,
@@ -1326,8 +1492,8 @@ internal static class NavigationAutoPilotStateMachine
             destinationTransitionTimeout,
             step.TransitionTimedOutReason,
             frame.DockingRequestObserved
-                ? $"Auto Pilot began docking, but {step.TargetName} did not become ready within 30 seconds."
-                : $"Auto Pilot sent {step.VerbName}, but {step.TargetName} did not become ready within 30 seconds.",
+                ? $"Auto Pilot started {step.VerbName} at {step.TargetName}, but the destination did not become ready."
+                : $"Auto Pilot sent {step.VerbName}, but {step.TargetName} did not respond.",
             NavigationAutoPilotState.WaitingForDestination,
             status);
     }
@@ -1582,6 +1748,102 @@ internal static class NavigationAutoPilotStateMachine
         return null;
     }
 
+    private static string GetAcceptedTransitionStatus(
+        NavigationAutoPilotStepPlan step)
+    {
+        if (step.IsWormholeTransition)
+        {
+            return $"Wormhole accepted; waiting to enter {step.ToSectorName}.";
+        }
+
+        return step.Verb == ClientTargetVerb.Land
+            ? $"Landing accepted; waiting to enter {step.ToSectorName}."
+            : $"Gate accepted; waiting to enter {step.ToSectorName}.";
+    }
+
+    private static string GetPendingTransitionStatus(
+        NavigationAutoPilotStepPlan step)
+    {
+        if (step.IsWormholeTransition)
+        {
+            return $"Waiting for {step.TargetName} to open the wormhole.";
+        }
+
+        return step.Verb == ClientTargetVerb.Land
+            ? $"Waiting for {step.TargetName} to open the landing area."
+            : $"Waiting for {step.TargetName} to begin the gate transition.";
+    }
+
+    private static string GetTransitionActivationFailureStatus(
+        NavigationAutoPilotStepPlan step)
+    {
+        if (step.IsWormholeTransition)
+        {
+            return $"Auto Pilot opened {step.TargetName}, but the wormhole did not begin.";
+        }
+
+        return step.Verb == ClientTargetVerb.Land
+            ? $"Auto Pilot used Land at {step.TargetName}, but the landing area did not open."
+            : $"Auto Pilot used Gate at {step.TargetName}, but the sector transition did not begin.";
+    }
+
+    private static string GetDestinationActionStatus(
+        NavigationAutoPilotStepPlan step)
+    {
+        return step.Verb switch
+        {
+            ClientTargetVerb.Land =>
+                $"Landing on {step.TargetName}.",
+            ClientTargetVerb.Gate =>
+                $"Using Gate at {step.TargetName}.",
+            _ => $"Docking at {step.TargetName}.",
+        };
+    }
+
+    private static NavigationAutoPilotMachineState
+        PromoteDetectedInteraction(
+            NavigationAutoPilotMachineState state,
+            NavigationAutoPilotMachineFrame frame)
+    {
+        return PromoteDetectedInteraction(
+            state,
+            frame.DetectedVerb);
+    }
+
+    private static NavigationAutoPilotMachineState
+        PromoteDetectedInteraction(
+            NavigationAutoPilotMachineState state,
+            ClientTargetVerb detectedVerb)
+    {
+        var step = state.Step;
+
+        if (step == null)
+        {
+            return state;
+        }
+
+        var promoted = step.WithDetectedInteraction(
+            detectedVerb);
+
+        return ReferenceEquals(promoted, step)
+            ? state
+            : state with
+            {
+                Step = promoted,
+                VerbMissingSince = null,
+            };
+    }
+
+    private static bool IsAlreadyAtFinalTarget(
+        NavigationAutoPilotStepPlan step,
+        NavigationAutoPilotMachineFrame frame)
+    {
+        return step.Kind ==
+                   NavigationRouteStepKind.FinalTarget &&
+               frame.TargetDistance is >= 0 and
+                   <= arrivalWithoutWarpMaximumDistance;
+    }
+
     private static bool CanActivateExpectedVerbDuringRecovery(
         NavigationAutoPilotMachineState state,
         NavigationAutoPilotMachineFrame frame)
@@ -1589,15 +1851,37 @@ internal static class NavigationAutoPilotStateMachine
         return state.Step != null &&
                state.Step.RequiresInteraction &&
                state.TargetObjectId.HasValue &&
-               frame.IsInteractionControlReady &&
                frame.SelectedTargetKnown &&
                frame.HasSelectedTarget &&
                frame.SelectedTargetObjectId ==
                    state.TargetObjectId.Value &&
-               frame.PathBuildStateKnown &&
-               !frame.PathBuildBusy &&
                frame.VerbState ==
                    NavigationAutoPilotVerbState.Executable;
+    }
+
+    private static NavigationAutoPilotMachineTransition
+        BeginWaitingForVerb(
+            NavigationAutoPilotMachineState state,
+            DateTimeOffset now)
+    {
+        var step = state.Step;
+
+        if (step == null ||
+            !step.RequiresInteraction)
+        {
+            return Stop(
+                state,
+                NavigationAutoPilotStopReason.InternalError,
+                "Auto Pilot stopped because target-interaction state became inconsistent.",
+                now);
+        }
+
+        return Move(
+            state,
+            NavigationAutoPilotMachinePhase.WaitingForVerb,
+            NavigationAutoPilotState.VerifyingArrival,
+            $"Waiting for {step.VerbName} at {step.TargetName}.",
+            now);
     }
 
     private static NavigationAutoPilotMachineTransition

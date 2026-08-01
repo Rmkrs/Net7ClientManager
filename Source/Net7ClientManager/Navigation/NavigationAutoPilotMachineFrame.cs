@@ -109,6 +109,9 @@ internal sealed record NavigationAutoPilotMachineFrame
 
     public uint SelectedTargetObjectId { get; init; }
 
+    public ClientTargetVerb DetectedVerb { get; init; } =
+        ClientTargetVerb.NotApplicable;
+
     public NavigationAutoPilotVerbState VerbState { get; init; }
 
     public bool DockingRequestObserved { get; init; }

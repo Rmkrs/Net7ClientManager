@@ -400,7 +400,7 @@ internal sealed class InGameOptionsForm : ThemedForm
             0);
 
         this.missionWikiCheckBox.Text =
-            "Mission Wiki: show the selected mission's Net-7 Wiki page or search";
+            "Mission Wiki: show mission details and Net-7 Wiki guidance";
         this.missionWikiCheckBox.Checked = this.initialValues.MissionWikiEnabled;
         this.missionWikiCheckBox.Dock = DockStyle.Top;
         layout.Controls.Add(this.missionWikiCheckBox, 0, 1);

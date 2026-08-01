@@ -15,6 +15,7 @@ internal sealed class MissionWikiControlForm : Form
     private const int WsExNoActivate = 0x08000000;
 
     private readonly Button toggleButton = new();
+    private readonly Button popOutButton = new();
 
     private MissionWikiControlState? state;
     private bool jobGuidance;
@@ -28,21 +29,34 @@ internal sealed class MissionWikiControlForm : Form
         this.Padding = new Padding(1);
         this.BackColor = MainWindowTheme.AccentBorder;
 
-        this.toggleButton.Dock = DockStyle.Fill;
-        this.toggleButton.Margin = Padding.Empty;
-        this.toggleButton.Padding = Padding.Empty;
-        this.toggleButton.TabStop = false;
-        this.toggleButton.TextAlign = ContentAlignment.MiddleCenter;
-        MainWindowTheme.StyleButton(this.toggleButton, primary: true);
-        this.toggleButton.FlatAppearance.BorderSize = 0;
-        this.toggleButton.Click += this.ToggleButton_OnClick;
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty,
+        };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
-        this.Controls.Add(this.toggleButton);
+        this.ConfigureButton(this.toggleButton);
+        this.ConfigureButton(this.popOutButton);
+        this.toggleButton.Click += this.ToggleButton_OnClick;
+        this.popOutButton.Text = "Pop out";
+        this.popOutButton.Click += this.PopOutButton_OnClick;
+
+        layout.Controls.Add(this.toggleButton, 0, 0);
+        layout.Controls.Add(this.popOutButton, 1, 0);
+        this.Controls.Add(layout);
 
         this.SetState(MissionWikiControlState.Expanded);
     }
 
     public event EventHandler? ToggleRequested;
+
+    public event EventHandler? PopOutRequested;
 
     protected override bool ShowWithoutActivation =>
         true;
@@ -99,14 +113,32 @@ internal sealed class MissionWikiControlForm : Form
         if (disposing)
         {
             this.toggleButton.Click -= this.ToggleButton_OnClick;
+            this.popOutButton.Click -= this.PopOutButton_OnClick;
             this.toggleButton.Dispose();
+            this.popOutButton.Dispose();
         }
 
         base.Dispose(disposing);
     }
 
+    private void ConfigureButton(Button button)
+    {
+        button.Dock = DockStyle.Fill;
+        button.Margin = Padding.Empty;
+        button.Padding = Padding.Empty;
+        button.TabStop = false;
+        button.TextAlign = ContentAlignment.MiddleCenter;
+        MainWindowTheme.StyleButton(button, primary: true);
+        button.FlatAppearance.BorderSize = 0;
+    }
+
     private void ToggleButton_OnClick(object? sender, EventArgs e)
     {
         this.ToggleRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void PopOutButton_OnClick(object? sender, EventArgs e)
+    {
+        this.PopOutRequested?.Invoke(this, EventArgs.Empty);
     }
 }

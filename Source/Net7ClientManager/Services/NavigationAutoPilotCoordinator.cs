@@ -787,6 +787,7 @@ internal sealed class NavigationAutoPilotCoordinator : IDisposable
         var selectedTargetKnown = false;
         var hasSelectedTarget = false;
         var selectedTargetObjectId = 0u;
+        var detectedVerb = ClientTargetVerb.NotApplicable;
         var verbState = NavigationAutoPilotVerbState.Unknown;
         var targetSectorNumber = hasNavigationState
             ? navigationState.ActiveSectorNumber
@@ -794,32 +795,61 @@ internal sealed class NavigationAutoPilotCoordinator : IDisposable
                 ? observation!.World.ActiveSectorNumber
                 : 0;
 
-        if (run.MachineState.TargetObjectId is > 0 &&
-            hasNavigationState &&
-            navigationState.Generation.HasClientObject &&
-            navigationState.Generation.HasAuxData)
+        if (run.MachineState.TargetObjectId is > 0)
         {
-            selectedTargetKnown =
-                navigationState.SelectedTargetKnown &&
-                navigationState.PathBuildStateKnown &&
-                !navigationState.PathBuildBusy;
-            hasSelectedTarget = navigationState.HasSelectedTarget;
-            selectedTargetObjectId =
-                navigationState.SelectedTargetObjectId;
-        }
-        else if (hasObservation &&
-                 run.MachineState.TargetObjectId is > 0 &&
-                 observation!.World.IsAvailable &&
-                 observation.World.ActiveSectorNumber != 0)
-        {
-            selectedTargetKnown =
-                this.observationCoordinator
+            var expectedTargetObjectId =
+                run.MachineState.TargetObjectId.Value;
+
+            if (hasNavigationState &&
+                navigationState.Generation.HasClientObject &&
+                navigationState.Generation.HasAuxData)
+            {
+                // Target identity and route-path construction are separate
+                // concerns. The game may expose an executable Gate/Dock/Land
+                // button while its path builder is still settling after Warp.
+                // Keep the selected target observable so the verb can win.
+                selectedTargetKnown =
+                    navigationState.SelectedTargetKnown;
+                hasSelectedTarget =
+                    navigationState.HasSelectedTarget;
+                selectedTargetObjectId =
+                    navigationState.SelectedTargetObjectId;
+            }
+
+            // Target selection verifies the live target directly from the
+            // client. The dedicated navigation observer can be one sample
+            // behind immediately after a sector replacement, especially
+            // after a wormhole. Before treating that stale sample as a user
+            // target change, reconcile it with a fresh direct target read.
+            if ((!selectedTargetKnown ||
+                 !hasSelectedTarget ||
+                 selectedTargetObjectId != expectedTargetObjectId) &&
+                targetSectorNumber != 0)
+            {
+                if (this.observationCoordinator
                     .TryReadCurrentTargetObjectId(
                         run.Client.ProcessId,
-                        observation.World.ActiveSectorNumber,
-                        out hasSelectedTarget,
-                        out selectedTargetObjectId,
-                        out _);
+                        targetSectorNumber,
+                        out var freshHasSelectedTarget,
+                        out var freshSelectedTargetObjectId,
+                        out _))
+                {
+                    selectedTargetKnown = true;
+                    hasSelectedTarget =
+                        freshHasSelectedTarget;
+                    selectedTargetObjectId =
+                        freshSelectedTargetObjectId;
+                }
+                else
+                {
+                    // A failed refresh is not evidence that the player
+                    // changed target. Let the state machine wait for a
+                    // readable sample instead of stopping immediately.
+                    selectedTargetKnown = false;
+                    hasSelectedTarget = false;
+                    selectedTargetObjectId = 0;
+                }
+            }
         }
 
         if (selectedTargetKnown &&
@@ -827,16 +857,26 @@ internal sealed class NavigationAutoPilotCoordinator : IDisposable
             targetSectorNumber != 0 &&
             selectedTargetObjectId ==
                 run.MachineState.TargetObjectId.Value &&
-            run.MachineState.Step is
-            {
-                RequiresInteraction: true,
-            })
+            run.MachineState.Step is { } step)
         {
-            verbState = this.ReadVerbState(
-                run.Client.ProcessId,
-                targetSectorNumber,
-                run.MachineState.TargetObjectId.Value,
-                run.MachineState.Step.Verb);
+            if (step.RequiresInteraction)
+            {
+                detectedVerb = step.Verb;
+                verbState = this.ReadVerbState(
+                    run.Client.ProcessId,
+                    targetSectorNumber,
+                    run.MachineState.TargetObjectId.Value,
+                    step.Verb);
+            }
+            else if (step.AllowsDetectedInteraction)
+            {
+                (detectedVerb, verbState) =
+                    this.ReadDetectedRouteVerbState(
+                        run.Client.ProcessId,
+                        targetSectorNumber,
+                        run.MachineState.TargetObjectId.Value,
+                        step);
+            }
         }
 
         return new NavigationAutoPilotMachineFrame
@@ -970,6 +1010,7 @@ internal sealed class NavigationAutoPilotCoordinator : IDisposable
             SelectedTargetKnown = selectedTargetKnown,
             HasSelectedTarget = hasSelectedTarget,
             SelectedTargetObjectId = selectedTargetObjectId,
+            DetectedVerb = detectedVerb,
             VerbState = verbState,
             DockingRequestObserved = hasObservation &&
                 run.MachineState.TargetObjectId is > 0 &&
@@ -1016,6 +1057,58 @@ internal sealed class NavigationAutoPilotCoordinator : IDisposable
             ClientTargetVerbUnavailableReason.TooFar
                 ? NavigationAutoPilotVerbState.TooFar
                 : NavigationAutoPilotVerbState.Unavailable;
+    }
+
+    private (
+        ClientTargetVerb Verb,
+        NavigationAutoPilotVerbState State)
+        ReadDetectedRouteVerbState(
+            int processId,
+            uint expectedSectorId,
+            uint targetObjectId,
+            NavigationAutoPilotStepPlan step)
+    {
+        if (!this.observationCoordinator
+                .TryReadCurrentTargetInteraction(
+                    processId,
+                    expectedSectorId,
+                    out var interaction,
+                    out _) ||
+            !interaction.IsAvailable ||
+            !interaction.IsActive ||
+            !interaction.HasTarget ||
+            interaction.TargetObjectId != targetObjectId)
+        {
+            return (
+                ClientTargetVerb.NotApplicable,
+                NavigationAutoPilotVerbState.Unknown);
+        }
+
+        var action = interaction.Actions.FirstOrDefault(candidate =>
+            NavigationAutoPilotStepPlan.IsRouteInteractionVerb(
+                candidate.Verb));
+
+        if (action == null ||
+            !step.CanUseDetectedInteraction(action.Verb))
+        {
+            return (
+                ClientTargetVerb.NotApplicable,
+                NavigationAutoPilotVerbState.Missing);
+        }
+
+        if (action.IsExecutable)
+        {
+            return (
+                action.Verb,
+                NavigationAutoPilotVerbState.Executable);
+        }
+
+        return (
+            action.Verb,
+            action.KnownUnavailableReason ==
+                ClientTargetVerbUnavailableReason.TooFar
+                    ? NavigationAutoPilotVerbState.TooFar
+                    : NavigationAutoPilotVerbState.Unavailable);
     }
 
     private async Task<NavigationAutoPilotTargetSelectionOutcome>
@@ -1125,18 +1218,33 @@ internal sealed class NavigationAutoPilotCoordinator : IDisposable
                     "Auto Pilot was interrupted because the selected route target or client path changed before Warp was requested.");
             }
 
-            if (state.Step.RequiresInteraction &&
-                this.ReadVerbState(
+            var directVerb = state.Step.Verb;
+            var directVerbState = state.Step.RequiresInteraction
+                ? this.ReadVerbState(
                     run.Client.ProcessId,
                     observation.World.ActiveSectorNumber,
                     state.TargetObjectId.Value,
-                    state.Step.Verb) ==
-                    NavigationAutoPilotVerbState.Executable)
+                    state.Step.Verb)
+                : NavigationAutoPilotVerbState.Unknown;
+
+            if (!state.Step.RequiresInteraction &&
+                state.Step.AllowsDetectedInteraction)
             {
-                // The ship may already be beside the gate/station, or the
-                // interaction control may have become observable while the
-                // warp command lease was being acquired. Interaction wins.
-                return NavigationAutoPilotEffectOutcome.VerbReady();
+                (directVerb, directVerbState) =
+                    this.ReadDetectedRouteVerbState(
+                        run.Client.ProcessId,
+                        observation.World.ActiveSectorNumber,
+                        state.TargetObjectId.Value,
+                        state.Step);
+            }
+
+            if (directVerbState ==
+                NavigationAutoPilotVerbState.Executable)
+            {
+                // Interaction can become ready while the Warp command lease
+                // is being acquired. The target action always wins.
+                return NavigationAutoPilotEffectOutcome.VerbReady(
+                    directVerb);
             }
 
             if (!navigation.IsClientWarpReady)
@@ -1237,13 +1345,10 @@ internal sealed class NavigationAutoPilotCoordinator : IDisposable
                 !navigation.RequiredPropertiesAvailable ||
                 navigation.GenerationSequence !=
                     state.StepGenerationSequence ||
-                !navigation.IsInteractionControlReady ||
                 !navigation.SelectedTargetKnown ||
                 !navigation.HasSelectedTarget ||
                 navigation.SelectedTargetObjectId !=
-                    state.TargetObjectId.Value ||
-                !navigation.PathBuildStateKnown ||
-                navigation.PathBuildBusy)
+                    state.TargetObjectId.Value)
             {
                 return NavigationAutoPilotEffectOutcome.Failure(
                     step.ActivationFailedReason,
@@ -1307,13 +1412,10 @@ internal sealed class NavigationAutoPilotCoordinator : IDisposable
                 !navigation.RequiredPropertiesAvailable ||
                 navigation.GenerationSequence !=
                     state.StepGenerationSequence ||
-                !navigation.IsInteractionControlReady ||
                 !navigation.SelectedTargetKnown ||
                 !navigation.HasSelectedTarget ||
                 navigation.SelectedTargetObjectId !=
                     state.TargetObjectId.Value ||
-                !navigation.PathBuildStateKnown ||
-                navigation.PathBuildBusy ||
                 !this.TryValidateCurrentTarget(
                     run.Client.ProcessId,
                     observation,

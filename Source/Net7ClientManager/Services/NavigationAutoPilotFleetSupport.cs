@@ -1354,6 +1354,17 @@ internal sealed class NavigationAutoPilotFleetSupport(
             !navigation.PathBuildBusy;
     }
 
+    private static bool IsParticipantTargetSelected(
+        ClientNavigationStateObservation navigation,
+        uint targetObjectId,
+        uint expectedSectorNumber)
+    {
+        return navigation.ActiveSectorNumber == expectedSectorNumber &&
+            navigation.SelectedTargetKnown &&
+            navigation.HasSelectedTarget &&
+            navigation.SelectedTargetObjectId == targetObjectId;
+    }
+
     private async Task<NavigationAutoPilotEffectOutcome>
         WaitForFleetVerbSettleAsync(
             NavigationAutoPilotFleetContext fleet,
@@ -1381,13 +1392,10 @@ internal sealed class NavigationAutoPilotFleetSupport(
                         participant,
                         out var navigation,
                         out _) ||
-                    navigation.ActiveSectorNumber != expectedSectorNumber ||
-                    !navigation.IsInteractionControlReady ||
-                    !navigation.SelectedTargetKnown ||
-                    !navigation.HasSelectedTarget ||
-                    navigation.SelectedTargetObjectId != targetObjectId ||
-                    !navigation.PathBuildStateKnown ||
-                    navigation.PathBuildBusy)
+                    !IsParticipantTargetSelected(
+                        navigation,
+                        targetObjectId,
+                        expectedSectorNumber))
                 {
                     waiting = participant;
                     break;
@@ -1555,7 +1563,7 @@ internal sealed class NavigationAutoPilotFleetSupport(
                     out _) ||
                 acceptanceNavigation.GenerationSequence !=
                     generationSequence ||
-                !IsParticipantTargetReady(
+                !IsParticipantTargetSelected(
                     acceptanceNavigation,
                     targetObjectId,
                     expectedSectorNumber) ||
@@ -1625,13 +1633,10 @@ internal sealed class NavigationAutoPilotFleetSupport(
                 out var navigation,
                 out _) &&
             navigation.GenerationSequence == generationSequence &&
-            navigation.ActiveSectorNumber == expectedSectorNumber &&
-            navigation.IsInteractionControlReady &&
-            navigation.SelectedTargetKnown &&
-            navigation.HasSelectedTarget &&
-            navigation.SelectedTargetObjectId == targetObjectId &&
-            navigation.PathBuildStateKnown &&
-            !navigation.PathBuildBusy &&
+            IsParticipantTargetSelected(
+                navigation,
+                targetObjectId,
+                expectedSectorNumber) &&
             this.ReadVerbState(
                 follower.Client.ProcessId,
                 expectedSectorNumber,

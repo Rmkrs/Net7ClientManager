@@ -41,7 +41,7 @@ The shortcut is checked against Earth & Beyond’s own controls to avoid an acci
 
 ### Mission Wiki
 
-Enable **Mission Wiki: show the selected mission’s Net-7 Wiki page or search** to add contextual mission help. See [Mission help](navigation.md#mission-help).
+Enable **Mission Wiki: show mission details and Net-7 Wiki guidance** to add contextual mission help. Use **Pop out** beside the in-game reader for a resizable companion with mission information stacked on the left and the Wiki page on the right. The left side contains the current mission list, current objective, and the mission summary with every observed step so far. See [Mission help](navigation.md#mission-help).
 
 ### Galaxy Finder
 

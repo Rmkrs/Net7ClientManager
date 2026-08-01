@@ -1,5 +1,7 @@
 namespace Net7ClientManager.Navigation;
 
+using Net7ClientManager.Observations.Models;
+
 internal readonly record struct NavigationAutoPilotEffectOutcome
 {
     public NavigationAutoPilotEffectOutcome()
@@ -10,6 +12,8 @@ internal readonly record struct NavigationAutoPilotEffectOutcome
     public bool Succeeded { get; init; }
 
     public bool ActivateVerbInstead { get; init; }
+
+    public ClientTargetVerb DetectedVerb { get; init; }
 
     public NavigationAutoPilotStopReason StopReason { get; init; }
 
@@ -24,11 +28,14 @@ internal readonly record struct NavigationAutoPilotEffectOutcome
         };
     }
 
-    public static NavigationAutoPilotEffectOutcome VerbReady()
+    public static NavigationAutoPilotEffectOutcome VerbReady(
+        ClientTargetVerb detectedVerb =
+            ClientTargetVerb.NotApplicable)
     {
         return new NavigationAutoPilotEffectOutcome
         {
             ActivateVerbInstead = true,
+            DetectedVerb = detectedVerb,
             StatusText = "",
         };
     }

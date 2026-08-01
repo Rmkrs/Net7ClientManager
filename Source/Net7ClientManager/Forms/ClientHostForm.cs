@@ -26,9 +26,9 @@ public sealed partial class ClientHostForm : Form
     private const int MissionWikiBaseHeight = 420;
     private const int MissionWikiControlBaseOffsetX = 0;
     private const int MissionWikiControlBaseOffsetY = -72;
-    private const int MissionWikiControlBaseWidth = 95;
+    private const int MissionWikiControlBaseWidth = 210;
     private const int MissionWikiControlBaseHeight = 30;
-    private const int MissionWikiControlMinimumWidth = 80;
+    private const int MissionWikiControlMinimumWidth = 190;
     private const int MissionWikiControlMinimumHeight = 24;
 
     private const int JobTerminalRouteBaseCanvasWidth = 1280;
@@ -376,10 +376,21 @@ public sealed partial class ClientHostForm : Form
             this.CloseNavigationCompanion(
                 preserveOpenPreference: true);
             this.navigationInGamePresenter?.Hide();
+            this.CloseMissionWikiCompanion(
+                preserveOpenPreference: true);
+            this.HideMissionWikiInGame();
         }
 
         this.navigationPresentationMode =
             slot.NavigationPresentationMode;
+        this.missionWikiPresentationMode =
+            slot.MissionWikiPresentationMode;
+        this.missionWikiLeftPaneRatio =
+            slot.MissionWikiLeftPaneRatio;
+        this.missionWikiListPaneRatio =
+            slot.MissionWikiListPaneRatio;
+        this.missionWikiDetailsPaneRatio =
+            slot.MissionWikiDetailsPaneRatio;
         this.appliedSlotName = slot.Name;
         this.ApplyTitleBarMode(
             slot.EffectiveTitleBarMode,
@@ -433,9 +444,14 @@ public sealed partial class ClientHostForm : Form
         this.appliedSlotName = null;
         this.navigationPresentationMode =
             NavigationPresentationMode.Companion;
+        this.missionWikiPresentationMode =
+            MissionWikiPresentationMode.InGame;
         this.CloseNavigationCompanion(
             preserveOpenPreference: true);
         this.navigationInGamePresenter?.Hide();
+        this.CloseMissionWikiCompanion(
+            preserveOpenPreference: true);
+        this.HideMissionWikiInGame();
         this.ClearTitleStatus();
         this.SetMissionWikiEnabled(enabled: false);
 
@@ -468,8 +484,12 @@ public sealed partial class ClientHostForm : Form
                 return AddonRuntimeState.WaitingForContext;
             }
 
-            return this.missionWikiWebViewForm?.RuntimeState ??
-                   AddonRuntimeState.Loading;
+            return this.missionWikiPresentationMode ==
+                   MissionWikiPresentationMode.Companion
+                ? this.missionWikiCompanionForm?.RuntimeState ??
+                  AddonRuntimeState.Loading
+                : this.missionWikiWebViewForm?.RuntimeState ??
+                  AddonRuntimeState.Loading;
         }
     }
 
@@ -488,8 +508,12 @@ public sealed partial class ClientHostForm : Form
                 return this.missionWikiPresentationStatus;
             }
 
-            return this.missionWikiWebViewForm?.StatusText ??
-                   "Preparing the host-owned browser.";
+            return this.missionWikiPresentationMode ==
+                   MissionWikiPresentationMode.Companion
+                ? this.missionWikiCompanionForm?.StatusText ??
+                  "Preparing the Mission Wiki companion."
+                : this.missionWikiWebViewForm?.StatusText ??
+                  "Preparing the in-game Mission Wiki.";
         }
     }
 
@@ -523,6 +547,8 @@ public sealed partial class ClientHostForm : Form
         this.missionWikiEnabled = enabled;
         if (!enabled)
         {
+            this.CloseMissionWikiCompanion(
+                preserveOpenPreference: true);
             this.CloseMissionWikiForm();
             return;
         }
@@ -568,85 +594,50 @@ public sealed partial class ClientHostForm : Form
             return;
         }
 
-        var details =
-            panelPresentation.MissionDetails;
+        this.RefreshMissionWikiEnabledFromSettings();
+        this.missionWikiMissions = missions;
 
-        var nextMissionAddress =
-            details.IsDisplayed
-                ? details.SelectedMissionAddress
-                : 0;
-
+        var details = panelPresentation.MissionDetails;
+        var nextGameMissionAddress = details.IsDisplayed
+            ? details.SelectedMissionAddress
+            : 0;
         var selectedMission =
-            details.IsDisplayed &&
-            missions.IsAvailable
-                ? missions.GetByAddress(
-                    details.SelectedMissionAddress)
+            details.IsDisplayed && missions.IsAvailable
+                ? missions.GetByAddress(details.SelectedMissionAddress)
                 : null;
-
-        var observedMissionName =
-            selectedMission?.Name;
+        var observedMissionName = selectedMission?.Name;
 
         if (string.IsNullOrWhiteSpace(observedMissionName))
         {
-            observedMissionName =
-                details.SelectedMissionName;
+            observedMissionName = details.SelectedMissionName;
         }
 
-        var nextMissionName =
+        var nextGameMissionName =
             details.IsDisplayed &&
             !string.IsNullOrWhiteSpace(observedMissionName)
                 ? observedMissionName.Trim()
                 : null;
-        var nextJobGuidance =
-            selectedMission != null
-                ? this.resolveMissionJobGuidance(selectedMission)
-                : null;
+        var nextGameJobGuidance = selectedMission != null
+            ? this.resolveMissionJobGuidance(selectedMission)
+            : null;
 
         this.missionWikiPresentationStatus =
             BuildMissionWikiPresentationStatus(
                 panelPresentation,
                 details,
                 missions,
-                nextMissionName,
-                nextJobGuidance != null);
-
-        var missionChanged =
-            this.missionWikiMissionAddress !=
-                nextMissionAddress ||
-            !string.Equals(
-                this.missionWikiMissionName,
-                nextMissionName,
-                StringComparison.Ordinal) ||
-            !string.Equals(
-                this.missionJobGuidance?.Fingerprint,
-                nextJobGuidance?.Fingerprint,
-                StringComparison.Ordinal);
-
-        this.missionWikiMissionAddress =
-            nextMissionAddress;
-        this.missionWikiMissionName =
-            nextMissionName;
-        this.missionJobGuidance =
-            nextJobGuidance;
+                nextGameMissionName,
+                nextGameJobGuidance != null);
+        this.missionWikiGameMissionAddress =
+            nextGameMissionAddress;
+        this.missionWikiGameMissionName =
+            nextGameMissionName;
+        this.missionWikiGameJobGuidance =
+            nextGameJobGuidance;
         this.missionWikiForfeitConfirmationDisplayed =
             details.IsForfeitConfirmationDisplayed;
 
-        if (missionChanged &&
-            this.missionWikiWebViewForm != null &&
-            nextMissionName != null)
-        {
-            if (nextJobGuidance != null)
-            {
-                this.missionWikiWebViewForm.NavigateToJob(
-                    nextJobGuidance);
-            }
-            else
-            {
-                this.missionWikiWebViewForm.NavigateToMission(
-                    nextMissionName);
-            }
-        }
-
+        this.RefreshMissionWikiActiveSelection();
         this.SyncMissionWiki();
     }
 
@@ -974,6 +965,7 @@ public sealed partial class ClientHostForm : Form
         }
 
         this.missionWikiWebViewForm?.ReloadCurrentMission();
+        this.missionWikiCompanionForm?.ReloadCurrentMission();
         this.SyncMissionWiki();
     }
 
@@ -1073,6 +1065,7 @@ public sealed partial class ClientHostForm : Form
         }
 
         this.ApplyAddonPresentationState();
+        this.RefreshMissionWikiEnabledFromSettings();
         this.SyncAddonOverlay();
         this.SyncNavigationPresentation();
         this.SyncMissionWiki();
@@ -1246,6 +1239,8 @@ public sealed partial class ClientHostForm : Form
             this.navigationInGamePresenter = null;
             this.CloseNavigationCompanion(
                 preserveOpenPreference: true);
+            this.CloseMissionWikiCompanion(
+                preserveOpenPreference: true);
             this.CloseMissionWikiForm();
             this.CloseJobTerminalRouteForm();
             this.CloseFactionDetailsForm();
@@ -1341,7 +1336,20 @@ public sealed partial class ClientHostForm : Form
             this.titleBarHoverTimer.Start();
         }
 
-        this.titleBar.BringToFront();
+        if (mode == ClientTitleBarMode.Always)
+        {
+            // Docking order matters: the top-docked title bar must be laid
+            // out before the fill-docked game panel so it reserves its own
+            // strip instead of overlaying Earth & Beyond.
+            this.titleBar.SendToBack();
+        }
+        else
+        {
+            // Hover mode deliberately overlays the game without reserving
+            // space, so its temporary title bar must remain above the game.
+            this.titleBar.BringToFront();
+        }
+
         this.MinimumSize = new Size(
             width: 640,
             height: 480 + this.CurrentTitleBarHeight);
@@ -1949,21 +1957,55 @@ public sealed partial class ClientHostForm : Form
 
     private void SyncMissionWiki()
     {
-        var shouldPresent =
+        this.RefreshMissionWikiEnabledFromSettings();
+        this.RefreshMissionWikiActiveSelection();
+
+        var canPresentCompanion =
             this.missionWikiEnabled &&
+            this.addonLifecycleState == ClientLifecycleState.InGame &&
+            !this.addonTransitioning;
+
+        if (!canPresentCompanion)
+        {
+            this.HideMissionWikiInGame();
+            this.CloseMissionWikiCompanion(
+                preserveOpenPreference: true);
+            return;
+        }
+
+        if (this.missionWikiPresentationMode ==
+            MissionWikiPresentationMode.Companion)
+        {
+            this.HideMissionWikiInGame();
+
+            var placement = this.resolveAddonWindowPlacement(
+                MissionWikiPresentationIds.BuiltInAddonId,
+                MissionWikiPresentationIds.CompanionWindowId);
+
+            if (this.missionWikiCompanionForm != null ||
+                placement is { IsVisible: true, IsClosed: false })
+            {
+                this.ShowMissionWikiCompanion(
+                    persistMode: false,
+                    activate: false);
+            }
+
+            this.SyncMissionWikiCompanionPresentation();
+            return;
+        }
+
+        this.CloseMissionWikiCompanionForPresentationSwitch();
+
+        var shouldPresentInGame =
             !string.IsNullOrWhiteSpace(
-                this.missionWikiMissionName) &&
-            this.addonLifecycleState ==
-            ClientLifecycleState.InGame &&
-            !this.addonTransitioning &&
+                this.missionWikiGameMissionName) &&
             this.Visible &&
             this.WindowState != FormWindowState.Minimized &&
             this.gamePanel.ClientSize is { Width: > 0, Height: > 0 };
 
-        if (!shouldPresent)
+        if (!shouldPresentInGame)
         {
-            this.missionWikiWebViewForm?.Hide();
-            this.missionWikiControlForm?.Hide();
+            this.HideMissionWikiInGame();
             return;
         }
 
@@ -1974,29 +2016,7 @@ public sealed partial class ClientHostForm : Form
         this.missionWikiControlForm!.Bounds =
             this.CalculateMissionWikiControlBounds(bounds);
 
-        var contentMismatch =
-            !string.Equals(
-                this.missionWikiWebViewForm.MissionName,
-                this.missionWikiMissionName,
-                StringComparison.Ordinal) ||
-            !string.Equals(
-                this.missionWikiWebViewForm.JobGuidanceFingerprint,
-                this.missionJobGuidance?.Fingerprint,
-                StringComparison.Ordinal);
-
-        if (contentMismatch)
-        {
-            if (this.missionJobGuidance != null)
-            {
-                this.missionWikiWebViewForm.NavigateToJob(
-                    this.missionJobGuidance);
-            }
-            else
-            {
-                this.missionWikiWebViewForm.NavigateToMission(
-                    this.missionWikiMissionName!);
-            }
-        }
+        this.NavigateMissionWikiInGameIfNeeded();
 
         var suppressExpandedWikiForForfeitConfirmation =
             this.missionWikiExpanded &&
@@ -2004,8 +2024,7 @@ public sealed partial class ClientHostForm : Form
 
         if (suppressExpandedWikiForForfeitConfirmation)
         {
-            this.missionWikiWebViewForm.Hide();
-            this.missionWikiControlForm.Hide();
+            this.HideMissionWikiInGame();
             return;
         }
 
@@ -2015,12 +2034,7 @@ public sealed partial class ClientHostForm : Form
                 : MissionWikiControlState.Collapsed,
             this.missionJobGuidance != null);
 
-        var showBrowser = this.missionWikiExpanded;
-
-        // Owned overlays stay with the hosted client without activation.
-        // Never promote them with HWND_TOP; doing so can raise the game
-        // above unrelated applications while the user works elsewhere.
-        if (showBrowser)
+        if (this.missionWikiExpanded)
         {
             if (!this.missionWikiWebViewForm.Visible)
             {
@@ -2069,6 +2083,8 @@ public sealed partial class ClientHostForm : Form
 
         this.missionWikiControlForm.ToggleRequested +=
             this.MissionWikiControlForm_OnToggleRequested;
+        this.missionWikiControlForm.PopOutRequested +=
+            this.MissionWikiControlForm_OnPopOutRequested;
     }
 
     private Rectangle CalculateMissionWikiBounds()
@@ -3470,6 +3486,8 @@ public sealed partial class ClientHostForm : Form
         {
             this.missionWikiControlForm.ToggleRequested -=
                 this.MissionWikiControlForm_OnToggleRequested;
+            this.missionWikiControlForm.PopOutRequested -=
+                this.MissionWikiControlForm_OnPopOutRequested;
 
             if (!this.missionWikiControlForm.IsDisposed)
             {
@@ -3487,6 +3505,13 @@ public sealed partial class ClientHostForm : Form
     {
         this.missionWikiExpanded = !this.missionWikiExpanded;
         this.SyncMissionWiki();
+    }
+
+    private void MissionWikiControlForm_OnPopOutRequested(
+        object? sender,
+        EventArgs e)
+    {
+        this.ShowMissionWikiCompanion();
     }
 
     private void MissionWikiWebViewForm_OnContentStateChanged(
@@ -3642,7 +3667,15 @@ public sealed partial class ClientHostForm : Form
 
         if (this.navigationCompanionForm is { IsDisposed: false })
         {
+            // The companion is deliberately an independent desktop window.
+            // Keeping the game host as its WinForms owner makes Windows create
+            // or recreate it at the owner's DPI, even when its saved bounds are
+            // on a monitor with different scaling. The next manual move then
+            // triggers WM_DPICHANGED and suddenly restores the expected size.
+            // Detach any owner left by an older build before showing it again.
+            this.navigationCompanionForm.Owner = null;
             this.navigationCompanionForm.RestorePlacement(this.Bounds);
+            this.navigationCompanionForm.PrepareForInitialShow();
             this.navigationCompanionForm.MarkOpen();
             this.navigationCompanionForm.RefreshNow();
 
@@ -3654,6 +3687,8 @@ public sealed partial class ClientHostForm : Form
             }
 
             this.navigationCompanionForm.Show();
+            this.navigationCompanionForm
+                .ScheduleInitialDpiReconciliation();
 
             if (activate)
             {
@@ -3673,7 +3708,14 @@ public sealed partial class ClientHostForm : Form
         this.navigationCompanionForm.FormClosed +=
             this.NavigationCompanionForm_OnFormClosed;
         this.navigationCompanionForm.RestorePlacement(this.Bounds);
-        this.navigationCompanionForm.Show(this);
+        this.navigationCompanionForm.PrepareForInitialShow();
+
+        // Do not assign the game host as owner. The companion may live on a
+        // monitor with a different DPI, and an owned WinForms window inherits
+        // the owner's initial scaling until the user physically moves it.
+        this.navigationCompanionForm.Show();
+        this.navigationCompanionForm
+            .ScheduleInitialDpiReconciliation();
         this.navigationCompanionForm.MarkOpen();
 
         if (activate)

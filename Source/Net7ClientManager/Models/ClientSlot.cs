@@ -29,6 +29,15 @@ public sealed class ClientSlot
     public NavigationPresentationMode NavigationPresentationMode { get; set; } =
         NavigationPresentationMode.Companion;
 
+    public MissionWikiPresentationMode MissionWikiPresentationMode { get; set; } =
+        MissionWikiPresentationMode.InGame;
+
+    public double MissionWikiLeftPaneRatio { get; set; } = 0.42;
+
+    public double MissionWikiListPaneRatio { get; set; } = 0.24;
+
+    public double MissionWikiDetailsPaneRatio { get; set; } = 0.28;
+
     [JsonIgnore]
     public ClientTitleBarMode EffectiveTitleBarMode =>
         this.TitleBarMode ??

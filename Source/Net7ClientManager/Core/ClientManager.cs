@@ -1155,6 +1155,88 @@ public sealed class ClientManager : IDisposable
         }
     }
 
+
+    internal void SetMissionWikiPresentationMode(
+        int processId,
+        MissionWikiPresentationMode mode)
+    {
+        lock (this.lockObject)
+        {
+            if (!this.clients.TryGetValue(processId, out var client))
+            {
+                return;
+            }
+
+            var slot = this.GetAssignedSlot(client);
+
+            if (slot == null || slot.MissionWikiPresentationMode == mode)
+            {
+                return;
+            }
+
+            slot.MissionWikiPresentationMode = mode;
+            this.SaveSettings();
+        }
+    }
+
+    internal void SetMissionWikiPaneRatios(
+        int processId,
+        double leftPaneRatio,
+        double missionListPaneRatio,
+        double detailsPaneRatio)
+    {
+        lock (this.lockObject)
+        {
+            if (!this.clients.TryGetValue(processId, out var client))
+            {
+                return;
+            }
+
+            var slot = this.GetAssignedSlot(client);
+
+            if (slot == null)
+            {
+                return;
+            }
+
+            leftPaneRatio = Math.Clamp(
+                leftPaneRatio,
+                0.30,
+                0.62);
+            missionListPaneRatio = Math.Clamp(
+                missionListPaneRatio,
+                0.18,
+                0.60);
+            detailsPaneRatio = Math.Clamp(
+                detailsPaneRatio,
+                0.18,
+                0.60);
+
+            if (missionListPaneRatio + detailsPaneRatio > 0.82)
+            {
+                detailsPaneRatio = 0.82 - missionListPaneRatio;
+            }
+
+            if (Math.Abs(
+                    slot.MissionWikiLeftPaneRatio -
+                    leftPaneRatio) < 0.001 &&
+                Math.Abs(
+                    slot.MissionWikiListPaneRatio -
+                    missionListPaneRatio) < 0.001 &&
+                Math.Abs(
+                    slot.MissionWikiDetailsPaneRatio -
+                    detailsPaneRatio) < 0.001)
+            {
+                return;
+            }
+
+            slot.MissionWikiLeftPaneRatio = leftPaneRatio;
+            slot.MissionWikiListPaneRatio = missionListPaneRatio;
+            slot.MissionWikiDetailsPaneRatio = detailsPaneRatio;
+            this.SaveSettings();
+        }
+    }
+
     public NavigationAutoPilotCommandResult StartNavigationAutoPilot(
         int processId,
         uint? expectedSectorId = null)
@@ -2254,6 +2336,7 @@ public sealed class ClientManager : IDisposable
             IsClosed = legacy.IsClosed,
             IsVisible = legacy.IsVisible,
             IsMinimized = legacy.IsMinimized,
+            IsMaximized = legacy.IsMaximized,
             HorizontalEdge = legacy.HorizontalEdge,
             MinimizedOffsetX = legacy.MinimizedOffsetX,
             MinimizedOffsetY = legacy.MinimizedOffsetY,
@@ -2302,6 +2385,7 @@ public sealed class ClientManager : IDisposable
                 IsClosed = legacy.IsClosed,
                 IsVisible = legacy.IsVisible,
                 IsMinimized = legacy.IsMinimized,
+                IsMaximized = legacy.IsMaximized,
                 HorizontalEdge = legacy.HorizontalEdge,
                 MinimizedOffsetX = legacy.MinimizedOffsetX,
                 MinimizedOffsetY = legacy.MinimizedOffsetY,
@@ -2946,6 +3030,7 @@ public sealed class ClientManager : IDisposable
                     IsClosed = placement.IsClosed,
                     IsVisible = placement.IsVisible,
                     IsMinimized = placement.IsMinimized,
+                    IsMaximized = placement.IsMaximized,
                     HorizontalEdge = placement.HorizontalEdge,
                     MinimizedOffsetX = placement.MinimizedOffsetX,
                     MinimizedOffsetY = placement.MinimizedOffsetY,
@@ -2994,6 +3079,7 @@ public sealed class ClientManager : IDisposable
                     IsClosed = placement.IsClosed,
                     IsVisible = placement.IsVisible,
                     IsMinimized = placement.IsMinimized,
+                    IsMaximized = placement.IsMaximized,
                     HorizontalEdge = placement.HorizontalEdge,
                     MinimizedOffsetX = placement.MinimizedOffsetX,
                     MinimizedOffsetY = placement.MinimizedOffsetY,
@@ -3008,6 +3094,7 @@ public sealed class ClientManager : IDisposable
                      existing.IsClosed != placement.IsClosed ||
                      existing.IsVisible != placement.IsVisible ||
                      existing.IsMinimized != placement.IsMinimized ||
+                     existing.IsMaximized != placement.IsMaximized ||
                      existing.HorizontalEdge != placement.HorizontalEdge ||
                      existing.MinimizedOffsetX != placement.MinimizedOffsetX ||
                      existing.MinimizedOffsetY != placement.MinimizedOffsetY)
@@ -3019,6 +3106,7 @@ public sealed class ClientManager : IDisposable
                 existing.IsClosed = placement.IsClosed;
                 existing.IsVisible = placement.IsVisible;
                 existing.IsMinimized = placement.IsMinimized;
+                existing.IsMaximized = placement.IsMaximized;
                 existing.HorizontalEdge = placement.HorizontalEdge;
                 existing.MinimizedOffsetX = placement.MinimizedOffsetX;
                 existing.MinimizedOffsetY = placement.MinimizedOffsetY;
@@ -3236,6 +3324,14 @@ public sealed class ClientManager : IDisposable
                         slot.TitleBarHoverDelaySeconds,
                     NavigationPresentationMode =
                         slot.NavigationPresentationMode,
+                    MissionWikiPresentationMode =
+                        slot.MissionWikiPresentationMode,
+                    MissionWikiLeftPaneRatio =
+                        slot.MissionWikiLeftPaneRatio,
+                    MissionWikiListPaneRatio =
+                        slot.MissionWikiListPaneRatio,
+                    MissionWikiDetailsPaneRatio =
+                        slot.MissionWikiDetailsPaneRatio,
                     GameResolutionWidth = slot.GameResolutionWidth,
                     GameResolutionHeight = slot.GameResolutionHeight,
                     IncludeInAssistMe = slot.IncludeInAssistMe,
@@ -3254,6 +3350,7 @@ public sealed class ClientManager : IDisposable
                                 IsClosed = placement.IsClosed,
                                 IsVisible = placement.IsVisible,
                                 IsMinimized = placement.IsMinimized,
+                                IsMaximized = placement.IsMaximized,
                                 HorizontalEdge = placement.HorizontalEdge,
                                 MinimizedOffsetX = placement.MinimizedOffsetX,
                                 MinimizedOffsetY = placement.MinimizedOffsetY,
@@ -11085,6 +11182,7 @@ public sealed class ClientManager : IDisposable
                     IsClosed = placement.IsClosed,
                     IsVisible = placement.IsVisible,
                     IsMinimized = placement.IsMinimized,
+                    IsMaximized = placement.IsMaximized,
                     HorizontalEdge = placement.HorizontalEdge,
                     MinimizedOffsetX = placement.MinimizedOffsetX,
                     MinimizedOffsetY = placement.MinimizedOffsetY,
@@ -11126,6 +11224,7 @@ public sealed class ClientManager : IDisposable
                     IsClosed = placement.IsClosed,
                     IsVisible = placement.IsVisible,
                     IsMinimized = placement.IsMinimized,
+                    IsMaximized = placement.IsMaximized,
                     HorizontalEdge = placement.HorizontalEdge,
                     MinimizedOffsetX = placement.MinimizedOffsetX,
                     MinimizedOffsetY = placement.MinimizedOffsetY,
@@ -11139,6 +11238,7 @@ public sealed class ClientManager : IDisposable
                      existing.IsClosed != placement.IsClosed ||
                      existing.IsVisible != placement.IsVisible ||
                      existing.IsMinimized != placement.IsMinimized ||
+                     existing.IsMaximized != placement.IsMaximized ||
                      existing.HorizontalEdge != placement.HorizontalEdge ||
                      existing.MinimizedOffsetX != placement.MinimizedOffsetX ||
                      existing.MinimizedOffsetY != placement.MinimizedOffsetY)
@@ -11150,6 +11250,7 @@ public sealed class ClientManager : IDisposable
                 existing.IsClosed = placement.IsClosed;
                 existing.IsVisible = placement.IsVisible;
                 existing.IsMinimized = placement.IsMinimized;
+                existing.IsMaximized = placement.IsMaximized;
                 existing.HorizontalEdge = placement.HorizontalEdge;
                 existing.MinimizedOffsetX = placement.MinimizedOffsetX;
                 existing.MinimizedOffsetY = placement.MinimizedOffsetY;

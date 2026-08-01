@@ -4,6 +4,8 @@ using Net7ClientManager.Observations.Models;
 
 internal sealed record NavigationAutoPilotStepPlan
 {
+    private const byte PlanetRawObjectType = 3;
+
     private const byte StationRawObjectType = 12;
 
     public required int Number { get; init; }
@@ -28,7 +30,13 @@ internal sealed record NavigationAutoPilotStepPlan
 
     public required bool RequiresInteraction { get; init; }
 
+    public bool AllowsDetectedInteraction { get; init; }
+
     public required bool IsSectorTransition { get; init; }
+
+    public string ArrivalSectorKey { get; init; } = "";
+
+    public string ArrivalSectorName { get; init; } = "";
 
     public bool IsWormholeTransition { get; init; }
 
@@ -94,6 +102,69 @@ internal sealed record NavigationAutoPilotStepPlan
                 StringComparison.Ordinal);
     }
 
+    public bool CanUseDetectedInteraction(
+        ClientTargetVerb verb)
+    {
+        if (!this.AllowsDetectedInteraction ||
+            !IsRouteInteractionVerb(verb))
+        {
+            return false;
+        }
+
+        // A gate selected as the final destination is an arrival point.
+        // Gate is activated only when the route step itself crosses into
+        // another sector.
+        return this.Kind !=
+                   NavigationRouteStepKind.FinalTarget ||
+               verb != ClientTargetVerb.Gate;
+    }
+
+    public NavigationAutoPilotStepPlan WithDetectedInteraction(
+        ClientTargetVerb verb)
+    {
+        if (!this.CanUseDetectedInteraction(verb) ||
+            (this.RequiresInteraction &&
+             this.Verb == verb))
+        {
+            return this;
+        }
+
+        return this with
+        {
+            Verb = verb,
+            VerbName = GetVerbName(verb),
+            RequiresInteraction = true,
+            ActivatingState =
+                NavigationAutoPilotState.ActivatingDestination,
+            UnavailableReason =
+                NavigationAutoPilotStopReason.DestinationUnavailable,
+            ActivationFailedReason =
+                NavigationAutoPilotStopReason.DestinationActivationFailed,
+            TransitionTimedOutReason =
+                NavigationAutoPilotStopReason.DestinationTransitionTimedOut,
+        };
+    }
+
+    public static bool IsRouteInteractionVerb(
+        ClientTargetVerb verb)
+    {
+        return verb is
+            ClientTargetVerb.Dock or
+            ClientTargetVerb.Gate or
+            ClientTargetVerb.Land;
+    }
+
+    public static string GetVerbName(ClientTargetVerb verb)
+    {
+        return verb switch
+        {
+            ClientTargetVerb.Dock => "Dock",
+            ClientTargetVerb.Gate => "Gate",
+            ClientTargetVerb.Land => "Land",
+            _ => "Interact",
+        };
+    }
+
     public static bool TryCreate(
         NavigationRouteStep step,
         out NavigationAutoPilotStepPlan plan)
@@ -150,6 +221,15 @@ internal sealed record NavigationAutoPilotStepPlan
                 step.DepartureTargetName) &&
             step.DepartureTargetRawObjectType.HasValue)
         {
+            var targetRawObjectType =
+                step.DepartureTargetRawObjectType.Value;
+            var verb = targetRawObjectType ==
+                    PlanetRawObjectType
+                ? ClientTargetVerb.Land
+                : ClientTargetVerb.Gate;
+            var isLandTransition =
+                verb == ClientTargetVerb.Land;
+
             plan = new NavigationAutoPilotStepPlan
             {
                 Number = step.Number,
@@ -159,55 +239,22 @@ internal sealed record NavigationAutoPilotStepPlan
                 ToSectorKey = step.ToSectorKey,
                 ToSectorName = step.ToSectorName,
                 TargetName = step.DepartureTargetName,
-                TargetRawObjectType =
-                    step.DepartureTargetRawObjectType.Value,
-                Verb = ClientTargetVerb.Gate,
-                VerbName = "Gate/Jump",
+                TargetRawObjectType = targetRawObjectType,
+                Verb = verb,
+                VerbName = GetVerbName(verb),
                 RequiresInteraction = true,
                 IsSectorTransition = true,
-                ActivatingState =
-                    NavigationAutoPilotState.ActivatingGate,
-                UnavailableReason =
-                    NavigationAutoPilotStopReason.GateUnavailable,
-                ActivationFailedReason =
-                    NavigationAutoPilotStopReason.GateActivationFailed,
+                ActivatingState = isLandTransition
+                    ? NavigationAutoPilotState.ActivatingDestination
+                    : NavigationAutoPilotState.ActivatingGate,
+                UnavailableReason = isLandTransition
+                    ? NavigationAutoPilotStopReason.DestinationUnavailable
+                    : NavigationAutoPilotStopReason.GateUnavailable,
+                ActivationFailedReason = isLandTransition
+                    ? NavigationAutoPilotStopReason.DestinationActivationFailed
+                    : NavigationAutoPilotStopReason.GateActivationFailed,
                 TransitionTimedOutReason =
                     NavigationAutoPilotStopReason.SectorTransitionTimedOut,
-            };
-
-            return true;
-        }
-
-        if (step.Kind ==
-                NavigationRouteStepKind.FinalTarget &&
-            step.FinalTargetRawObjectType ==
-                StationRawObjectType &&
-            !string.IsNullOrWhiteSpace(
-                step.FinalTargetName))
-        {
-            plan = new NavigationAutoPilotStepPlan
-            {
-                Number = step.Number,
-                Kind = step.Kind,
-                FromSectorKey = step.FromSectorKey,
-                FromSectorName = step.FromSectorName,
-                ToSectorKey = step.ToSectorKey,
-                ToSectorName = step.ToSectorName,
-                TargetName = step.FinalTargetName,
-                TargetRawObjectType =
-                    step.FinalTargetRawObjectType.Value,
-                Verb = ClientTargetVerb.Dock,
-                VerbName = "Dock",
-                RequiresInteraction = true,
-                IsSectorTransition = false,
-                ActivatingState =
-                    NavigationAutoPilotState.ActivatingDestination,
-                UnavailableReason =
-                    NavigationAutoPilotStopReason.DestinationUnavailable,
-                ActivationFailedReason =
-                    NavigationAutoPilotStopReason.DestinationActivationFailed,
-                TransitionTimedOutReason =
-                    NavigationAutoPilotStopReason.DestinationTransitionTimedOut,
             };
 
             return true;
@@ -219,6 +266,17 @@ internal sealed record NavigationAutoPilotStepPlan
             !string.IsNullOrWhiteSpace(
                 step.FinalTargetName))
         {
+            var verb = step.FinalTargetVerb;
+
+            if (verb == ClientTargetVerb.NotApplicable &&
+                step.FinalTargetRawObjectType ==
+                    StationRawObjectType)
+            {
+                verb = ClientTargetVerb.Dock;
+            }
+
+            var requiresInteraction = IsRouteInteractionVerb(verb);
+
             plan = new NavigationAutoPilotStepPlan
             {
                 Number = step.Number,
@@ -230,18 +288,29 @@ internal sealed record NavigationAutoPilotStepPlan
                 TargetName = step.FinalTargetName,
                 TargetRawObjectType =
                     step.FinalTargetRawObjectType.Value,
-                Verb = ClientTargetVerb.NotApplicable,
-                VerbName = "arrival",
-                RequiresInteraction = false,
+                Verb = verb,
+                VerbName = requiresInteraction
+                    ? GetVerbName(verb)
+                    : "arrival",
+                RequiresInteraction = requiresInteraction,
+                AllowsDetectedInteraction = true,
                 IsSectorTransition = false,
-                ActivatingState =
-                    NavigationAutoPilotState.VerifyingArrival,
-                UnavailableReason =
-                    NavigationAutoPilotStopReason.WarpUnavailable,
-                ActivationFailedReason =
-                    NavigationAutoPilotStopReason.InternalError,
-                TransitionTimedOutReason =
-                    NavigationAutoPilotStopReason.WarpInterrupted,
+                ArrivalSectorKey =
+                    step.FinalTargetArrivalSectorKey ?? "",
+                ArrivalSectorName =
+                    step.FinalTargetArrivalSectorName ?? "",
+                ActivatingState = requiresInteraction
+                    ? NavigationAutoPilotState.ActivatingDestination
+                    : NavigationAutoPilotState.VerifyingArrival,
+                UnavailableReason = requiresInteraction
+                    ? NavigationAutoPilotStopReason.DestinationUnavailable
+                    : NavigationAutoPilotStopReason.WarpUnavailable,
+                ActivationFailedReason = requiresInteraction
+                    ? NavigationAutoPilotStopReason.DestinationActivationFailed
+                    : NavigationAutoPilotStopReason.InternalError,
+                TransitionTimedOutReason = requiresInteraction
+                    ? NavigationAutoPilotStopReason.DestinationTransitionTimedOut
+                    : NavigationAutoPilotStopReason.WarpInterrupted,
             };
 
             return true;

@@ -34,6 +34,12 @@ public sealed class AddonWindowPlacement
 
     public bool IsMinimized { get; set; }
 
+    /// <summary>
+    /// Desktop companion windows can restore their maximized presentation
+    /// separately from the normal bounds kept in Width and Height.
+    /// </summary>
+    public bool IsMaximized { get; set; }
+
     public AddonWindowHorizontalEdge HorizontalEdge { get; set; }
 
     /// <summary>

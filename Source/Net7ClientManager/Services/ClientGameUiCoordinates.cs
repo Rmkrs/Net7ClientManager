@@ -180,6 +180,14 @@ internal static class ClientGameUiCoordinates
             492,
             381);
 
+    public static readonly ClientGameUiPoint TradeGoodsConfirmDialog =
+        new(
+            "confirm dialog with trade-goods warning",
+            1280,
+            720,
+            478,
+            405);
+
     public static readonly ClientGameUiPoint ShortcutBarSlot1 =
         new(
             "shortcut bar slot 1",
@@ -341,9 +349,14 @@ internal static class ClientGameUiCoordinates
 
     public static bool TryGetConfirmDialog(
         Size clientSize,
+        bool hasTradeGoodsWarning,
         out Point clientPoint)
     {
-        return ConfirmDialog.TryScaleToClient(
+        var coordinate = hasTradeGoodsWarning
+            ? TradeGoodsConfirmDialog
+            : ConfirmDialog;
+
+        return coordinate.TryScaleToClient(
             clientSize,
             out clientPoint);
     }

@@ -386,11 +386,18 @@ internal static class NavigationAutoPilotStateMachine
             NavigationAutoPilotMachineState state,
             NavigationAutoPilotMachineFrame frame)
     {
-        if (!frame.IsStableSpace ||
+        var startsWithWormhole = frame.NextStep?.Kind ==
+            NavigationRouteStepKind.WormholeTransition;
+        var canReconcileFromPlanet =
+            frame.IsStablePlanet &&
+            startsWithWormhole;
+
+        if ((!frame.IsStableSpace && !canReconcileFromPlanet) ||
             !frame.RouteAvailable ||
             !frame.RouteId.HasValue ||
-            !frame.NavigationStateAvailable ||
-            !frame.NavigationPropertiesAvailable ||
+            (!canReconcileFromPlanet &&
+             (!frame.NavigationStateAvailable ||
+              !frame.NavigationPropertiesAvailable)) ||
             string.IsNullOrWhiteSpace(
                 frame.RouteCurrentSectorKey))
         {
@@ -427,7 +434,8 @@ internal static class NavigationAutoPilotStateMachine
                 frame.Now);
         }
 
-        if (!frame.IsWarpIdle)
+        if (!canReconcileFromPlanet &&
+            !frame.IsWarpIdle)
         {
             return WaitOrStop(
                 state,
@@ -1516,6 +1524,16 @@ internal static class NavigationAutoPilotStateMachine
 
         if (reason == 8)
         {
+            return null;
+        }
+
+        if (reason == 6 &&
+            state.Step?.Verb == ClientTargetVerb.Dock &&
+            CanActivateExpectedVerbDuringRecovery(state, frame))
+        {
+            // A gravity well may end Warp exactly where the intended Dock
+            // action becomes executable. Dock is already available, so
+            // continue instead of reporting a stop.
             return null;
         }
 

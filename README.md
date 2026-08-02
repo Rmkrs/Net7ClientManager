@@ -27,6 +27,7 @@ The complete player documentation starts at:
 - Addon Center for discovery, per-client enablement, updates, activity, and development.
 - Optional, category-controlled Net7 Forge contributions and shared galaxy-data updates.
 - Cross-pilot Earth & Beyond Game Settings editor.
+- `net7cmctl` local automation commands and live-state queries for AutoHotkey and scripts.
 
 ## Add-on creators
 

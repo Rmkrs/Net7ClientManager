@@ -146,7 +146,9 @@ internal sealed class NavigationAutoPilotCoordinator : IDisposable
                     ", but an eligible managed pilot must place that skill on any normal or alternate shortcut slot before Auto Pilot can use it."));
         }
 
-        if (TryReadWarpState(
+        if (observation.World.Environment ==
+                ClientWorldEnvironment.Space &&
+            TryReadWarpState(
                 observation,
                 out _,
                 out var isWarping) &&
@@ -1473,12 +1475,10 @@ internal sealed class NavigationAutoPilotCoordinator : IDisposable
                 ClientLifecycleState.InGame ||
             observation.LoadingOrTransitionFlag != 0 ||
             !observation.World.IsAvailable ||
-            observation.World.Environment !=
-                ClientWorldEnvironment.Space ||
             observation.World.ActiveSectorNumber == 0)
         {
             error =
-                "Auto Pilot requires a verified live space-sector context.";
+                "Auto Pilot requires a verified live world context.";
             return false;
         }
 
@@ -1501,6 +1501,24 @@ internal sealed class NavigationAutoPilotCoordinator : IDisposable
             error = string.IsNullOrWhiteSpace(route.StatusText)
                 ? "No route is planned for this character."
                 : route.StatusText;
+            return false;
+        }
+
+        var startsWithWormhole = route.Route.NextStep?.Kind ==
+            NavigationRouteStepKind.WormholeTransition;
+        var environmentSupported =
+            observation.World.Environment ==
+                ClientWorldEnvironment.Space ||
+            observation.World.Environment ==
+                ClientWorldEnvironment.Planet &&
+            startsWithWormhole;
+
+        if (!environmentSupported)
+        {
+            error = observation.World.Environment ==
+                ClientWorldEnvironment.Planet
+                    ? "Auto Pilot can start on a planet only when the first route step is a wormhole."
+                    : "Auto Pilot requires a verified live space-sector context.";
             return false;
         }
 

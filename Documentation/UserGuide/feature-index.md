@@ -16,6 +16,7 @@ This is the compact map of v1 functionality. Each entry links to the guide that 
 - Live client-state, pilot, location, and route cards: [Running-client cards](running-your-fleet.md#running-client-cards).
 - Compare and copy native game settings: [Game Settings](game-settings.md).
 - Browse and launch archived pilots: [Pilot Archive](pilot-archive.md).
+- Local commands, read-only queries, JSON output, and waits for AutoHotkey or scripts: [Automation control](automation-control.md).
 
 ## In-game fleet operation
 

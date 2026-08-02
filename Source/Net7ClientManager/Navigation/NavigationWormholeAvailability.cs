@@ -11,9 +11,10 @@ public sealed record NavigationWormholeCasterAvailability
     public required int SkillRank { get; init; }
 
     /// <summary>
-    /// True only while this pilot is in stable space, where the native
-    /// shortcut bars can be inspected reliably. Stations deliberately expose
-    /// no shortcut entries, so absence there is unknown rather than missing.
+    /// True only while this pilot is in stable space or on a planet, where
+    /// the native shortcut bars can be inspected reliably. Stations
+    /// deliberately expose no shortcut entries, so absence there is unknown
+    /// rather than missing.
     /// </summary>
     public bool CanInspectShortcuts { get; init; }
 
@@ -34,7 +35,7 @@ public sealed record NavigationWormholeDestinationAvailability
 
     /// <summary>
     /// A missing shortcut is conclusive only when every eligible managed
-    /// caster is currently in stable space and therefore inspectable.
+    /// caster is currently in an inspectable space or planet context.
     /// </summary>
     public bool IsShortcutReadinessKnown =>
         this.Casters.All(caster => caster.CanInspectShortcuts);

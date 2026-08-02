@@ -3785,6 +3785,41 @@ public sealed partial class ClientHostForm : Form
             mode);
     }
 
+    internal bool FocusHostedGameFromControlPlane()
+    {
+        if (this.IsDisposed ||
+            this.Disposing ||
+            this.clientInstance.GameWindowHandle == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        if (this.WindowState == FormWindowState.Minimized)
+        {
+            this.WindowState = FormWindowState.Normal;
+        }
+
+        this.Show();
+        this.BringToFront();
+        this.Activate();
+        NativeMethods.FocusWindow(this.clientInstance.GameWindowHandle);
+        return true;
+    }
+
+    internal bool ShowNavigationCompanionFromControlPlane()
+    {
+        if (this.IsDisposed ||
+            this.Disposing ||
+            !this.CanPresentNavigation)
+        {
+            return false;
+        }
+
+        this.ShowNavigationCompanion();
+        return this.navigationCompanionForm is
+            { IsDisposed: false, Visible: true };
+    }
+
     internal bool ShowNavigationCompanionForHelp()
     {
         if (this.IsDisposed ||

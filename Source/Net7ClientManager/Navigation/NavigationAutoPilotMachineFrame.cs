@@ -124,6 +124,14 @@ internal sealed record NavigationAutoPilotMachineFrame
         this.Environment == ClientWorldEnvironment.Space &&
         this.ActiveSectorNumber != 0;
 
+    public bool IsStablePlanet =>
+        this.ObservationAvailable &&
+        this.LifecycleState == ClientLifecycleState.InGame &&
+        this.LoadingOrTransitionFlag == 0 &&
+        this.WorldAvailable &&
+        this.Environment == ClientWorldEnvironment.Planet &&
+        this.ActiveSectorNumber != 0;
+
     public bool IsStableStarbase =>
         this.ObservationAvailable &&
         this.LifecycleState == ClientLifecycleState.InGame &&

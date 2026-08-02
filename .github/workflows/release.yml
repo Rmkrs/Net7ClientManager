@@ -33,6 +33,21 @@ jobs:
         --output publish
         -p:PublishSingleFile=false
 
+    - name: Publish net7cmctl helper
+      run: >
+        dotnet publish Source/net7cmctl/net7cmctl.csproj
+        --configuration Release
+        --runtime win-x64
+        --self-contained true
+        --output publish-ctl
+        -p:PublishSingleFile=true
+        -p:DebugType=None
+        -p:DebugSymbols=false
+
+    - name: Add net7cmctl to app package
+      run: Copy-Item publish-ctl/net7cmctl.exe publish/net7cmctl.exe
+      shell: pwsh
+
     - name: Zip published app
       run: Compress-Archive -Path publish/* -DestinationPath Net7ClientManager-${{ github.ref_name }}-win-x64.zip
       shell: pwsh

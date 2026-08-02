@@ -3,12 +3,14 @@
   <ItemGroup>
     <ProjectReference Include="..\Net7ClientManager.Observations\Net7ClientManager.Observations.csproj" />
     <ProjectReference Include="..\Net7ClientManager.Addons\Net7ClientManager.Addons.csproj" />
+    <ProjectReference Include="..\Net7ClientManager.ControlPlane.Contracts\Net7ClientManager.ControlPlane.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.9" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.3" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4022.49" />
+    <PackageReference Include="System.IO.Pipes.AccessControl" Version="5.0.0" />
     <PackageReference Include="Scintilla5.NET" Version="6.1.2" />
   </ItemGroup>
 

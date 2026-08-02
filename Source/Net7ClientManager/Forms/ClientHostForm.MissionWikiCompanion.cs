@@ -215,6 +215,20 @@ public sealed partial class ClientHostForm
         }
     }
 
+    internal bool ShowMissionWikiCompanionFromControlPlane()
+    {
+        if (this.IsDisposed ||
+            this.Disposing ||
+            !this.CanPresentMissionWikiCompanion)
+        {
+            return false;
+        }
+
+        this.ShowMissionWikiCompanion();
+        return this.missionWikiCompanionForm is
+            { IsDisposed: false, Visible: true };
+    }
+
     private void ShowMissionWikiInGame()
     {
         this.CloseMissionWikiCompanionForPresentationSwitch();

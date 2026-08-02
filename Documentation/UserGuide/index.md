@@ -32,7 +32,7 @@ New captains can follow the guide in this order:
 4. [Meet the in-game Client Manager](in-game-tools.md).
 5. Explore the feature guides as needed.
 
-Experienced captains can jump directly to the [complete feature index](feature-index.md).
+Experienced captains can jump directly to the [complete feature index](feature-index.md). Macro authors can use the supported [local automation control](automation-control.md) instead of fixed window coordinates.
 
 ## A note about observed information
 

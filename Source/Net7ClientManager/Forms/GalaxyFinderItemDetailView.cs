@@ -642,7 +642,7 @@ internal sealed class GalaxyFinderItemDetailView : UserControl
         if (vendors.Length != 0)
         {
             this.AddContent(
-                this.CreateSourceSection("Vendors", vendors));
+                this.CreateVendorSourceSection(vendors));
         }
 
         if (loot.Length != 0)
@@ -785,6 +785,274 @@ internal sealed class GalaxyFinderItemDetailView : UserControl
         }
 
         return this.CreateSection(heading, body);
+    }
+
+    private Control CreateVendorSourceSection(
+        IReadOnlyList<GalaxyItemSourceKnowledge> sources)
+    {
+        var rows = sources
+            .SelectMany(this.BuildVendorSourceRows)
+            .OrderBy(row => row.HopSortValue)
+            .ThenBy(row => row.SystemName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(row => row.SectorName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(row => row.StationName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(row => row.VendorName, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var grid = new DataGridView
+        {
+            Dock = DockStyle.Top,
+            Height = Math.Min(
+                420,
+                36 + rows.Length * 34 + 2),
+            Margin = Padding.Empty,
+            AllowUserToAddRows = false,
+            AllowUserToDeleteRows = false,
+            AllowUserToResizeRows = false,
+            AutoGenerateColumns = false,
+            BackgroundColor = MainWindowTheme.Panel,
+            BorderStyle = BorderStyle.None,
+            CellBorderStyle =
+                DataGridViewCellBorderStyle.SingleHorizontal,
+            ColumnHeadersBorderStyle =
+                DataGridViewHeaderBorderStyle.Single,
+            ColumnHeadersHeight = 36,
+            ColumnHeadersHeightSizeMode =
+                DataGridViewColumnHeadersHeightSizeMode.DisableResizing,
+            EnableHeadersVisualStyles = false,
+            GridColor = MainWindowTheme.Border,
+            MultiSelect = false,
+            ReadOnly = true,
+            RowHeadersVisible = false,
+            SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+        };
+        grid.RowTemplate.Height = 34;
+        grid.RowTemplate.MinimumHeight = 34;
+        grid.DefaultCellStyle = new DataGridViewCellStyle
+        {
+            BackColor = MainWindowTheme.Panel,
+            ForeColor = MainWindowTheme.Text,
+            SelectionBackColor = MainWindowTheme.ButtonHover,
+            SelectionForeColor = MainWindowTheme.Text,
+            Font = MainWindowTheme.CreateBodyFont(),
+            Padding = new Padding(5, 0, 5, 0),
+        };
+        grid.AlternatingRowsDefaultCellStyle = new DataGridViewCellStyle
+        {
+            BackColor = MainWindowTheme.ElevatedPanel,
+            ForeColor = MainWindowTheme.Text,
+            SelectionBackColor = MainWindowTheme.ButtonHover,
+            SelectionForeColor = MainWindowTheme.Text,
+            Font = MainWindowTheme.CreateBodyFont(),
+            Padding = new Padding(5, 0, 5, 0),
+        };
+        grid.ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
+        {
+            BackColor = MainWindowTheme.Header,
+            ForeColor = MainWindowTheme.Accent,
+            SelectionBackColor = MainWindowTheme.Header,
+            SelectionForeColor = MainWindowTheme.Accent,
+            Font = MainWindowTheme.CreateHeadingFont(9f),
+            Alignment = DataGridViewContentAlignment.MiddleLeft,
+            Padding = new Padding(5, 0, 5, 0),
+        };
+
+        grid.Columns.Add(
+            CreateVendorTextColumn(
+                "System",
+                "System",
+                15f));
+        grid.Columns.Add(
+            CreateVendorTextColumn(
+                "Sector",
+                "Sector",
+                20f));
+        grid.Columns.Add(
+            CreateVendorTextColumn(
+                "Station",
+                "Station",
+                25f));
+        grid.Columns.Add(
+            CreateVendorTextColumn(
+                "Vendor",
+                "Vendor name",
+                25f));
+        grid.Columns.Add(
+            new DataGridViewTextBoxColumn
+            {
+                Name = "Hops",
+                HeaderText = "Hops",
+                Width = 72,
+                MinimumWidth = 62,
+                SortMode = DataGridViewColumnSortMode.Automatic,
+                ValueType = typeof(int),
+                DefaultCellStyle = new DataGridViewCellStyle
+                {
+                    Alignment = DataGridViewContentAlignment.MiddleCenter,
+                },
+            });
+        grid.Columns.Add(
+            new DataGridViewTextBoxColumn
+            {
+                Name = "Destination",
+                HeaderText = "Route",
+                Width = 142,
+                MinimumWidth = 132,
+                SortMode = DataGridViewColumnSortMode.NotSortable,
+                DefaultCellStyle = new DataGridViewCellStyle
+                {
+                    Alignment = DataGridViewContentAlignment.MiddleCenter,
+                    ForeColor = MainWindowTheme.Accent,
+                    SelectionForeColor = MainWindowTheme.Accent,
+                },
+            });
+
+        foreach (var rowModel in rows)
+        {
+            var rowIndex = grid.Rows.Add(
+                rowModel.SystemName,
+                rowModel.SectorName,
+                rowModel.StationName,
+                rowModel.VendorName,
+                rowModel.Hops ?? int.MaxValue,
+                rowModel.Route == null
+                    ? "Unavailable"
+                    : "Set destination");
+            var row = grid.Rows[rowIndex];
+            row.Tag = rowModel;
+
+            if (rowModel.Route == null)
+            {
+                row.Cells["Destination"].Style.ForeColor =
+                    MainWindowTheme.DisabledText;
+                row.Cells["Destination"].Style.SelectionForeColor =
+                    MainWindowTheme.DisabledText;
+            }
+        }
+
+        grid.CellFormatting += (_, e) =>
+        {
+            if (e.ColumnIndex < 0 ||
+                !string.Equals(
+                    grid.Columns[e.ColumnIndex].Name,
+                    "Hops",
+                    StringComparison.Ordinal) ||
+                e.Value is not int hops)
+            {
+                return;
+            }
+
+            e.Value = hops switch
+            {
+                int.MaxValue => "—",
+                0 => "Here",
+                _ => hops.ToString(
+                    CultureInfo.InvariantCulture),
+            };
+            e.FormattingApplied = true;
+        };
+        grid.CellClick += (_, e) =>
+        {
+            if (e.RowIndex < 0 ||
+                e.ColumnIndex < 0 ||
+                !string.Equals(
+                    grid.Columns[e.ColumnIndex].Name,
+                    "Destination",
+                    StringComparison.Ordinal) ||
+                grid.Rows[e.RowIndex].Tag is not
+                    VendorSourceRow { Route: { } route })
+            {
+                return;
+            }
+
+            this.setSourceDestination(route);
+        };
+        grid.CellMouseEnter += (_, e) =>
+        {
+            grid.Cursor = e.RowIndex >= 0 &&
+                          e.ColumnIndex >= 0 &&
+                          string.Equals(
+                              grid.Columns[e.ColumnIndex].Name,
+                              "Destination",
+                              StringComparison.Ordinal) &&
+                          grid.Rows[e.RowIndex].Tag is
+                              VendorSourceRow { Route: not null }
+                ? Cursors.Hand
+                : Cursors.Default;
+        };
+        grid.MouseLeave += (_, _) =>
+            grid.Cursor = Cursors.Default;
+
+        return this.CreateSection("Vendors", grid);
+    }
+
+    private IEnumerable<VendorSourceRow> BuildVendorSourceRows(
+        GalaxyItemSourceKnowledge source)
+    {
+        var routes = this.resolveSourceRoutes(source);
+
+        if (routes.Count == 0)
+        {
+            yield return new VendorSourceRow(
+                SystemName: "—",
+                SectorName: FirstNonEmpty(
+                    source.SectorName,
+                    source.Locations
+                        .Select(location => location.SectorName)
+                        .FirstOrDefault(value =>
+                            !string.IsNullOrWhiteSpace(value))),
+                StationName: FirstNonEmpty(
+                    source.LocationName,
+                    source.Locations
+                        .Select(location => location.LocationName)
+                        .FirstOrDefault(value =>
+                            !string.IsNullOrWhiteSpace(value))),
+                VendorName:
+                    GalaxyFinderSourcePresentation
+                        .GetSourceDisplayName(source),
+                Hops: null,
+                HopSortValue: int.MaxValue,
+                Route: null);
+            yield break;
+        }
+
+        foreach (var route in routes)
+        {
+            yield return new VendorSourceRow(
+                SystemName: FirstNonEmpty(
+                    route.Destination.SystemName,
+                    "—"),
+                SectorName: FirstNonEmpty(
+                    route.Destination.SectorName,
+                    source.SectorName,
+                    "—"),
+                StationName: FirstNonEmpty(
+                    route.Destination.TargetName,
+                    source.LocationName,
+                    "—"),
+                VendorName:
+                    GalaxyFinderSourcePresentation
+                        .GetSourceDisplayName(source),
+                Hops: route.Hops,
+                HopSortValue: route.HopSortValue,
+                Route: route);
+        }
+    }
+
+    private static DataGridViewTextBoxColumn CreateVendorTextColumn(
+        string name,
+        string heading,
+        float fillWeight)
+    {
+        return new DataGridViewTextBoxColumn
+        {
+            Name = name,
+            HeaderText = heading,
+            AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
+            FillWeight = fillWeight,
+            MinimumWidth = 110,
+            SortMode = DataGridViewColumnSortMode.Automatic,
+        };
     }
 
     private Control CreateSourceSection(
@@ -1392,6 +1660,15 @@ internal sealed class GalaxyFinderItemDetailView : UserControl
         return values.FirstOrDefault(value =>
             !string.IsNullOrWhiteSpace(value))?.Trim() ?? "";
     }
+
+    private sealed record VendorSourceRow(
+        string SystemName,
+        string SectorName,
+        string StationName,
+        string VendorName,
+        int? Hops,
+        int HopSortValue,
+        GalaxyFinderResolvedRoute? Route);
 
     private sealed record ItemFieldRow(string Label, string Value);
 }

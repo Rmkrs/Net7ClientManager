@@ -16,6 +16,7 @@ internal static class NavigationAutoPilotStateMachineScenarios
         ValidateAlreadyInRangeStationJourney();
         ValidateGateThenStationJourney();
         ValidateWormholeThenStationJourney();
+        ValidatePlanetWormholeStart();
         ValidateSlowGateTransition();
         ValidateLatePostSectorTargetPublication();
         ValidateRouteLagAfterSectorTransition();
@@ -24,6 +25,7 @@ internal static class NavigationAutoPilotStateMachineScenarios
         ValidateMissingVerbRequiresWarp();
         ValidateUnexpectedWarpStateBlocksCommand();
         ValidateGravityInterferenceStopsWarp();
+        ValidateGravityInterferenceAllowsReadyDock();
         ValidateUnexpectedWarpAfterCleanBaseline();
         ValidateTransientSelectionRetry();
         ValidateTargetInterruption();
@@ -1042,6 +1044,46 @@ internal static class NavigationAutoPilotStateMachineScenarios
             "wormhole arrival reconciliation");
     }
 
+    private static void ValidatePlanetWormholeStart()
+    {
+        var now = DateTimeOffset.Parse(
+            "2026-08-02T09:20:00+00:00",
+            CultureInfo.InvariantCulture);
+        var wormhole = CreateWormholeStep(
+            number: 1,
+            fromSectorKey: "swooping-eagle",
+            fromSectorName: "Swooping Eagle Planet",
+            toSectorKey: "glenn",
+            toSectorName: "Glenn",
+            abilityName: "Glenn Gate");
+        var state = CreateState(
+            now,
+            "swooping-eagle",
+            "Swooping Eagle Planet",
+            "Glenn");
+
+        var activating = NavigationAutoPilotStateMachine.Observe(
+            state,
+            CreateFrame(
+                state,
+                now,
+                "swooping-eagle",
+                "Swooping Eagle Planet",
+                wormhole,
+                environment: ClientWorldEnvironment.Planet,
+                navigationStateAvailable: false,
+                navigationPropertiesAvailable: false));
+
+        AssertEffect(
+            activating,
+            NavigationAutoPilotEffectKind.ActivateWormhole,
+            "planet wormhole activation request");
+        AssertPhase(
+            activating.State,
+            NavigationAutoPilotMachinePhase.ActivatingWormhole,
+            "planet wormhole activation phase");
+    }
+
     private static void ValidateSlowGateTransition()
     {
         var now = DateTimeOffset.Parse(
@@ -1678,6 +1720,79 @@ internal static class NavigationAutoPilotStateMachineScenarios
         }
     }
 
+    private static void ValidateGravityInterferenceAllowsReadyDock()
+    {
+        var now = DateTimeOffset.Parse(
+            "2026-08-02T09:25:00+00:00",
+            CultureInfo.InvariantCulture);
+        var station = CreateStationStep(
+            number: 1,
+            sectorKey: "andong",
+            sectorName: "Androzai",
+            targetName: "Androzai [Under Construction]");
+        var state = CreateState(
+            now,
+            "andong",
+            "Androzai",
+            station.FinalTargetName!) with
+        {
+            Phase = NavigationAutoPilotMachinePhase.Warping,
+            PhaseStartedAt = now,
+            StepStartedAt = now,
+            Step = CreatePlan(station),
+            TargetObjectId = 206,
+            StepGenerationSequence = 1,
+            WarpRequestNavigationSequence =
+                now.ToUnixTimeMilliseconds(),
+            WarpRequestGenerationSequence = 1,
+            WarpRequestedAt = now,
+            WarpRequestAccepted = true,
+            WarpReachedActiveState = true,
+            PublicState = NavigationAutoPilotState.Warping,
+        };
+
+        var waiting = NavigationAutoPilotStateMachine.Observe(
+            state,
+            CreateFrame(
+                state,
+                now.AddSeconds(1),
+                "andong",
+                "Androzai",
+                station,
+                selectedTargetObjectId: 206,
+                verbState: NavigationAutoPilotVerbState.Executable,
+                terminalWarpReason: 6,
+                terminalWarpReasonAt: now.AddMilliseconds(900)));
+
+        if (waiting.State.IsTerminal)
+        {
+            throw new InvalidOperationException(
+                "Gravity interference stopped Auto Pilot even though Dock was executable.");
+        }
+
+        var activating = NavigationAutoPilotStateMachine.Observe(
+            waiting.State,
+            CreateFrame(
+                waiting.State,
+                now.AddSeconds(1.1),
+                "andong",
+                "Androzai",
+                station,
+                selectedTargetObjectId: 206,
+                verbState: NavigationAutoPilotVerbState.Executable,
+                terminalWarpReason: 6,
+                terminalWarpReasonAt: now.AddMilliseconds(900)));
+
+        AssertEffect(
+            activating,
+            NavigationAutoPilotEffectKind.ActivateVerb,
+            "gravity interference ready Dock activation");
+        AssertPhase(
+            activating.State,
+            NavigationAutoPilotMachinePhase.ActivatingVerb,
+            "gravity interference ready Dock phase");
+    }
+
     private static void ValidateTransientSelectionRetry()
     {
         var now = DateTimeOffset.Parse(
@@ -2065,6 +2180,8 @@ internal static class NavigationAutoPilotStateMachineScenarios
             ClientTargetVerb.NotApplicable,
         float? targetDistance = null,
         bool? interactionControlReady = null,
+        bool navigationStateAvailable = true,
+        bool navigationPropertiesAvailable = true,
         bool pathBuildStateKnown = true,
         bool pathBuildBusy = false)
     {
@@ -2104,8 +2221,8 @@ internal static class NavigationAutoPilotStateMachineScenarios
             RouteCurrentSectorName = sectorName,
             RouteDestinationName = state.DestinationName,
             NextStep = step,
-            NavigationStateAvailable = true,
-            NavigationPropertiesAvailable = true,
+            NavigationStateAvailable = navigationStateAvailable,
+            NavigationPropertiesAvailable = navigationPropertiesAvailable,
             NavigationStateSequence = now.ToUnixTimeMilliseconds(),
             NavigationGenerationSequence = generationSequence,
             NavigationGenerationChanged = generationChanged,

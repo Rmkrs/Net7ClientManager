@@ -26,6 +26,7 @@ public sealed class WorldFindForm : ThemedForm
     private readonly Dictionary<ThemedTabPage, int> detailPageItemIds = [];
     private readonly Dictionary<ThemedTabPage, ThemedTabPage>
         detailPageReturnPages = [];
+    private readonly HashSet<int> expandedVendorItemIds = [];
     private readonly ComboBox clientComboBox = new();
     private readonly ComboBox scopeComboBox = new();
     private readonly ComboBox categoryComboBox = new();
@@ -899,14 +900,58 @@ public sealed class WorldFindForm : ThemedForm
         DataGridViewCellEventArgs e)
     {
         if (e.RowIndex < 0 ||
-            e.ColumnIndex < 0 ||
-            this.resultsGrid.Columns[e.ColumnIndex].Name !=
-            "Destination")
+            e.ColumnIndex < 0)
+        {
+            return;
+        }
+
+        var columnName = this.resultsGrid.Columns[e.ColumnIndex].Name;
+        if (string.Equals(
+                columnName,
+                "Sources",
+                StringComparison.Ordinal) &&
+            this.TryToggleVendorExpansion(e.RowIndex))
+        {
+            return;
+        }
+
+        if (!string.Equals(
+                columnName,
+                "Destination",
+                StringComparison.Ordinal))
         {
             return;
         }
 
         this.SetDestinationForRow(e.RowIndex);
+    }
+
+    private bool TryToggleVendorExpansion(int rowIndex)
+    {
+        if (rowIndex < 0 ||
+            rowIndex >= this.resultsGrid.Rows.Count ||
+            this.resultsGrid.Rows[rowIndex].Tag is not
+                FinderSearchRow row ||
+            row.ItemMatch is not { } itemMatch ||
+            row.IsVendorRouteRow)
+        {
+            return false;
+        }
+
+        var additionalRoutes = this.GetAdditionalVendorRoutes(row);
+        if (additionalRoutes.Count == 0)
+        {
+            return false;
+        }
+
+        var itemTemplateId = itemMatch.Item.ItemTemplateId;
+        if (!this.expandedVendorItemIds.Add(itemTemplateId))
+        {
+            this.expandedVendorItemIds.Remove(itemTemplateId);
+        }
+
+        this.RenderCurrentSearchRows(row.Identity);
+        return true;
     }
 
     private void ResultsGrid_OnCellDoubleClick(
@@ -1286,8 +1331,12 @@ public sealed class WorldFindForm : ThemedForm
         }
 
         var item = itemMatch.Item;
-        if (columnName is "Icon" or "Name" or
-            "Type" or "Category" or "Level")
+        if (!row.IsVendorRouteRow &&
+            (columnName == "Icon" ||
+             columnName == "Name" ||
+             columnName == "Type" ||
+             columnName == "Category" ||
+             columnName == "Level"))
         {
             if (this.hoveredItemToolTipTemplateId ==
                 item.ItemTemplateId)
@@ -1325,6 +1374,26 @@ public sealed class WorldFindForm : ThemedForm
                 "Sources",
                 StringComparison.Ordinal))
         {
+            if (row.IsVendorRouteRow)
+            {
+                if (!string.IsNullOrWhiteSpace(row.RouteDescription))
+                {
+                    this.contextualToolTip.SetHoveredToolTip(
+                        grid,
+                        BuildContextualToolTipContent(
+                            "Vendor destination",
+                            row.RouteDescription),
+                        this.GetItemToolTipDelayMilliseconds());
+                }
+
+                return;
+            }
+
+            if (this.GetAdditionalVendorRoutes(row).Count != 0)
+            {
+                grid.Cursor = Cursors.Hand;
+            }
+
             var details = GalaxyFinderSourcePresentation.BuildDetails(
                 item);
             if (details.Length != 0)
@@ -1807,11 +1876,15 @@ public sealed class WorldFindForm : ThemedForm
         }
 
         var orderedRows = this.ApplyActiveSort(rows);
-        var visibleRows = orderedRows
+        var visibleParentRows = orderedRows
             .Take(MaximumResults)
             .Select(row => this.ResolveItemRoute(
                 row,
                 this.currentSearchItemDistances))
+            .ToArray();
+
+        var visibleRows = visibleParentRows
+            .SelectMany(this.ExpandVendorRows)
             .ToArray();
 
         foreach (var rowModel in visibleRows)
@@ -1837,19 +1910,19 @@ public sealed class WorldFindForm : ThemedForm
 
         var sortText = this.BuildSortStatusText();
 
-        this.statusLabel.Text = visibleRows.Length == 0
+        this.statusLabel.Text = visibleParentRows.Length == 0
             ? BuildNoMatchesText(this.currentSearchQuery)
-            : orderedRows.Length > visibleRows.Length
+            : orderedRows.Length > visibleParentRows.Length
                 ? string.IsNullOrWhiteSpace(sortText)
                     ? string.Create(
                         CultureInfo.InvariantCulture,
-                        $"Showing the best {visibleRows.Length:N0} of {orderedRows.Length:N0} matches.{pilotText}")
+                        $"Showing the best {visibleParentRows.Length:N0} of {orderedRows.Length:N0} matches.{pilotText}")
                     : string.Create(
                         CultureInfo.InvariantCulture,
-                        $"Showing {visibleRows.Length:N0} of {orderedRows.Length:N0} matches.{sortText}{pilotText}")
+                        $"Showing {visibleParentRows.Length:N0} of {orderedRows.Length:N0} matches.{sortText}{pilotText}")
                 : string.Create(
                     CultureInfo.InvariantCulture,
-                    $"{visibleRows.Length:N0} match{(visibleRows.Length == 1 ? "" : "es")}.{sortText}{pilotText}");
+                    $"{visibleParentRows.Length:N0} match{(visibleParentRows.Length == 1 ? "" : "es")}.{sortText}{pilotText}");
         this.AppendStaleSearchNotice();
     }
 
@@ -2215,6 +2288,145 @@ public sealed class WorldFindForm : ThemedForm
         };
     }
 
+    private IEnumerable<FinderSearchRow> ExpandVendorRows(
+        FinderSearchRow row)
+    {
+        yield return row;
+
+        if (row.ItemMatch is not { } itemMatch ||
+            row.IsVendorRouteRow ||
+            !this.expandedVendorItemIds.Contains(
+                itemMatch.Item.ItemTemplateId))
+        {
+            yield break;
+        }
+
+        var additionalRoutes = this.GetAdditionalVendorRoutes(row);
+        for (var index = 0; index < additionalRoutes.Count; index++)
+        {
+            yield return this.CreateVendorRouteRow(
+                row,
+                additionalRoutes[index],
+                index);
+        }
+    }
+
+    private IReadOnlyList<GalaxyFinderResolvedRoute>
+        GetAdditionalVendorRoutes(FinderSearchRow row)
+    {
+        if (row.ItemMatch is not { } itemMatch)
+        {
+            return [];
+        }
+
+        var routes = itemMatch.Item.Sources
+            .Where(source =>
+                source.Kind == GalaxyItemSourceKind.Vendor)
+            .SelectMany(source =>
+                GalaxyFinderRouteResolver.FindRoutes(
+                    this.clientManager.NavigationData,
+                    source,
+                    this.currentSearchItemDistances))
+            .OrderBy(route => route.HopSortValue)
+            .ThenBy(
+                route => GalaxyFinderSourcePresentation
+                    .GetSourceDisplayName(route.Source),
+                StringComparer.OrdinalIgnoreCase)
+            .ThenBy(
+                route => route.Destination.SystemName,
+                StringComparer.OrdinalIgnoreCase)
+            .ThenBy(
+                route => route.Destination.SectorName,
+                StringComparer.OrdinalIgnoreCase)
+            .ThenBy(
+                route => route.Destination.TargetName,
+                StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (routes.Length <= 1)
+        {
+            return [];
+        }
+
+        return
+        [
+            .. routes.Where(route =>
+                !VendorRoutesMatch(route, row.ResolvedRoute)),
+        ];
+    }
+
+    private FinderSearchRow CreateVendorRouteRow(
+        FinderSearchRow parent,
+        GalaxyFinderResolvedRoute route,
+        int index)
+    {
+        var isCurrentLocation = this.IsAlreadyAtDestination(route);
+        var sourceName = GalaxyFinderSourcePresentation
+            .GetSourceDisplayName(route.Source);
+        var locationParts = new[]
+            {
+                route.Destination.SystemName,
+                route.Destination.SectorName,
+                route.Destination.TargetName,
+            }
+            .Where(value => !string.IsNullOrWhiteSpace(value));
+        var sourceText = string.Concat(
+            sourceName,
+            Environment.NewLine,
+            string.Join(" · ", locationParts));
+
+        return new FinderSearchRow(
+            Identity: string.Create(
+                CultureInfo.InvariantCulture,
+                $"item-vendor-route:{parent.ItemMatch!.Item.ItemTemplateId}:{route.Source.RelationshipId}:{route.Destination.SectorKey}:{route.Destination.TargetKey}:{index}"),
+            Name: parent.Name,
+            Rank: parent.Rank,
+            HopText: isCurrentLocation
+                ? "Here"
+                : FormatHopText(route.Hops),
+            HopSortValue: isCurrentLocation
+                ? 0
+                : route.HopSortValue,
+            DestinationText: isCurrentLocation
+                ? ""
+                : "Set destination",
+            CanSetDestination: !isCurrentLocation,
+            IsCurrentLocation: isCurrentLocation,
+            ItemMatch: parent.ItemMatch,
+            WorldMatch: null,
+            Destination: isCurrentLocation
+                ? null
+                : route.Destination,
+            RouteDescription: route.Description,
+            ResolvedRoute: route,
+            IsVendorRouteRow: true,
+            SourcesTextOverride: sourceText);
+    }
+
+    private static bool VendorRoutesMatch(
+        GalaxyFinderResolvedRoute left,
+        GalaxyFinderResolvedRoute? right)
+    {
+        if (right == null ||
+            right.Source.Kind != GalaxyItemSourceKind.Vendor)
+        {
+            return false;
+        }
+
+        return string.Equals(
+                   left.Source.RelationshipId,
+                   right.Source.RelationshipId,
+                   StringComparison.Ordinal) &&
+               string.Equals(
+                   left.Destination.SectorKey,
+                   right.Destination.SectorKey,
+                   StringComparison.Ordinal) &&
+               string.Equals(
+                   left.Destination.TargetKey,
+                   right.Destination.TargetKey,
+                   StringComparison.Ordinal);
+    }
+
     private static string FormatHopText(int? hops)
     {
         return hops switch
@@ -2261,6 +2473,25 @@ public sealed class WorldFindForm : ThemedForm
         row.Tag = rowModel;
         this.ApplyWorldScopeCellStyle(row, rowModel);
 
+        if (this.resultsGrid.Columns.Contains("Sources"))
+        {
+            var sourcesCell = row.Cells["Sources"];
+            if (rowModel.IsVendorRouteRow)
+            {
+                sourcesCell.Style.Padding = new Padding(
+                    left: 12,
+                    top: 0,
+                    right: 0,
+                    bottom: 0);
+            }
+            else if (this.GetAdditionalVendorRoutes(rowModel).Count != 0)
+            {
+                sourcesCell.Style.ForeColor = MainWindowTheme.Accent;
+                sourcesCell.Style.SelectionForeColor =
+                    MainWindowTheme.Accent;
+            }
+        }
+
         if (!this.resultsGrid.Columns.Contains("Destination"))
         {
             return;
@@ -2304,6 +2535,17 @@ public sealed class WorldFindForm : ThemedForm
             var item = itemMatch.Item;
             var snapshot = this.clientManager.GalaxyKnowledge;
 
+            if (row.IsVendorRouteRow)
+            {
+                return columnName switch
+                {
+                    "Sources" => row.SourcesTextOverride,
+                    "Hops" => row.HopText,
+                    "Destination" => row.DestinationText,
+                    _ => null,
+                };
+            }
+
             if (row.ItemSource is { } itemSource)
             {
                 return columnName switch
@@ -2346,10 +2588,7 @@ public sealed class WorldFindForm : ThemedForm
                 "Location" =>
                     GalaxyFinderItemFacts.GetManufacturerText(item),
                 "Level" => GalaxyFinderItemFacts.GetLevelText(item),
-                "Sources" =>
-                    GalaxyFinderSourcePresentation.BuildCompactSummary(
-                        item,
-                        row.ResolvedRoute),
+                "Sources" => this.BuildItemSourcesCellText(row),
                 "Manufacturer" =>
                     GalaxyFinderItemFacts.GetManufacturerText(item),
                 "Effects" => itemMatch.EffectSummary,
@@ -2456,6 +2695,39 @@ public sealed class WorldFindForm : ThemedForm
             "Destination" => row.DestinationText,
             _ => "",
         };
+    }
+
+    private string BuildItemSourcesCellText(FinderSearchRow row)
+    {
+        if (row.ItemMatch is not { } itemMatch)
+        {
+            return "";
+        }
+
+        var summary = GalaxyFinderSourcePresentation.BuildCompactSummary(
+            itemMatch.Item,
+            row.ResolvedRoute);
+        var additionalRoutes = this.GetAdditionalVendorRoutes(row);
+
+        if (additionalRoutes.Count == 0)
+        {
+            return summary;
+        }
+
+        var expanded = this.expandedVendorItemIds.Contains(
+            itemMatch.Item.ItemTemplateId);
+        var instruction = expanded
+            ? string.Create(
+                CultureInfo.CurrentCulture,
+                $"{additionalRoutes.Count:N0} more vendor destination{(additionalRoutes.Count == 1 ? "" : "s")} shown below · click to hide")
+            : string.Create(
+                CultureInfo.CurrentCulture,
+                $"Click to show {additionalRoutes.Count:N0} more vendor destination{(additionalRoutes.Count == 1 ? "" : "s")}");
+
+        return string.Concat(
+            summary,
+            Environment.NewLine,
+            instruction);
     }
 
     private string GetItemSourceSystem(FinderSearchRow row)
@@ -2929,6 +3201,13 @@ public sealed class WorldFindForm : ThemedForm
                 this.AddCenteredTextColumn("Hops", "Hops", 96);
                 this.AddDestinationColumn();
                 break;
+        }
+
+        if (this.resultsGrid.Columns.Contains("Sources") &&
+            this.resultsGrid.Columns["Sources"] is
+            DataGridViewTextBoxColumn sourcesColumn)
+        {
+            ConfigureWrappedColumn(sourcesColumn);
         }
 
         if (mode != FinderGridMode.Mixed &&
@@ -4393,7 +4672,9 @@ public sealed class WorldFindForm : ThemedForm
         GalaxyItemSourceLocationKnowledge? ItemSourceLocation = null,
         NavigationDestination? Destination = null,
         string RouteDescription = "",
-        GalaxyFinderResolvedRoute? ResolvedRoute = null);
+        GalaxyFinderResolvedRoute? ResolvedRoute = null,
+        bool IsVendorRouteRow = false,
+        string SourcesTextOverride = "");
 
     private sealed record CurrentWorldLocation(
         string? SectorKey,

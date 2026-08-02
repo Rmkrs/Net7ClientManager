@@ -7295,7 +7295,8 @@ public sealed class ClientManager : IDisposable
                 snapshot.World is
                 {
                     IsAvailable: true,
-                    Environment: ClientWorldEnvironment.Space,
+                    Environment: ClientWorldEnvironment.Space or
+                        ClientWorldEnvironment.Planet,
                 };
             var shortcuts = canInspectShortcuts &&
                             this.clientObservationCoordinator.TryReadShortcutState(
@@ -10170,8 +10171,18 @@ public sealed class ClientManager : IDisposable
         var hasStableSpaceContext =
             snapshot.IsAvailable &&
             observation is { IsAvailable: true, LifecycleState: ClientLifecycleState.InGame, LoadingOrTransitionFlag: 0, World: { IsAvailable: true, Environment: ClientWorldEnvironment.Space, ActiveSectorNumber: not 0 } };
+        var startsWithWormhole = route?.NextStep?.Kind ==
+            NavigationRouteStepKind.WormholeTransition;
+        var hasStablePlanetWormholeContext =
+            snapshot.IsAvailable &&
+            startsWithWormhole &&
+            observation is { IsAvailable: true, LifecycleState: ClientLifecycleState.InGame, LoadingOrTransitionFlag: 0, World: { IsAvailable: true, Environment: ClientWorldEnvironment.Planet, ActiveSectorNumber: not 0 } };
+        var hasStableAutoPilotContext =
+            hasStableSpaceContext ||
+            hasStablePlanetWormholeContext;
         var runtime = observation.LocalPlayer.Operational.Runtime;
         var isObservedWarping =
+            hasStableSpaceContext &&
             observation.LocalPlayer.IsAvailable &&
             observation.LocalPlayer.Operational.IsAvailable &&
             runtime.PrivateWarpState.HasValue &&
@@ -10185,7 +10196,7 @@ public sealed class ClientManager : IDisposable
                 NavigationRouteStepKind.FinalTarget &&
             !supportsCurrentAutoPilotStep;
         var canStartAutoPilot =
-            hasStableSpaceContext &&
+            hasStableAutoPilotContext &&
             !isObservedWarping &&
             !autoPilotRunning &&
             supportsCurrentAutoPilotStep;
@@ -11873,7 +11884,7 @@ public sealed class ClientManager : IDisposable
         };
     }
 
-    private MissionJobGuidance? ResolveMissionJobGuidance(
+    internal MissionJobGuidance? ResolveMissionJobGuidance(
         int processId,
         ClientMissionObservation mission)
     {

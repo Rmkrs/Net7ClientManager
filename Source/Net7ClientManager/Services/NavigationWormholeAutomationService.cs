@@ -41,6 +41,7 @@ internal sealed class NavigationWormholeAutomationService(
         TimeSpan.FromMilliseconds(175);
 
     private const int CursorRestoreTolerancePixels = 4;
+    private const int TradeGoodsCategory = 90;
 
     public async Task<NavigationAutoPilotEffectOutcome> ExecuteAsync(
         NavigationAutoPilotFleetContext fleet,
@@ -237,7 +238,9 @@ internal sealed class NavigationWormholeAutomationService(
                     out var snapshot) ||
                 snapshot.LifecycleState != ClientLifecycleState.InGame ||
                 snapshot.LoadingOrTransitionFlag != 0 ||
-                snapshot.World.Environment != ClientWorldEnvironment.Space)
+                snapshot.World.Environment is not
+                    (ClientWorldEnvironment.Space or
+                     ClientWorldEnvironment.Planet))
             {
                 continue;
             }
@@ -538,17 +541,24 @@ internal sealed class NavigationWormholeAutomationService(
 
         if (before.LoadingOrTransitionFlag != 0 ||
             before.LifecycleState != ClientLifecycleState.InGame ||
-            before.World.Environment != ClientWorldEnvironment.Space)
+            before.World.Environment is not
+                (ClientWorldEnvironment.Space or
+                 ClientWorldEnvironment.Planet))
         {
             // The client may already have accepted and entered transition.
             return NavigationAutoPilotEffectOutcome.Success();
         }
+
+        var hasTradeGoodsWarning = before.LocalPlayer.Inventory
+            .CargoItems
+            .Any(item => item.Template?.Category == TradeGoodsCategory);
 
         if (!NativeMethods.TryGetClientSize(
                 participant.Client.GameWindowHandle,
                 out var clientSize) ||
             !ClientGameUiCoordinates.TryGetConfirmDialog(
                 clientSize,
+                hasTradeGoodsWarning,
                 out var confirmClientPoint) ||
             !NativeMethods.TryConvertClientPointToScreen(
                 participant.Client.GameWindowHandle,

@@ -144,10 +144,13 @@ public sealed partial class MainForm
 
             var launchState =
                 this.clientManager.GetProfileSlotLaunchStatus(slot);
+            var runningClient =
+                this.clientManager.GetRunningClientForSlot(slot.Id);
             var statusText = launchState.ButtonText switch
             {
                 "Running" => "RUNNING",
                 "Starting..." => "STARTING",
+                "Restarting..." => "RESTARTING",
                 "Retry" => "FAILED",
                 _ => "AVAILABLE",
             };
@@ -155,6 +158,7 @@ public sealed partial class MainForm
             {
                 "Running" => MainWindowTheme.Success,
                 "Starting..." => MainWindowTheme.Accent,
+                "Restarting..." => MainWindowTheme.Accent,
                 "Retry" => MainWindowTheme.Danger,
                 _ => MainWindowTheme.MutedText,
             };
@@ -162,11 +166,13 @@ public sealed partial class MainForm
             {
                 "Running" => MainWindowTheme.Success,
                 "Starting..." => MainWindowTheme.Accent,
+                "Restarting..." => MainWindowTheme.Accent,
                 "Retry" => MainWindowTheme.Danger,
                 _ => MainWindowTheme.AccentBorder,
             };
             var showLaunchStatus =
-                launchState.ButtonText is "Starting..." or "Retry";
+                launchState.ButtonText is
+                    "Starting..." or "Restarting..." or "Retry";
             var automation = showLaunchStatus
                 ? launchState.Status
                 : BuildAutomationSummary(slot);
@@ -180,21 +186,50 @@ public sealed partial class MainForm
             SetLabelText(runtime.AutomationLabel, automation);
             SetControlColor(runtime.AutomationLabel, automationColor);
 
+            var startButtonText = runningClient == null
+                ? launchState.ButtonText
+                : "Restart";
+            var startButtonEnabled = runningClient != null ||
+                                     launchState.CanStart;
+            var startButtonDescription = runningClient == null
+                ? launchState.Status
+                : string.Concat(
+                    "Restart ",
+                    slot.Name,
+                    " using its configured slot settings.");
+
             if (!string.Equals(
                     runtime.StartButton.Text,
-                    launchState.ButtonText,
+                    startButtonText,
                     StringComparison.Ordinal))
             {
-                runtime.StartButton.Text = launchState.ButtonText;
+                runtime.StartButton.Text = startButtonText;
             }
 
-            if (runtime.StartButton.Enabled != launchState.CanStart)
+            if (runtime.StartButton.Enabled != startButtonEnabled)
             {
-                runtime.StartButton.Enabled = launchState.CanStart;
+                runtime.StartButton.Enabled = startButtonEnabled;
             }
 
             runtime.StartButton.AccessibleDescription =
-                launchState.Status;
+                startButtonDescription;
+            runtime.ForceCloseButton.Visible = runningClient != null;
+            runtime.ForceCloseButton.Enabled = runningClient != null;
+
+            this.dashboardToolTip.SetToolTip(
+                runtime.StartButton,
+                runningClient == null
+                    ? BuildStartActionToolTip(slot.Name, launchState.Status)
+                    : BuildRestartActionToolTip(slot.Name),
+                delayMilliseconds: 250);
+
+            this.dashboardToolTip.SetToolTip(
+                runtime.ForceCloseButton,
+                runningClient == null
+                    ? null
+                    : BuildForceCloseActionToolTip(
+                        GetClientDisplayName(runningClient, slot)),
+                delayMilliseconds: 250);
         }
     }
 
@@ -206,6 +241,198 @@ public sealed partial class MainForm
         }
     }
 
+    private void ConfirmRestartRunningClient(int processId)
+    {
+        var client = this.clientManager.Clients.FirstOrDefault(
+            candidate => candidate.ProcessId == processId);
+
+        if (client == null)
+        {
+            this.RefreshAll();
+            return;
+        }
+
+        var slot = this.clientManager.GetAssignedSlot(client);
+        var displayName = GetClientDisplayName(client, slot);
+
+        ThemedMessageDialog.ConfirmModeless(
+            this,
+            string.Concat("Force restart ", displayName, "?"),
+            "This immediately restarts the game client. Use this when the game is stuck.",
+            confirmButtonText: "Force restart",
+            confirmedAction: () => this.RestartRunningClient(processId));
+    }
+
+    private async void RestartRunningClient(int processId)
+    {
+        await this.RestartClientAndReportAsync(processId);
+    }
+
+    private async Task RestartClientAndReportAsync(int processId)
+    {
+        var restartTask = this.clientManager.RestartClientAsync(
+            processId,
+            this);
+
+        this.RefreshAll();
+
+        var result = await restartTask;
+        this.RefreshAll();
+
+        if (result.Succeeded)
+        {
+            return;
+        }
+
+        ThemedMessageDialog.ShowWarning(
+            this,
+            "Client could not be restarted",
+            result.Status);
+    }
+
+    private void ForceCloseSlotClient(ClientSlot slot)
+    {
+        var client =
+            this.clientManager.GetRunningClientForSlot(slot.Id);
+
+        if (client == null)
+        {
+            this.RefreshAll();
+            return;
+        }
+
+        this.ConfirmForceCloseRunningClient(client.ProcessId);
+    }
+
+    private void ConfirmForceCloseRunningClient(int processId)
+    {
+        var client = this.clientManager.Clients.FirstOrDefault(
+            candidate => candidate.ProcessId == processId);
+
+        if (client == null)
+        {
+            this.RefreshAll();
+            return;
+        }
+
+        var slot = this.clientManager.GetAssignedSlot(client);
+        var displayName = GetClientDisplayName(client, slot);
+
+        ThemedMessageDialog.ConfirmModeless(
+            this,
+            string.Concat("Force close ", displayName, "?"),
+            "This immediately closes the game client. Use this when the game is stuck.",
+            confirmButtonText: "Force close",
+            confirmedAction: () => this.ForceCloseRunningClient(processId));
+    }
+
+    private void ForceCloseRunningClient(int processId)
+    {
+        if (!this.clientManager.ForceCloseClient(
+                processId,
+                out var status))
+        {
+            ThemedMessageDialog.ShowWarning(
+                this,
+                "Client could not be closed",
+                status);
+        }
+
+        this.RefreshAll();
+    }
+
+    private static string GetClientDisplayName(
+        ClientInstance client,
+        ClientSlot? slot)
+    {
+        var pilotName = client.LiveCharacterIdentity.Name;
+
+        if (!string.IsNullOrWhiteSpace(pilotName))
+        {
+            return pilotName;
+        }
+
+        if (!string.IsNullOrWhiteSpace(slot?.Name))
+        {
+            return slot.Name;
+        }
+
+        return "game client";
+    }
+
+    private static ActionToolTipContent BuildStartActionToolTip(
+        string slotName,
+        string status)
+    {
+        return new ActionToolTipContent(
+        [
+            new ActionToolTipParagraph(
+            [
+                new(
+                    string.Concat("Start ", slotName),
+                    ActionToolTipTextRole.Accent,
+                    Bold: true),
+            ],
+            ActionToolTipParagraphStyle.Header,
+            SpaceAfter: 5),
+            new ActionToolTipParagraph(
+            [
+                new(status, ActionToolTipTextRole.Normal),
+            ]),
+        ],
+        Icon: null);
+    }
+
+    private static ActionToolTipContent BuildRestartActionToolTip(
+        string slotName)
+    {
+        return new ActionToolTipContent(
+        [
+            new ActionToolTipParagraph(
+            [
+                new(
+                    "Restart client",
+                    ActionToolTipTextRole.Accent,
+                    Bold: true),
+            ],
+            ActionToolTipParagraphStyle.Header,
+            SpaceAfter: 5),
+            new ActionToolTipParagraph(
+            [
+                new(string.Concat(
+                    "Immediately closes the current game client and starts ",
+                    slotName,
+                    " again. Use this when the game is stuck.")),
+            ]),
+        ],
+        Icon: null);
+    }
+
+    private static ActionToolTipContent BuildForceCloseActionToolTip(
+        string clientName)
+    {
+        return new ActionToolTipContent(
+        [
+            new ActionToolTipParagraph(
+            [
+                new(
+                    "Force close client",
+                    ActionToolTipTextRole.Danger,
+                    Bold: true),
+            ],
+            ActionToolTipParagraphStyle.Header,
+            SpaceAfter: 5),
+            new ActionToolTipParagraph(
+            [
+                new(string.Concat(
+                    "Immediately closes ",
+                    clientName,
+                    ". Use this when the game is stuck.")),
+            ]),
+        ],
+        Icon: null);
+    }
+
     private Control CreateSlotCard(ClientSlot slot)
     {
         var account = this.clientManager.FindConfiguredAccount(slot.AccountId);
@@ -213,11 +440,14 @@ public sealed partial class MainForm
             candidate => candidate.Id == slot.CharacterId);
         var launchState =
             this.clientManager.GetProfileSlotLaunchStatus(slot);
+        var runningClient =
+            this.clientManager.GetRunningClientForSlot(slot.Id);
 
         var statusText = launchState.ButtonText switch
         {
             "Running" => "RUNNING",
             "Starting..." => "STARTING",
+            "Restarting..." => "RESTARTING",
             "Retry" => "FAILED",
             _ => "AVAILABLE",
         };
@@ -226,6 +456,7 @@ public sealed partial class MainForm
         {
             "Running" => MainWindowTheme.Success,
             "Starting..." => MainWindowTheme.Accent,
+            "Restarting..." => MainWindowTheme.Accent,
             "Retry" => MainWindowTheme.Danger,
             _ => MainWindowTheme.MutedText,
         };
@@ -239,6 +470,7 @@ public sealed partial class MainForm
             {
                 "Running" => MainWindowTheme.Success,
                 "Starting..." => MainWindowTheme.Accent,
+                "Restarting..." => MainWindowTheme.Accent,
                 "Retry" => MainWindowTheme.Danger,
                 _ => MainWindowTheme.AccentBorder,
             },
@@ -344,7 +576,8 @@ public sealed partial class MainForm
         footer.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
         var showLaunchStatus =
-            launchState.ButtonText is "Starting..." or "Retry";
+            launchState.ButtonText is
+                "Starting..." or "Restarting..." or "Retry";
 
         var automation = showLaunchStatus
             ? launchState.Status
@@ -358,22 +591,68 @@ public sealed partial class MainForm
 
         var startButton = new Button
         {
-            Text = launchState.ButtonText,
+            Text = runningClient == null
+                ? launchState.ButtonText
+                : "Restart",
             Width = 76,
             Height = 28,
-            Enabled = launchState.CanStart,
+            Enabled = runningClient != null || launchState.CanStart,
             Margin = new Padding(left: 0, top: 2, right: 6, bottom: 0),
-            AccessibleDescription = launchState.Status,
+            AccessibleDescription = runningClient == null
+                ? launchState.Status
+                : string.Concat(
+                    "Restart ",
+                    slot.Name,
+                    " using its configured slot settings."),
         };
         MainWindowTheme.StyleButton(startButton, primary: true);
         startButton.Click += (_, _) =>
         {
-            _ = this.clientManager.StartProfileSlot(
-                slot.Id,
-                this,
-                out _);
-            this.RefreshAll();
+            var currentClient =
+                this.clientManager.GetRunningClientForSlot(slot.Id);
+
+            if (currentClient == null)
+            {
+                _ = this.clientManager.StartProfileSlot(
+                    slot.Id,
+                    this,
+                    out _);
+                this.RefreshAll();
+                return;
+            }
+
+            this.ConfirmRestartRunningClient(
+                currentClient.ProcessId);
         };
+
+        var forceCloseButton = new Button
+        {
+            Text = "Force close",
+            Width = 88,
+            Height = 28,
+            Visible = runningClient != null,
+            Enabled = runningClient != null,
+            Margin = new Padding(left: 0, top: 2, right: 6, bottom: 0),
+            AccessibleDescription =
+                "Immediately close this game client.",
+        };
+        MainWindowTheme.StyleButton(forceCloseButton, danger: true);
+        forceCloseButton.Click += (_, _) =>
+            this.ForceCloseSlotClient(slot);
+
+        this.dashboardToolTip.SetToolTip(
+            startButton,
+            runningClient == null
+                ? BuildStartActionToolTip(slot.Name, launchState.Status)
+                : BuildRestartActionToolTip(slot.Name),
+            delayMilliseconds: 250);
+        this.dashboardToolTip.SetToolTip(
+            forceCloseButton,
+            runningClient == null
+                ? null
+                : BuildForceCloseActionToolTip(
+                    GetClientDisplayName(runningClient, slot)),
+            delayMilliseconds: 250);
 
         var editButton = new Button
         {
@@ -406,6 +685,7 @@ public sealed partial class MainForm
             BackColor = Color.Transparent,
         };
         actionsPanel.Controls.Add(startButton);
+        actionsPanel.Controls.Add(forceCloseButton);
         actionsPanel.Controls.Add(editButton);
         actionsPanel.Controls.Add(deleteButton);
 
@@ -423,6 +703,7 @@ public sealed partial class MainForm
             statusLabel,
             automationLabel,
             startButton,
+            forceCloseButton,
             editButton,
             deleteButton);
 
@@ -570,7 +851,11 @@ public sealed partial class MainForm
                 foreach (var client in clients)
                 {
                     this.runningClientsFlowPanel.Controls.Add(
-                        new RunningClientCardControl(client.ProcessId));
+                        new RunningClientCardControl(
+                            client.ProcessId,
+                            this.ConfirmRestartRunningClient,
+                            this.ConfirmForceCloseRunningClient,
+                            this.dashboardToolTip));
                 }
             }
 
@@ -625,7 +910,11 @@ public sealed partial class MainForm
                 : MainWindowTheme.MutedText,
             BuildRunningClientFooter(
                 client,
-                stateText));
+                stateText),
+            assignedSlot == null
+                ? null
+                : BuildRestartActionToolTip(assignedSlot.Name),
+            BuildForceCloseActionToolTip(title));
     }
 
     private Control CreateEmptyDashboardCard(
@@ -1156,6 +1445,7 @@ public sealed partial class MainForm
         Label StatusLabel,
         Label AutomationLabel,
         Button StartButton,
+        Button ForceCloseButton,
         Button EditButton,
         Button DeleteButton);
 
@@ -1169,7 +1459,9 @@ public sealed partial class MainForm
         string LocationText,
         string RouteText,
         Color RouteColor,
-        string FooterText);
+        string FooterText,
+        ActionToolTipContent? RestartToolTip,
+        ActionToolTipContent ForceCloseToolTip);
 
     private sealed class RunningClientCardControl : DashboardCardPanel
     {
@@ -1180,11 +1472,23 @@ public sealed partial class MainForm
         private readonly Label locationLabel;
         private readonly Label routeLabel;
         private readonly Label footerLabel;
+        private readonly Button restartButton;
+        private readonly Button forceCloseButton;
+        private readonly ActionToolTip toolTip;
 
-        public RunningClientCardControl(int processId)
+        public RunningClientCardControl(
+            int processId,
+            Action<int> restartRequested,
+            Action<int> forceCloseRequested,
+            ActionToolTip toolTip)
         {
+            ArgumentNullException.ThrowIfNull(restartRequested);
+            ArgumentNullException.ThrowIfNull(forceCloseRequested);
+            ArgumentNullException.ThrowIfNull(toolTip);
+
             this.ProcessId = processId;
-            this.Height = 184;
+            this.toolTip = toolTip;
+            this.Height = 200;
             this.Margin = new Padding(
                 left: 0,
                 top: 0,
@@ -1258,6 +1562,62 @@ public sealed partial class MainForm
                 "",
                 MainWindowTheme.MutedText);
 
+            this.restartButton = new Button
+            {
+                Text = "Restart",
+                Width = 76,
+                Height = 28,
+                Margin = new Padding(left: 0, top: 2, right: 6, bottom: 0),
+                AccessibleDescription =
+                    "Restart this game client using its configured slot.",
+            };
+            MainWindowTheme.StyleButton(this.restartButton, primary: true);
+            this.restartButton.Click += (_, _) =>
+                restartRequested(this.ProcessId);
+
+            this.forceCloseButton = new Button
+            {
+                Text = "Force close",
+                Width = 88,
+                Height = 28,
+                Margin = new Padding(left: 0, top: 2, right: 0, bottom: 0),
+                AccessibleDescription =
+                    "Immediately close this game client.",
+            };
+            MainWindowTheme.StyleButton(
+                this.forceCloseButton,
+                danger: true);
+            this.forceCloseButton.Click += (_, _) =>
+                forceCloseRequested(this.ProcessId);
+
+            var actionsPanel = new FlowLayoutPanel
+            {
+                AutoSize = true,
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                Margin = Padding.Empty,
+                Padding = Padding.Empty,
+                BackColor = Color.Transparent,
+            };
+            actionsPanel.Controls.Add(this.restartButton);
+            actionsPanel.Controls.Add(this.forceCloseButton);
+
+            var footer = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                Margin = Padding.Empty,
+                RowCount = 1,
+                BackColor = Color.Transparent,
+            };
+            footer.ColumnStyles.Add(
+                new ColumnStyle(SizeType.Percent, width: 100));
+            footer.ColumnStyles.Add(
+                new ColumnStyle(SizeType.AutoSize));
+            footer.Controls.Add(this.footerLabel, column: 0, row: 0);
+            footer.Controls.Add(actionsPanel, column: 1, row: 0);
+
             header.Controls.Add(this.titleLabel, column: 0, row: 0);
             header.Controls.Add(this.lifecycleLabel, column: 1, row: 0);
 
@@ -1266,7 +1626,7 @@ public sealed partial class MainForm
             root.Controls.Add(this.observedIdentityLabel, column: 0, row: 2);
             root.Controls.Add(this.locationLabel, column: 0, row: 3);
             root.Controls.Add(this.routeLabel, column: 0, row: 4);
-            root.Controls.Add(this.footerLabel, column: 0, row: 5);
+            root.Controls.Add(footer, column: 0, row: 5);
 
             this.Controls.Add(root);
         }
@@ -1288,6 +1648,19 @@ public sealed partial class MainForm
             SetLabelText(this.locationLabel, presentation.LocationText);
             SetLabelText(this.routeLabel, presentation.RouteText);
             SetLabelText(this.footerLabel, presentation.FooterText);
+
+            this.restartButton.Visible =
+                presentation.RestartToolTip != null;
+            this.restartButton.Enabled =
+                presentation.RestartToolTip != null;
+            this.toolTip.SetToolTip(
+                this.restartButton,
+                presentation.RestartToolTip,
+                delayMilliseconds: 250);
+            this.toolTip.SetToolTip(
+                this.forceCloseButton,
+                presentation.ForceCloseToolTip,
+                delayMilliseconds: 250);
 
             SetLabelColor(
                 this.lifecycleLabel,

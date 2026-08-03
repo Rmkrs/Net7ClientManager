@@ -595,7 +595,18 @@ public sealed partial class ClientHostForm : Form
         }
 
         this.RefreshMissionWikiEnabledFromSettings();
-        this.missionWikiMissions = missions;
+        this.RefreshMissionWikiPilotSession();
+
+        // Mission memory may remain structurally readable while every slot
+        // temporarily has an empty name during docking and sector changes.
+        // Treat any snapshot that temporarily removes known missions as
+        // provisional. A genuine removal or empty log is accepted once that
+        // reduced state remains stable outside the transition hold window.
+        if (!this.addonTransitioning &&
+            this.ShouldAcceptMissionWikiMissionSnapshot(missions))
+        {
+            this.missionWikiMissions = missions;
+        }
 
         var details = panelPresentation.MissionDetails;
         var nextGameMissionAddress = details.IsDisplayed
@@ -1040,15 +1051,7 @@ public sealed partial class ClientHostForm : Form
             return;
         }
 
-        this.addonLifecycleState = lifecycleState;
-        this.addonTransitioning = isTransitioning;
-
-        if (!this.IsHandleCreated)
-        {
-            return;
-        }
-
-        if (this.InvokeRequired)
+        if (this.IsHandleCreated && this.InvokeRequired)
         {
             try
             {
@@ -1061,6 +1064,21 @@ public sealed partial class ClientHostForm : Form
             {
             }
 
+            return;
+        }
+
+        var wasTransitioning = this.addonTransitioning;
+
+        this.addonLifecycleState = lifecycleState;
+        this.addonTransitioning = isTransitioning;
+
+        if (isTransitioning || wasTransitioning)
+        {
+            this.HoldMissionWikiMissionSnapshot();
+        }
+
+        if (!this.IsHandleCreated)
+        {
             return;
         }
 
@@ -1633,12 +1651,105 @@ public sealed partial class ClientHostForm : Form
     {
         this.gameItemToolTip.HideExternal();
 
-        if (this.closeRequestedByManager)
+        if (this.closeRequestedByManager ||
+            e.CloseReason !=
+            System.Windows.Forms.CloseReason.UserClosing)
         {
             return;
         }
 
-        this.closeRequested(this.clientInstance, CloseReason.UserRequested);
+        e.Cancel = true;
+
+        var clientName = this.GetClientActionDisplayName();
+        var restartSlotName =
+            this.clientManager.GetAssignedSlot(this.clientInstance)?.Name;
+        var choice = ClientProcessActionDialog.Show(
+            this,
+            clientName,
+            restartSlotName);
+
+        switch (choice)
+        {
+            case ClientProcessActionChoice.Restart:
+                _ = this.BeginInvoke(new MethodInvoker(() =>
+                    _ = this.RestartClientFromHostAsync()));
+                break;
+
+            case ClientProcessActionChoice.ForceClose:
+                _ = this.BeginInvoke(new MethodInvoker(
+                    this.ForceCloseClientFromHost));
+                break;
+
+            case ClientProcessActionChoice.Cancel:
+            default:
+                break;
+        }
+    }
+
+    private void ForceCloseClientFromHost()
+    {
+        if (this.clientManager.ForceCloseClient(
+                this.clientInstance.ProcessId,
+                out var status))
+        {
+            return;
+        }
+
+        ThemedMessageDialog.ShowWarning(
+            this,
+            "Client could not be closed",
+            status);
+    }
+
+    private string GetClientActionDisplayName()
+    {
+        var pilotName = this.clientInstance.LiveCharacterIdentity.Name;
+
+        if (!string.IsNullOrWhiteSpace(pilotName))
+        {
+            return pilotName;
+        }
+
+        if (!string.IsNullOrWhiteSpace(this.appliedSlotName))
+        {
+            return this.appliedSlotName;
+        }
+
+        return "game client";
+    }
+
+    private async Task RestartClientFromHostAsync()
+    {
+        var mainForm = Application.OpenForms
+            .OfType<MainForm>()
+            .FirstOrDefault(form =>
+                !form.IsDisposed &&
+                !form.Disposing);
+
+        if (mainForm == null)
+        {
+            ThemedMessageDialog.ShowWarning(
+                this,
+                "Client could not be restarted",
+                "The Client Manager window is not available.");
+            return;
+        }
+
+        var result = await this.clientManager.RestartClientAsync(
+            this.clientInstance.ProcessId,
+            mainForm);
+
+        if (result.Succeeded ||
+            mainForm.IsDisposed ||
+            mainForm.Disposing)
+        {
+            return;
+        }
+
+        ThemedMessageDialog.ShowWarning(
+            mainForm,
+            "Client could not be restarted",
+            result.Status);
     }
 
     private void TitleBar_OnDragRequested(
@@ -1960,12 +2071,30 @@ public sealed partial class ClientHostForm : Form
         this.RefreshMissionWikiEnabledFromSettings();
         this.RefreshMissionWikiActiveSelection();
 
-        var canPresentCompanion =
-            this.missionWikiEnabled &&
-            this.addonLifecycleState == ClientLifecycleState.InGame &&
-            !this.addonTransitioning;
+        if (!this.missionWikiEnabled)
+        {
+            this.HideMissionWikiInGame();
+            this.CloseMissionWikiCompanion(
+                preserveOpenPreference: true);
+            return;
+        }
 
-        if (!canPresentCompanion)
+        if (this.missionWikiPresentationMode ==
+                MissionWikiPresentationMode.Companion &&
+            this.missionWikiCompanionForm is
+                { IsDisposed: false } &&
+            this.addonTransitioning)
+        {
+            // An already-open desktop companion is a stable user workspace,
+            // not an in-game overlay. Sector transitions temporarily remove
+            // readable client state, but they must not close, dispose, hide,
+            // re-show, reactivate, or rebind this window. Keep the exact last
+            // visible frame until the observation becomes usable again.
+            this.HideMissionWikiInGame();
+            return;
+        }
+
+        if (this.addonLifecycleState != ClientLifecycleState.InGame)
         {
             this.HideMissionWikiInGame();
             this.CloseMissionWikiCompanion(
@@ -1978,12 +2107,26 @@ public sealed partial class ClientHostForm : Form
         {
             this.HideMissionWikiInGame();
 
+            if (this.missionWikiCompanionForm is
+                { IsDisposed: false })
+            {
+                this.SyncMissionWikiCompanionPresentation();
+                return;
+            }
+
+            // Do not create a previously-open companion in the middle of the
+            // transition. Wait for the hosted client to become stable, then
+            // restore it once without producing a visible hide/show pulse.
+            if (this.addonTransitioning)
+            {
+                return;
+            }
+
             var placement = this.resolveAddonWindowPlacement(
                 MissionWikiPresentationIds.BuiltInAddonId,
                 MissionWikiPresentationIds.CompanionWindowId);
 
-            if (this.missionWikiCompanionForm != null ||
-                placement is { IsVisible: true, IsClosed: false })
+            if (placement is { IsVisible: true, IsClosed: false })
             {
                 this.ShowMissionWikiCompanion(
                     persistMode: false,

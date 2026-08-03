@@ -9,6 +9,7 @@ public sealed partial class MainForm : ThemedForm
     private readonly ClientManager clientManager;
     private readonly System.Windows.Forms.Timer refreshTimer;
     private readonly Dictionary<int, long> runningClientFirstSeenOrders = [];
+    private readonly ActionToolTip dashboardToolTip = new();
     private long nextRunningClientFirstSeenOrder;
 
     private ComboBox profileComboBox = null!;
@@ -131,6 +132,7 @@ public sealed partial class MainForm : ThemedForm
         this.refreshTimer.Stop();
         this.refreshTimer.Tick -= this.RefreshTimer_OnTick;
         this.refreshTimer.Dispose();
+        this.dashboardToolTip.Dispose();
 
         this.profileComboBox.SelectedIndexChanged -= this.ProfileComboBox_OnSelectedIndexChanged;
         this.addProfileButton.Click -= this.AddProfileButton_OnClick;

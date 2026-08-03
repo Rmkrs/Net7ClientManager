@@ -313,8 +313,18 @@ public sealed partial class MainForm
             steps.Add(
                 new GuidedTourStep(
                     () => slotRuntime.StartButton,
-                    "Start only this client",
-                    "Start launches this one configured account, character, and window arrangement. It does not start the other slots in the profile."));
+                    "Start or restart this client",
+                    "Start launches this one configured account, character, and window arrangement. While it is running, the same button closes and starts that slot again."));
+
+            if (slotRuntime.ForceCloseButton.Visible)
+            {
+                steps.Add(
+                    new GuidedTourStep(
+                        () => slotRuntime.ForceCloseButton,
+                        "Close a stuck game client",
+                        "Force close immediately stops the game client. Keep alive continues to recreate missing configured clients when it is enabled."));
+            }
+
             steps.Add(
                 new GuidedTourStep(
                     () => slotRuntime.EditButton,

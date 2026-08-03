@@ -10,6 +10,12 @@ using Net7ClientManager.Services;
 
 public sealed partial class ClientHostForm
 {
+    private static readonly TimeSpan MissionWikiTransitionSettleDuration =
+        TimeSpan.FromSeconds(8);
+
+    private static readonly TimeSpan MissionWikiDestructiveSnapshotConfirmationDuration =
+        TimeSpan.FromSeconds(8);
+
     private MissionWikiCompanionForm? missionWikiCompanionForm;
     private MissionWikiPresentationMode missionWikiPresentationMode =
         MissionWikiPresentationMode.InGame;
@@ -20,6 +26,13 @@ public sealed partial class ClientHostForm
     private string? missionWikiGameMissionName;
     private MissionJobGuidance? missionWikiGameJobGuidance;
     private uint missionWikiCompanionMissionAddress;
+    private int? missionWikiCompanionMissionRawId;
+    private string? missionWikiCompanionMissionName;
+    private int? missionWikiCompanionMissionSlot;
+    private string? missionWikiCompanionPilotName;
+    private DateTimeOffset missionWikiMissionSnapshotHoldUntil;
+    private DateTimeOffset? missionWikiDestructiveSnapshotObservedAt;
+    private string? missionWikiDestructiveSnapshotFingerprint;
     private double missionWikiLeftPaneRatio = 0.42;
     private double missionWikiListPaneRatio = 0.24;
     private double missionWikiDetailsPaneRatio = 0.28;
@@ -28,6 +41,142 @@ public sealed partial class ClientHostForm
         this.missionWikiEnabled &&
         this.addonLifecycleState == ClientLifecycleState.InGame &&
         !this.addonTransitioning;
+
+    private void ResetMissionWikiSessionState()
+    {
+        this.missionWikiMissions =
+            ClientMissionLogObservation.Unavailable(
+                "No active gameplay session.");
+        this.missionWikiGameMissionAddress = 0;
+        this.missionWikiGameMissionName = null;
+        this.missionWikiGameJobGuidance = null;
+        this.missionWikiCompanionPilotName = null;
+        this.missionWikiMissionSnapshotHoldUntil = default;
+        this.missionWikiDestructiveSnapshotObservedAt = null;
+        this.missionWikiDestructiveSnapshotFingerprint = null;
+        this.RememberMissionWikiCompanionSelection(null);
+        this.missionWikiMissionAddress = 0;
+        this.missionWikiMissionName = null;
+        this.missionJobGuidance = null;
+    }
+
+    private void HoldMissionWikiMissionSnapshot()
+    {
+        var holdUntil =
+            DateTimeOffset.UtcNow +
+            MissionWikiTransitionSettleDuration;
+
+        if (holdUntil > this.missionWikiMissionSnapshotHoldUntil)
+        {
+            this.missionWikiMissionSnapshotHoldUntil = holdUntil;
+        }
+
+        this.missionWikiDestructiveSnapshotObservedAt = null;
+        this.missionWikiDestructiveSnapshotFingerprint = null;
+    }
+
+    private void RefreshMissionWikiPilotSession()
+    {
+        var observedPilotName =
+            this.clientInstance.LiveCharacterIdentity.Name;
+
+        if (string.IsNullOrWhiteSpace(observedPilotName))
+        {
+            return;
+        }
+
+        observedPilotName = observedPilotName.Trim();
+
+        if (!string.IsNullOrWhiteSpace(
+                this.missionWikiCompanionPilotName) &&
+            !string.Equals(
+                this.missionWikiCompanionPilotName,
+                observedPilotName,
+                StringComparison.Ordinal))
+        {
+            this.ResetMissionWikiSessionState();
+        }
+
+        this.missionWikiCompanionPilotName = observedPilotName;
+    }
+
+    private bool ShouldAcceptMissionWikiMissionSnapshot(
+        ClientMissionLogObservation missions)
+    {
+        if (!missions.IsAvailable)
+        {
+            return false;
+        }
+
+        var incomingMissions = missions.Missions
+            .Where(IsMissionWikiCompanionMissionUsable)
+            .ToArray();
+        var retainedMissions = this.missionWikiMissions.IsAvailable
+            ? this.missionWikiMissions.Missions
+                .Where(IsMissionWikiCompanionMissionUsable)
+                .ToArray()
+            : [];
+
+        if (retainedMissions.Length == 0)
+        {
+            this.missionWikiDestructiveSnapshotObservedAt = null;
+            this.missionWikiDestructiveSnapshotFingerprint = null;
+            return true;
+        }
+
+        var incomingIdentities = incomingMissions
+            .Select(BuildMissionWikiMissionIdentity)
+            .ToHashSet(StringComparer.Ordinal);
+        var removesRetainedMission = retainedMissions.Any(mission =>
+            !incomingIdentities.Contains(
+                BuildMissionWikiMissionIdentity(mission)));
+
+        if (!removesRetainedMission)
+        {
+            this.missionWikiMissionSnapshotHoldUntil = default;
+            this.missionWikiDestructiveSnapshotObservedAt = null;
+            this.missionWikiDestructiveSnapshotFingerprint = null;
+            return true;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+
+        if (now < this.missionWikiMissionSnapshotHoldUntil)
+        {
+            this.missionWikiDestructiveSnapshotObservedAt = null;
+            this.missionWikiDestructiveSnapshotFingerprint = null;
+            return false;
+        }
+
+        var destructiveSnapshotFingerprint = string.Join(
+            "|",
+            incomingIdentities.OrderBy(
+                identity => identity,
+                StringComparer.Ordinal));
+
+        if (!string.Equals(
+                this.missionWikiDestructiveSnapshotFingerprint,
+                destructiveSnapshotFingerprint,
+                StringComparison.Ordinal))
+        {
+            this.missionWikiDestructiveSnapshotFingerprint =
+                destructiveSnapshotFingerprint;
+            this.missionWikiDestructiveSnapshotObservedAt = now;
+            return false;
+        }
+
+        this.missionWikiDestructiveSnapshotObservedAt ??= now;
+
+        if (now - this.missionWikiDestructiveSnapshotObservedAt.Value <
+            MissionWikiDestructiveSnapshotConfirmationDuration)
+        {
+            return false;
+        }
+
+        this.missionWikiDestructiveSnapshotObservedAt = null;
+        this.missionWikiDestructiveSnapshotFingerprint = null;
+        return true;
+    }
 
     private void RefreshMissionWikiEnabledFromSettings()
     {
@@ -78,15 +227,52 @@ public sealed partial class ClientHostForm
                 mission.Address == this.missionWikiCompanionMissionAddress);
 
             if (selectedMission == null &&
+                this.missionWikiCompanionMissionRawId.HasValue)
+            {
+                selectedMission = usableMissions.FirstOrDefault(mission =>
+                    mission.RawId == this.missionWikiCompanionMissionRawId);
+            }
+
+            if (selectedMission == null &&
+                !string.IsNullOrWhiteSpace(
+                    this.missionWikiCompanionMissionName))
+            {
+                selectedMission = usableMissions.FirstOrDefault(mission =>
+                    string.Equals(
+                        mission.Name,
+                        this.missionWikiCompanionMissionName,
+                        StringComparison.Ordinal) &&
+                    (!this.missionWikiCompanionMissionSlot.HasValue ||
+                     mission.Slot ==
+                     this.missionWikiCompanionMissionSlot.Value));
+
+                selectedMission ??= usableMissions.FirstOrDefault(mission =>
+                    string.Equals(
+                        mission.Name,
+                        this.missionWikiCompanionMissionName,
+                        StringComparison.Ordinal));
+            }
+
+            if (selectedMission == null &&
                 this.missionWikiGameMissionAddress != 0)
             {
                 selectedMission = usableMissions.FirstOrDefault(mission =>
                     mission.Address == this.missionWikiGameMissionAddress);
             }
 
+            if (selectedMission == null &&
+                !string.IsNullOrWhiteSpace(
+                    this.missionWikiGameMissionName))
+            {
+                selectedMission = usableMissions.FirstOrDefault(mission =>
+                    string.Equals(
+                        mission.Name,
+                        this.missionWikiGameMissionName,
+                        StringComparison.Ordinal));
+            }
+
             selectedMission ??= usableMissions.FirstOrDefault();
-            this.missionWikiCompanionMissionAddress =
-                selectedMission?.Address ?? 0;
+            this.RememberMissionWikiCompanionSelection(selectedMission);
             nextAddress = selectedMission?.Address ?? 0;
             nextName = string.IsNullOrWhiteSpace(selectedMission?.Name)
                 ? null
@@ -254,9 +440,41 @@ public sealed partial class ClientHostForm
             return;
         }
 
-        this.missionWikiCompanionMissionAddress = address;
+        var selectedMission = this.missionWikiMissions.IsAvailable
+            ? this.missionWikiMissions.Missions.FirstOrDefault(mission =>
+                mission.Address == address)
+            : null;
+
+        this.RememberMissionWikiCompanionSelection(selectedMission);
+
+        if (selectedMission == null)
+        {
+            this.missionWikiCompanionMissionAddress = address;
+        }
+
         this.RefreshMissionWikiActiveSelection();
         this.SyncMissionWikiCompanionPresentation();
+    }
+
+    private void RememberMissionWikiCompanionSelection(
+        ClientMissionObservation? mission)
+    {
+        if (mission == null)
+        {
+            this.missionWikiCompanionMissionAddress = 0;
+            this.missionWikiCompanionMissionRawId = null;
+            this.missionWikiCompanionMissionName = null;
+            this.missionWikiCompanionMissionSlot = null;
+            return;
+        }
+
+        this.missionWikiCompanionMissionAddress = mission.Address;
+        this.missionWikiCompanionMissionRawId = mission.RawId;
+        this.missionWikiCompanionMissionName =
+            string.IsNullOrWhiteSpace(mission.Name)
+                ? null
+                : mission.Name.Trim();
+        this.missionWikiCompanionMissionSlot = mission.Slot;
     }
 
     private void SyncMissionWikiCompanionPresentation()
@@ -273,8 +491,17 @@ public sealed partial class ClientHostForm
                 .OrderBy(mission => mission.Slot)
                 .ToArray()
             : [];
+        var observedPilotName =
+            this.clientInstance.LiveCharacterIdentity.Name;
+
+        if (!string.IsNullOrWhiteSpace(observedPilotName))
+        {
+            this.missionWikiCompanionPilotName =
+                observedPilotName.Trim();
+        }
+
         var pilotName =
-            this.clientInstance.LiveCharacterIdentity.Name ??
+            this.missionWikiCompanionPilotName ??
             this.appliedSlotName ??
             "hosted pilot";
 
@@ -355,5 +582,17 @@ public sealed partial class ClientHostForm
         return mission.Address != 0 &&
                mission.ValidState > 0 &&
                !string.IsNullOrWhiteSpace(mission.Name);
+    }
+
+    private static string BuildMissionWikiMissionIdentity(
+        ClientMissionObservation mission)
+    {
+        return mission.RawId.HasValue
+            ? string.Concat("id:", mission.RawId.Value)
+            : string.Concat(
+                "slot:",
+                mission.Slot,
+                ":name:",
+                mission.Name);
     }
 }

@@ -36,6 +36,7 @@ public sealed class ClientManager : IDisposable
     private readonly System.Threading.Lock lockObject = new();
     private readonly System.Threading.Lock settingsSaveLock = new();
     private readonly Dictionary<int, ClientInstance> clients = [];
+    private readonly HashSet<Guid> restartingSlotIds = [];
     private readonly ClientProcessWatcher clientProcessWatcher;
     private readonly ClientWindowFinder clientWindowFinder = new();
     private readonly ClientDockingService clientDockingService = new();
@@ -3539,6 +3540,155 @@ public sealed class ClientManager : IDisposable
             preset => string.Equals(preset.Name, this.settings.DefaultSlotResolutionPresetName, StringComparison.Ordinal))
         ?? this.settings.SlotResolutionPresets[0];
 
+    public ClientInstance? GetRunningClientForSlot(Guid slotId)
+    {
+        lock (this.lockObject)
+        {
+            return this.clients.Values.FirstOrDefault(client =>
+                client.AssignedSlotId == slotId &&
+                client.State is not ClientState.Closing and
+                    not ClientState.Stopped);
+        }
+    }
+
+    public bool IsProfileSlotRestarting(Guid slotId)
+    {
+        lock (this.lockObject)
+        {
+            return this.restartingSlotIds.Contains(slotId);
+        }
+    }
+
+    public bool ForceCloseClient(
+        int processId,
+        out string status)
+    {
+        ClientInstance? client;
+
+        lock (this.lockObject)
+        {
+            this.clients.TryGetValue(processId, out client);
+        }
+
+        if (client == null ||
+            client.State is ClientState.Closing or ClientState.Stopped)
+        {
+            status = "The game client is no longer running.";
+            return false;
+        }
+
+        var displayName = client.LiveCharacterIdentity.Name;
+
+        var assignedSlot = this.GetAssignedSlot(client);
+
+        if (string.IsNullOrWhiteSpace(displayName))
+        {
+            displayName = assignedSlot?.Name ??
+                          "game client";
+        }
+
+        this.CloseClient(client, CloseReason.UserRequested);
+        status = string.Concat("Closed ", displayName, ".");
+        return true;
+    }
+
+    public async Task<(bool Succeeded, string Status)> RestartClientAsync(
+        int processId,
+        IWin32Window owner)
+    {
+        ArgumentNullException.ThrowIfNull(owner);
+
+        ClientInstance? client;
+
+        lock (this.lockObject)
+        {
+            this.clients.TryGetValue(processId, out client);
+        }
+
+        if (client == null ||
+            client.State is ClientState.Closing or ClientState.Stopped)
+        {
+            return (false, "The game client is no longer running.");
+        }
+
+        var slot = this.GetAssignedSlot(client);
+
+        if (slot == null)
+        {
+            return (
+                false,
+                "This game client is not assigned to a configured slot.");
+        }
+
+        if (this.IsManagedClientLaunchInProgress)
+        {
+            return (false, this.GetManagedClientLaunchBlockingStatus());
+        }
+
+        lock (this.lockObject)
+        {
+            if (!this.restartingSlotIds.Add(slot.Id))
+            {
+                return (false, string.Concat(slot.Name, " is already restarting."));
+            }
+        }
+
+        var process = client.Process;
+
+        try
+        {
+            this.CloseClient(client, CloseReason.UserRequested);
+
+            using var timeout = new CancellationTokenSource(
+                TimeSpan.FromSeconds(10));
+
+            try
+            {
+                await process.WaitForExitAsync(timeout.Token);
+            }
+            catch (OperationCanceledException)
+                when (timeout.IsCancellationRequested)
+            {
+                return (
+                    false,
+                    string.Concat(
+                        slot.Name,
+                        " did not close in time, so it was not restarted."));
+            }
+            catch (InvalidOperationException)
+            {
+                return (
+                    false,
+                    string.Concat(
+                        "Could not confirm that ",
+                        slot.Name,
+                        " closed, so it was not restarted."));
+            }
+
+            lock (this.lockObject)
+            {
+                _ = this.restartingSlotIds.Remove(slot.Id);
+            }
+
+            if (!this.StartProfileSlot(
+                    slot.Id,
+                    owner,
+                    out var startStatus))
+            {
+                return (false, startStatus);
+            }
+
+            return (true, startStatus);
+        }
+        finally
+        {
+            lock (this.lockObject)
+            {
+                _ = this.restartingSlotIds.Remove(slot.Id);
+            }
+        }
+    }
+
     public (bool CanStart, string ButtonText, string Status)
         GetProfileSlotLaunchStatus(ClientSlot slot)
     {
@@ -3548,6 +3698,14 @@ public sealed class ClientManager : IDisposable
             profile.Slots.TrueForAll(candidate => candidate.Id != slot.Id))
         {
             return (false, "Start", "The slot is not part of the active profile.");
+        }
+
+        if (this.IsProfileSlotRestarting(slot.Id))
+        {
+            return (
+                false,
+                "Restarting...",
+                "Waiting for the previous game client to close.");
         }
 
         var assignedClient = this.Clients.FirstOrDefault(client =>
@@ -8330,6 +8488,7 @@ public sealed class ClientManager : IDisposable
             missingSlot = profile.Slots.FirstOrDefault(
                 slot =>
                     !this.IsSlotSatisfied(slot) &&
+                    !this.restartingSlotIds.Contains(slot.Id) &&
                     !this.managedClientLaunchFailures.ContainsKey(slot.Id));
         }
 

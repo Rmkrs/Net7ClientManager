@@ -61,8 +61,10 @@ internal sealed class MissionWikiCompanionForm : ThemedForm
 
     private IReadOnlyList<ClientMissionObservation> missions = [];
     private uint selectedMissionAddress;
+    private string? selectedMissionIdentity;
     private string missionListFingerprint = "";
     private string missionDetailsFingerprint = "";
+    private string missionTimingFingerprint = "";
     private Rectangle placementOwnerBounds;
     private Rectangle pendingInitialBounds;
     private bool placementRestored;
@@ -294,21 +296,58 @@ internal sealed class MissionWikiCompanionForm : ThemedForm
         uint selectedMissionAddress,
         MissionJobGuidance? jobGuidance)
     {
-        this.Text = string.IsNullOrWhiteSpace(pilotName)
+        var nextWindowTitle = string.IsNullOrWhiteSpace(pilotName)
             ? "Mission Wiki"
             : string.Concat("Mission Wiki · ", pilotName.Trim());
-        this.pilotLabel.Text = string.IsNullOrWhiteSpace(pilotName)
+        var nextPilotText = string.IsNullOrWhiteSpace(pilotName)
             ? "Following the hosted pilot"
             : string.Concat("Following ", pilotName.Trim());
+
+        if (!string.Equals(
+                this.Text,
+                nextWindowTitle,
+                StringComparison.Ordinal))
+        {
+            this.Text = nextWindowTitle;
+        }
+
+        if (!string.Equals(
+                this.pilotLabel.Text,
+                nextPilotText,
+                StringComparison.Ordinal))
+        {
+            this.pilotLabel.Text = nextPilotText;
+        }
         var nextMissions = missions ?? [];
+        var nextSelectedMission = nextMissions.FirstOrDefault(mission =>
+            mission.Address == selectedMissionAddress);
+
+        if (nextSelectedMission == null &&
+            !string.IsNullOrWhiteSpace(this.selectedMissionIdentity))
+        {
+            nextSelectedMission = nextMissions.FirstOrDefault(mission =>
+                string.Equals(
+                    BuildMissionIdentity(mission),
+                    this.selectedMissionIdentity,
+                    StringComparison.Ordinal));
+        }
+
+        var nextSelectedMissionIdentity = nextSelectedMission == null
+            ? null
+            : BuildMissionIdentity(nextSelectedMission);
         var nextListFingerprint = BuildMissionListFingerprint(
-            nextMissions,
-            selectedMissionAddress);
+            nextMissions);
         var selectionChanged =
-            this.selectedMissionAddress != selectedMissionAddress;
+            !string.Equals(
+                this.selectedMissionIdentity,
+                nextSelectedMissionIdentity,
+                StringComparison.Ordinal);
 
         this.missions = nextMissions;
-        this.selectedMissionAddress = selectedMissionAddress;
+        this.selectedMissionAddress =
+            nextSelectedMission?.Address ?? selectedMissionAddress;
+        this.selectedMissionIdentity = nextSelectedMissionIdentity;
+        this.RefreshMissionListItemAddresses();
 
         if (selectionChanged ||
             !string.Equals(
@@ -316,13 +355,23 @@ internal sealed class MissionWikiCompanionForm : ThemedForm
                 nextListFingerprint,
                 StringComparison.Ordinal))
         {
-            this.missionListFingerprint = nextListFingerprint;
-            this.PopulateMissionList();
+            if (!string.Equals(
+                    this.missionListFingerprint,
+                    nextListFingerprint,
+                    StringComparison.Ordinal))
+            {
+                this.missionListFingerprint = nextListFingerprint;
+                this.PopulateMissionList();
+            }
+            else
+            {
+                this.ApplyMissionListSelection();
+            }
         }
 
+        var selectedMission = nextSelectedMission;
         var nextDetailsFingerprint = BuildMissionDetailsFingerprint(
-            this.missions.FirstOrDefault(mission =>
-                mission.Address == this.selectedMissionAddress),
+            selectedMission,
             jobGuidance);
 
         if (!string.Equals(
@@ -332,6 +381,20 @@ internal sealed class MissionWikiCompanionForm : ThemedForm
         {
             this.missionDetailsFingerprint = nextDetailsFingerprint;
             this.ShowSelectedMission(jobGuidance);
+        }
+
+        var nextTimingFingerprint = BuildMissionTimingFingerprint(
+            selectedMission);
+
+        if (!string.Equals(
+                this.missionTimingFingerprint,
+                nextTimingFingerprint,
+                StringComparison.Ordinal))
+        {
+            this.missionTimingFingerprint = nextTimingFingerprint;
+            this.timingLabel.Text = selectedMission == null
+                ? ""
+                : ResolveTimingText(selectedMission);
         }
     }
 
@@ -649,6 +712,10 @@ internal sealed class MissionWikiCompanionForm : ThemedForm
 
     private void PopulateMissionList()
     {
+        var topMissionIdentity =
+            (this.missionList.TopItem?.Tag as MissionListItemTag)?.Identity;
+        ListViewItem? restoredTopItem = null;
+
         this.suppressSelectionChanged = true;
         this.missionList.BeginUpdate();
         try
@@ -669,12 +736,25 @@ internal sealed class MissionWikiCompanionForm : ThemedForm
                     : "";
                 var item = new ListViewItem(mission.Name)
                 {
-                    Tag = mission.Address,
+                    Tag = new MissionListItemTag(
+                        mission.Address,
+                        BuildMissionIdentity(mission)),
                 };
                 item.SubItems.Add(step);
                 this.missionList.Items.Add(item);
 
-                if (mission.Address == this.selectedMissionAddress)
+                if (string.Equals(
+                        topMissionIdentity,
+                        ((MissionListItemTag)item.Tag).Identity,
+                        StringComparison.Ordinal))
+                {
+                    restoredTopItem = item;
+                }
+
+                if (string.Equals(
+                        BuildMissionIdentity(mission),
+                        this.selectedMissionIdentity,
+                        StringComparison.Ordinal))
                 {
                     item.Selected = true;
                     item.Focused = true;
@@ -691,13 +771,78 @@ internal sealed class MissionWikiCompanionForm : ThemedForm
                 this.missionList.Items[0].Selected = true;
                 this.missionList.Items[0].Focused = true;
                 this.selectedMissionAddress =
-                    (uint)this.missionList.Items[0].Tag!;
+                    ((MissionListItemTag)this.missionList.Items[0].Tag!)
+                    .Address;
+                this.selectedMissionIdentity =
+                    ((MissionListItemTag)this.missionList.Items[0].Tag!)
+                    .Identity;
             }
         }
         finally
         {
             this.missionList.EndUpdate();
+
+            if (restoredTopItem != null)
+            {
+                try
+                {
+                    this.missionList.TopItem = restoredTopItem;
+                }
+                catch (InvalidOperationException)
+                {
+                }
+            }
+
             this.suppressSelectionChanged = false;
+        }
+    }
+
+    private void ApplyMissionListSelection()
+    {
+        this.suppressSelectionChanged = true;
+
+        try
+        {
+            foreach (ListViewItem item in this.missionList.Items)
+            {
+                var shouldSelect =
+                    item.Tag is MissionListItemTag tag &&
+                    string.Equals(
+                        tag.Identity,
+                        this.selectedMissionIdentity,
+                        StringComparison.Ordinal);
+
+                item.Selected = shouldSelect;
+                item.Focused = shouldSelect;
+            }
+        }
+        finally
+        {
+            this.suppressSelectionChanged = false;
+        }
+    }
+
+    private void RefreshMissionListItemAddresses()
+    {
+        foreach (ListViewItem item in this.missionList.Items)
+        {
+            if (item.Tag is not MissionListItemTag tag)
+            {
+                continue;
+            }
+
+            var mission = this.missions.FirstOrDefault(candidate =>
+                string.Equals(
+                    BuildMissionIdentity(candidate),
+                    tag.Identity,
+                    StringComparison.Ordinal));
+
+            if (mission != null && mission.Address != tag.Address)
+            {
+                item.Tag = new MissionListItemTag(
+                    mission.Address,
+                    tag.Identity);
+            }
         }
     }
 
@@ -733,11 +878,14 @@ internal sealed class MissionWikiCompanionForm : ThemedForm
         this.stateLabel.Text = ResolveMissionState(mission);
         this.stateLabel.Visible =
             !string.IsNullOrWhiteSpace(this.stateLabel.Text);
-        this.objectiveTextBox.Text = string.IsNullOrWhiteSpace(
-                mission.CurrentStageText)
-            ? "No current objective text is available."
-            : mission.CurrentStageText.Trim();
-        this.summaryTextBox.Text = BuildMissionSummary(mission);
+        SetTextIfChanged(
+            this.objectiveTextBox,
+            string.IsNullOrWhiteSpace(mission.CurrentStageText)
+                ? "No current objective text is available."
+                : mission.CurrentStageText.Trim());
+        SetTextIfChanged(
+            this.summaryTextBox,
+            BuildMissionSummary(mission));
         this.rewardLabel.Text = string.IsNullOrWhiteSpace(mission.Reward)
             ? ""
             : string.Concat("Reward: ", mission.Reward.Trim());
@@ -747,8 +895,6 @@ internal sealed class MissionWikiCompanionForm : ThemedForm
             : string.Concat(
                 "Issuing faction: ",
                 mission.IssuingFaction.Trim());
-        this.timingLabel.Text = ResolveTimingText(mission);
-
         if (jobGuidance != null)
         {
             this.browserForm.NavigateToJob(jobGuidance);
@@ -1117,13 +1263,15 @@ internal sealed class MissionWikiCompanionForm : ThemedForm
     {
         if (this.suppressSelectionChanged ||
             this.missionList.SelectedItems.Count == 0 ||
-            this.missionList.SelectedItems[0].Tag is not uint address)
+            this.missionList.SelectedItems[0].Tag is not
+                MissionListItemTag itemTag)
         {
             return;
         }
 
-        this.selectedMissionAddress = address;
-        this.missionSelected(address);
+        this.selectedMissionAddress = itemTag.Address;
+        this.selectedMissionIdentity = itemTag.Identity;
+        this.missionSelected(itemTag.Address);
     }
 
     private void ShowInGameButton_OnClick(object? sender, EventArgs e)
@@ -1203,8 +1351,7 @@ internal sealed class MissionWikiCompanionForm : ThemedForm
     }
 
     private static string BuildMissionListFingerprint(
-        IReadOnlyList<ClientMissionObservation> missions,
-        uint selectedMissionAddress)
+        IReadOnlyList<ClientMissionObservation> missions)
     {
         return string.Join(
             "|",
@@ -1213,10 +1360,7 @@ internal sealed class MissionWikiCompanionForm : ThemedForm
                 .OrderBy(mission => mission.Slot)
                 .Select(mission => string.Create(
                     CultureInfo.InvariantCulture,
-                    $"{mission.Address:X8}:{mission.Name}:{mission.Stage}:{mission.StageCount}:{mission.IsComplete}:{mission.IsFailed}:{mission.IsExpired}"))) +
-               string.Create(
-                   CultureInfo.InvariantCulture,
-                   $"#selected:{selectedMissionAddress:X8}");
+                    $"{BuildMissionIdentity(mission)}:{mission.Name}:{mission.Stage}:{mission.StageCount}:{mission.IsComplete}:{mission.IsFailed}:{mission.IsExpired}")));
     }
 
     private static string BuildMissionDetailsFingerprint(
@@ -1235,12 +1379,51 @@ internal sealed class MissionWikiCompanionForm : ThemedForm
                 .OrderBy(stage => stage.Index)
                 .Select(stage => string.Create(
                     CultureInfo.InvariantCulture,
-                    $"{stage.Index}:{stage.ValidState}:{stage.Text}")));
+                    $"{stage.Index}:{stage.ValidState}:{stage.IsTimed}:{stage.Text}")));
 
         return string.Create(
             CultureInfo.InvariantCulture,
-            $"{mission.Address:X8}|{mission.Name}|{mission.Stage}|{mission.StageCount}|{mission.CurrentStageText}|{mission.Summary}|{stageFingerprint}|{mission.Reward}|{mission.IssuingFaction}|{mission.RemainingMilliseconds}|{mission.IsComplete}|{mission.IsFailed}|{mission.IsExpired}|{guidance?.Fingerprint}");
+            $"{mission.Name}|{mission.Stage}|{mission.StageCount}|{mission.CurrentStageText}|{mission.Summary}|{stageFingerprint}|{mission.Reward}|{mission.IssuingFaction}|{mission.IsComplete}|{mission.IsFailed}|{mission.IsExpired}|{guidance?.Fingerprint}");
     }
+
+    private static string BuildMissionTimingFingerprint(
+        ClientMissionObservation? mission)
+    {
+        return mission == null
+            ? "none"
+            : ResolveTimingText(mission);
+    }
+
+    private static string BuildMissionIdentity(
+        ClientMissionObservation mission)
+    {
+        return mission.RawId.HasValue
+            ? string.Create(
+                CultureInfo.InvariantCulture,
+                $"id:{mission.RawId.Value}")
+            : string.Create(
+                CultureInfo.InvariantCulture,
+                $"slot:{mission.Slot}:name:{mission.Name}");
+    }
+
+    private static void SetTextIfChanged(
+        TextBox textBox,
+        string text)
+    {
+        if (string.Equals(
+                textBox.Text,
+                text,
+                StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        textBox.Text = text;
+    }
+
+    private sealed record MissionListItemTag(
+        uint Address,
+        string Identity);
 
     private static bool IsUsableMission(ClientMissionObservation mission)
     {

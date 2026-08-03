@@ -10,7 +10,9 @@ internal sealed class ThemedMessageDialog : ThemedForm
         string message,
         string primaryButtonText,
         DialogResult primaryResult,
-        string? secondaryButtonText)
+        string? secondaryButtonText,
+        Action? confirmedAction = null,
+        bool autoEllipsis = true)
     {
         this.Text = title;
         this.Icon = ResourceLoader.Net7ClientManagerIcon;
@@ -39,14 +41,16 @@ internal sealed class ThemedMessageDialog : ThemedForm
             Dock = DockStyle.Fill,
             ForeColor = MainWindowTheme.Text,
             TextAlign = ContentAlignment.MiddleLeft,
-            AutoEllipsis = true,
+            AutoEllipsis = autoEllipsis,
             Padding = new Padding(left: 6, top: 0, right: 0, bottom: 0),
         };
 
         var primaryButton = new Button
         {
             Text = primaryButtonText,
-            DialogResult = primaryResult,
+            DialogResult = confirmedAction == null
+                ? primaryResult
+                : DialogResult.None,
             Width = 96,
             Height = 34,
             Margin = new Padding(left: 6, top: 0, right: 0, bottom: 0),
@@ -55,6 +59,15 @@ internal sealed class ThemedMessageDialog : ThemedForm
             primaryButton,
             primary: secondaryButtonText == null,
             danger: secondaryButtonText != null);
+
+        if (confirmedAction != null)
+        {
+            primaryButton.Click += (_, _) =>
+            {
+                this.Close();
+                confirmedAction();
+            };
+        }
 
         var buttonPanel = new FlowLayoutPanel
         {
@@ -75,12 +88,19 @@ internal sealed class ThemedMessageDialog : ThemedForm
             var secondaryButton = new Button
             {
                 Text = secondaryButtonText,
-                DialogResult = DialogResult.Cancel,
+                DialogResult = confirmedAction == null
+                    ? DialogResult.Cancel
+                    : DialogResult.None,
                 Width = 96,
                 Height = 34,
                 Margin = Padding.Empty,
             };
             MainWindowTheme.StyleButton(secondaryButton);
+
+            if (confirmedAction != null)
+            {
+                secondaryButton.Click += (_, _) => this.Close();
+            }
 
             buttonPanel.Controls.Add(secondaryButton);
             this.AcceptButton = secondaryButton;
@@ -123,6 +143,29 @@ internal sealed class ThemedMessageDialog : ThemedForm
             secondaryButtonText: "Cancel");
 
         return dialog.ShowDialog(owner) == DialogResult.Yes;
+    }
+
+    public static void ConfirmModeless(
+        IWin32Window owner,
+        string title,
+        string message,
+        string confirmButtonText,
+        Action confirmedAction)
+    {
+        ArgumentNullException.ThrowIfNull(confirmedAction);
+
+        var dialog = new ThemedMessageDialog(
+            title,
+            message,
+            confirmButtonText,
+            DialogResult.None,
+            secondaryButtonText: "Cancel",
+            confirmedAction: confirmedAction,
+            autoEllipsis: false);
+
+        dialog.Load += (_, _) => dialog.CenterToParent();
+        dialog.FormClosed += (_, _) => dialog.Dispose();
+        dialog.Show(owner);
     }
 
     public static void ShowWarning(

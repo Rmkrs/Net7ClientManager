@@ -37,6 +37,9 @@ public sealed partial class ClientHostForm
     private double missionWikiListPaneRatio = 0.24;
     private double missionWikiDetailsPaneRatio = 0.28;
 
+    private bool IsMissionWikiCompanionOpen =>
+        this.missionWikiCompanionForm is { IsDisposed: false };
+
     private bool CanPresentMissionWikiCompanion =>
         this.missionWikiEnabled &&
         this.addonLifecycleState == ClientLifecycleState.InGame &&
@@ -185,7 +188,8 @@ public sealed partial class ClientHostForm
             this.clientManager.IsMissionWikiFeatureEnabled(
                 this.clientInstance.ProcessId);
 
-        if (this.missionWikiEnabled == enabled)
+        if (this.missionWikiEnabled == enabled ||
+            (!enabled && this.IsMissionWikiCompanionOpen))
         {
             return;
         }
@@ -379,7 +383,6 @@ public sealed partial class ClientHostForm
                 this.setMissionWikiDestination,
                 this.resolveAddonWindowPlacement,
                 this.saveAddonWindowPlacement,
-                this.ShowMissionWikiInGame,
                 this.SelectMissionWikiCompanionMission,
                 this.SaveMissionWikiPaneRatios,
                 this.missionWikiLeftPaneRatio,
@@ -413,15 +416,6 @@ public sealed partial class ClientHostForm
         this.ShowMissionWikiCompanion();
         return this.missionWikiCompanionForm is
             { IsDisposed: false, Visible: true };
-    }
-
-    private void ShowMissionWikiInGame()
-    {
-        this.CloseMissionWikiCompanionForPresentationSwitch();
-        this.SetMissionWikiPresentationMode(
-            MissionWikiPresentationMode.InGame);
-        this.RefreshMissionWikiActiveSelection();
-        this.SyncMissionWiki();
     }
 
     private void SetMissionWikiPresentationMode(

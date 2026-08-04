@@ -21,6 +21,7 @@ internal sealed record InGameOptionsValues(
     bool RecordCombatHistory,
     bool KeepGalaxyFinderSearchOpen,
     bool ShowVendorCompanion,
+    bool ShowBuffDurations,
     bool EnhancedItemToolTipsEnabled,
     int ItemToolTipHorizontalOffset,
     int ItemToolTipVerticalOffset);
@@ -48,6 +49,7 @@ internal sealed class InGameOptionsForm : ThemedForm
     private readonly ThemedCheckBox combatHistoryCheckBox = new();
     private readonly ThemedCheckBox keepGalaxyFinderSearchOpenCheckBox = new();
     private readonly ThemedCheckBox showVendorCompanionCheckBox = new();
+    private readonly ThemedCheckBox showBuffDurationsCheckBox = new();
     private readonly ThemedCheckBox enhancedItemToolTipsCheckBox = new();
     private readonly TextBox horizontalOffsetTextBox = new();
     private readonly TextBox verticalOffsetTextBox = new();
@@ -94,7 +96,7 @@ internal sealed class InGameOptionsForm : ThemedForm
         this.Text = "In-Game Options";
         this.Icon = ResourceLoader.Net7ClientManagerIcon;
         this.StartPosition = FormStartPosition.CenterParent;
-        this.ClientSize = new Size(width: 650, height: 790);
+        this.ClientSize = new Size(width: 650, height: 884);
         this.MinimumSize = this.Size;
         this.MaximumSize = this.Size;
         this.BackColor = MainWindowTheme.Background;
@@ -147,6 +149,8 @@ internal sealed class InGameOptionsForm : ThemedForm
             this.OptionsControl_OnChanged;
         this.showVendorCompanionCheckBox.CheckedChanged -=
             this.OptionsControl_OnChanged;
+        this.showBuffDurationsCheckBox.CheckedChanged -=
+            this.OptionsControl_OnChanged;
         this.enhancedItemToolTipsCheckBox.CheckedChanged -=
             this.ItemToolTipOption_OnChanged;
         this.horizontalOffsetTextBox.TextChanged -=
@@ -194,11 +198,15 @@ internal sealed class InGameOptionsForm : ThemedForm
                 new GuidedTourStep(
                     () => this.missionWikiCheckBox,
                     "Turn in-game helpers on or off",
-                    "Mission Wiki, Finder behaviour, vendor assistance, and enhanced item tooltips can be enabled independently for the active game experience."),
+                    "Mission Wiki, Finder behaviour, vendor assistance, buff durations, and enhanced item tooltips can be enabled independently for the active game experience."),
                 new GuidedTourStep(
                     () => this.missionHistoryCheckBox,
                     "Choose what Pilot Archive remembers",
                     "Mission, activity, and combat history recording can be controlled here. The resulting histories remain available after the client closes."),
+                new GuidedTourStep(
+                    () => this.showBuffDurationsCheckBox,
+                    "Keep an eye on active buffs",
+                    "Buff durations stay visible over the sixteen buff slots. Hover a duration for the effect details Client Manager can resolve."),
                 new GuidedTourStep(
                     () => this.enhancedItemToolTipsCheckBox,
                     "Replace cramped native item details",
@@ -216,7 +224,7 @@ internal sealed class InGameOptionsForm : ThemedForm
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 6,
+            RowCount = 7,
             BackColor = MainWindowTheme.Background,
             Padding = new Padding(18, 10, 18, 14),
             Margin = Padding.Empty,
@@ -227,6 +235,7 @@ internal sealed class InGameOptionsForm : ThemedForm
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 240f));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 88f));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 108f));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 94f));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 54f));
 
@@ -245,8 +254,9 @@ internal sealed class InGameOptionsForm : ThemedForm
         root.Controls.Add(this.CreateCommandPalettePanel(), 0, 1);
         root.Controls.Add(this.CreateAddonPanel(), 0, 2);
         root.Controls.Add(this.CreateGalaxyFinderPanel(), 0, 3);
-        root.Controls.Add(this.CreateLowerOptionsPanel(), 0, 4);
-        root.Controls.Add(this.CreateFooter(), 0, 5);
+        root.Controls.Add(this.CreateBuffDurationsPanel(), 0, 4);
+        root.Controls.Add(this.CreateLowerOptionsPanel(), 0, 5);
+        root.Controls.Add(this.CreateFooter(), 0, 6);
 
         this.Controls.Add(root);
     }
@@ -496,6 +506,54 @@ internal sealed class InGameOptionsForm : ThemedForm
         layout.Controls.Add(itemToolTipsPanel, 1, 0);
 
         return layout;
+    }
+
+    private Control CreateBuffDurationsPanel()
+    {
+        var panel = new Panel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = MainWindowTheme.Panel,
+            Padding = new Padding(18, 10, 18, 10),
+            Margin = new Padding(0, 0, 0, 10),
+        };
+
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 2,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty,
+        };
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30f));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30f));
+
+        layout.Controls.Add(
+            new Label
+            {
+                Dock = DockStyle.Fill,
+                Text = "BUFF DURATIONS",
+                Font = MainWindowTheme.CreateHeadingFont(9.0f),
+                ForeColor = MainWindowTheme.Accent,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Margin = Padding.Empty,
+            },
+            0,
+            0);
+
+        this.showBuffDurationsCheckBox.Text =
+            "Show buff durations";
+        this.showBuffDurationsCheckBox.Checked =
+            this.initialValues.ShowBuffDurations;
+        this.showBuffDurationsCheckBox.Dock = DockStyle.Fill;
+        layout.Controls.Add(
+            this.showBuffDurationsCheckBox,
+            0,
+            1);
+
+        panel.Controls.Add(layout);
+        return panel;
     }
 
     private Control CreateHistoryPanel()
@@ -775,6 +833,8 @@ internal sealed class InGameOptionsForm : ThemedForm
             this.OptionsControl_OnChanged;
         this.showVendorCompanionCheckBox.CheckedChanged +=
             this.OptionsControl_OnChanged;
+        this.showBuffDurationsCheckBox.CheckedChanged +=
+            this.OptionsControl_OnChanged;
         this.enhancedItemToolTipsCheckBox.CheckedChanged +=
             this.ItemToolTipOption_OnChanged;
         this.horizontalOffsetTextBox.TextChanged +=
@@ -1019,6 +1079,7 @@ internal sealed class InGameOptionsForm : ThemedForm
                 this.combatHistoryCheckBox.Checked,
                 this.keepGalaxyFinderSearchOpenCheckBox.Checked,
                 this.showVendorCompanionCheckBox.Checked,
+                this.showBuffDurationsCheckBox.Checked,
                 this.enhancedItemToolTipsCheckBox.Checked,
                 horizontalOffset,
                 verticalOffset);
@@ -1131,6 +1192,7 @@ internal sealed class InGameOptionsForm : ThemedForm
         this.combatHistoryCheckBox.Enabled = !this.applying;
         this.keepGalaxyFinderSearchOpenCheckBox.Enabled = !this.applying;
         this.showVendorCompanionCheckBox.Enabled = !this.applying;
+        this.showBuffDurationsCheckBox.Enabled = !this.applying;
         this.enhancedItemToolTipsCheckBox.Enabled = !this.applying;
         this.horizontalOffsetTextBox.Enabled = itemToolTipsEnabled;
         this.verticalOffsetTextBox.Enabled = itemToolTipsEnabled;

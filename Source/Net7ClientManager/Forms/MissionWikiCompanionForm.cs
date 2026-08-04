@@ -31,7 +31,6 @@ internal sealed class MissionWikiCompanionForm : ThemedForm
         resolveWindowPlacement;
     private readonly Action<string, string, AddonWindowPlacement>
         saveWindowPlacement;
-    private readonly Action showInGameRequested;
     private readonly Action<uint> missionSelected;
     private readonly Action<double, double, double> paneRatiosChanged;
 
@@ -45,8 +44,6 @@ internal sealed class MissionWikiCompanionForm : ThemedForm
     private readonly Panel firstSplitter = new();
     private readonly Panel secondSplitter = new();
     private readonly Panel thirdSplitter = new();
-    private readonly Label pilotLabel = new();
-    private readonly Button showInGameButton = new();
     private readonly ListView missionList = new();
     private readonly Label missionCountLabel = new();
     private readonly Label missionNameLabel = new();
@@ -95,7 +92,6 @@ internal sealed class MissionWikiCompanionForm : ThemedForm
             resolveWindowPlacement,
         Action<string, string, AddonWindowPlacement>
             saveWindowPlacement,
-        Action showInGameRequested,
         Action<uint> missionSelected,
         Action<double, double, double> paneRatiosChanged,
         double leftPaneRatio,
@@ -107,8 +103,6 @@ internal sealed class MissionWikiCompanionForm : ThemedForm
             throw new ArgumentNullException(nameof(resolveWindowPlacement));
         this.saveWindowPlacement = saveWindowPlacement ??
             throw new ArgumentNullException(nameof(saveWindowPlacement));
-        this.showInGameRequested = showInGameRequested ??
-            throw new ArgumentNullException(nameof(showInGameRequested));
         this.missionSelected = missionSelected ??
             throw new ArgumentNullException(nameof(missionSelected));
         this.paneRatiosChanged = paneRatiosChanged ??
@@ -160,8 +154,6 @@ internal sealed class MissionWikiCompanionForm : ThemedForm
         this.workspacePanel.Resize += this.WorkspacePanel_OnResize;
         this.missionList.SelectedIndexChanged +=
             this.MissionList_OnSelectedIndexChanged;
-        this.showInGameButton.Click +=
-            this.ShowInGameButton_OnClick;
         this.AttachVerticalSplitter(this.firstSplitter);
         this.AttachHorizontalSplitter(this.secondSplitter, splitterIndex: 2);
         this.AttachHorizontalSplitter(this.thirdSplitter, splitterIndex: 3);
@@ -299,9 +291,6 @@ internal sealed class MissionWikiCompanionForm : ThemedForm
         var nextWindowTitle = string.IsNullOrWhiteSpace(pilotName)
             ? "Mission Wiki"
             : string.Concat("Mission Wiki · ", pilotName.Trim());
-        var nextPilotText = string.IsNullOrWhiteSpace(pilotName)
-            ? "Following the hosted pilot"
-            : string.Concat("Following ", pilotName.Trim());
 
         if (!string.Equals(
                 this.Text,
@@ -311,13 +300,6 @@ internal sealed class MissionWikiCompanionForm : ThemedForm
             this.Text = nextWindowTitle;
         }
 
-        if (!string.Equals(
-                this.pilotLabel.Text,
-                nextPilotText,
-                StringComparison.Ordinal))
-        {
-            this.pilotLabel.Text = nextPilotText;
-        }
         var nextMissions = missions ?? [];
         var nextSelectedMission = nextMissions.FirstOrDefault(mission =>
             mission.Address == selectedMissionAddress);
@@ -412,7 +394,7 @@ internal sealed class MissionWikiCompanionForm : ThemedForm
                 new GuidedTourStep(
                     () => this.missionPane,
                     "Choose a current mission",
-                    "The companion reads the hosted pilot's mission log. Select any mission here without keeping Earth & Beyond's mission window open."),
+                    "The companion reads this pilot's mission log. Select any mission here without keeping Earth & Beyond's mission window open."),
                 new GuidedTourStep(
                     () => this.detailsPane,
                     "Read the current objective",
@@ -433,10 +415,6 @@ internal sealed class MissionWikiCompanionForm : ThemedForm
                     () => this.secondSplitter,
                     "Resize the mission sections",
                     "Drag either horizontal divider to vary the height of the mission list, current objective, and mission summary. The complete layout is remembered for this slot."),
-                new GuidedTourStep(
-                    () => this.showInGameButton,
-                    "Move Mission Wiki back into the game",
-                    "Show in game closes this desktop companion. Open the game's mission panel and select a mission whenever you want to pop it out again."),
             ]);
     }
 
@@ -455,8 +433,6 @@ internal sealed class MissionWikiCompanionForm : ThemedForm
                 this.MissionList_OnDrawItem;
             this.missionList.DrawSubItem -=
                 this.MissionList_OnDrawSubItem;
-            this.showInGameButton.Click -=
-                this.ShowInGameButton_OnClick;
             this.DetachSplitter(this.firstSplitter);
             this.DetachSplitter(this.secondSplitter);
             this.DetachSplitter(this.thirdSplitter);
@@ -471,34 +447,6 @@ internal sealed class MissionWikiCompanionForm : ThemedForm
         this.contentPanel.Dock = DockStyle.Fill;
         this.contentPanel.Padding = new Padding(14);
         this.contentPanel.BackColor = MainWindowTheme.Background;
-
-        var header = new TableLayoutPanel
-        {
-            Dock = DockStyle.Top,
-            Height = 40,
-            ColumnCount = 2,
-            RowCount = 1,
-            Margin = Padding.Empty,
-            Padding = Padding.Empty,
-            BackColor = MainWindowTheme.Background,
-        };
-        header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 132));
-        header.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-
-        this.pilotLabel.Dock = DockStyle.Fill;
-        this.pilotLabel.TextAlign = ContentAlignment.MiddleLeft;
-        this.pilotLabel.ForeColor = MainWindowTheme.MutedText;
-        this.pilotLabel.Font = MainWindowTheme.CreateBodyFont(9.0f);
-        this.pilotLabel.Text = "Following the hosted pilot";
-
-        this.showInGameButton.Dock = DockStyle.Fill;
-        this.showInGameButton.Text = "Show in game";
-        this.showInGameButton.Margin = new Padding(4, 2, 0, 4);
-        MainWindowTheme.StyleButton(this.showInGameButton);
-
-        header.Controls.Add(this.pilotLabel, 0, 0);
-        header.Controls.Add(this.showInGameButton, 1, 0);
 
         this.workspacePanel.Dock = DockStyle.Fill;
         this.workspacePanel.BackColor = MainWindowTheme.Background;
@@ -533,7 +481,6 @@ internal sealed class MissionWikiCompanionForm : ThemedForm
         this.workspacePanel.Controls.Add(this.wikiPane);
 
         this.contentPanel.Controls.Add(this.workspacePanel);
-        this.contentPanel.Controls.Add(header);
     }
 
     private void ConfigureMissionPane()
@@ -1272,11 +1219,6 @@ internal sealed class MissionWikiCompanionForm : ThemedForm
         this.selectedMissionAddress = itemTag.Address;
         this.selectedMissionIdentity = itemTag.Identity;
         this.missionSelected(itemTag.Address);
-    }
-
-    private void ShowInGameButton_OnClick(object? sender, EventArgs e)
-    {
-        this.showInGameRequested();
     }
 
     private void WorkspacePanel_OnResize(object? sender, EventArgs e)

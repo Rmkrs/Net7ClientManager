@@ -107,6 +107,18 @@ internal sealed class GameDataIniDocument(
         return sections.TryGetValue(sectionName, out section!);
     }
 
+    public IEnumerable<KeyValuePair<string, IReadOnlyDictionary<string, string>>>
+        GetSections(string prefix)
+    {
+        ArgumentNullException.ThrowIfNull(prefix);
+
+        return sections
+            .Where(section =>
+                section.Key.StartsWith(
+                    prefix,
+                    StringComparison.OrdinalIgnoreCase));
+    }
+
     public IReadOnlyDictionary<int, string> GetIntegerKeyMap(
         string sectionName)
     {

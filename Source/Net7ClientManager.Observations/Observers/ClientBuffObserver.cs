@@ -21,7 +21,7 @@ internal sealed class ClientBuffObserver
     private const uint UInt64PropertyHighWordOffset = 0x8c;
 
     private const int RemovalTimePropertySnapshotLength = 0x90;
-    private const int MaximumBuffSlotCount = 15;
+    private const int MaximumBuffSlotCount = 16;
 
     private static readonly string[] buffPropertySuffixes =
     [

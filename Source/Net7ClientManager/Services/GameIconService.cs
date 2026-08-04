@@ -194,7 +194,7 @@ internal sealed class GameIconService(
         }
     }
 
-    private Image? GetResourceIcon(
+    internal Image? GetResourceIcon(
         ClientInstance client,
         string logicalResourceName,
         Size size,

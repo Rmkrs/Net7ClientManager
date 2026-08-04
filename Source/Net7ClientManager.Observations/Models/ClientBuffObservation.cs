@@ -22,7 +22,7 @@ public sealed record ClientBuffObservation
 
     /*
      * BuffType is the authoritative occupancy signal for the fixed
-     * fifteen-slot BuffArray. Empty records remain allocated and valid,
+     * sixteen-slot BuffArray. Empty records remain allocated and valid,
      * but expose an empty BuffType string.
      */
     public string? BuffType { get; init; }

@@ -73,6 +73,8 @@ public sealed class AppSettings
 
     public GameItemToolTipSettings GameItemToolTips { get; set; } = new();
 
+    public GameBuffOverlaySettings GameBuffOverlay { get; set; } = new();
+
     public GameSettingsEditorSettings GameSettingsEditor { get; set; } = new();
 
     public SocialSettings Social { get; set; } = new();
@@ -118,6 +120,7 @@ public sealed class AppSettings
         this.History ??= new HistorySettings();
         this.GameItemToolTips ??= new GameItemToolTipSettings();
         this.GameItemToolTips.EnsureDefaults();
+        this.GameBuffOverlay ??= new GameBuffOverlaySettings();
         this.GameSettingsEditor ??= new GameSettingsEditorSettings();
         this.Social ??= new SocialSettings();
         this.Social.EnsureDefaults();

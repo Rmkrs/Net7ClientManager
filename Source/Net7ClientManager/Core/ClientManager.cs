@@ -180,6 +180,9 @@ public sealed class ClientManager : IDisposable
     private readonly GameCommandCoordinator gameCommandCoordinator;
     private readonly GameShortcutPaletteService gameShortcutPaletteService;
     private readonly GameIconService gameIconService;
+    private readonly GameBuffDefinitionCatalogService
+        gameBuffDefinitionCatalogService;
+    private readonly GameBuffPresentationService gameBuffPresentationService;
     private readonly GameShortcutInvocationService gameShortcutInvocationService;
     private readonly NearbyTargetSelectionService nearbyTargetSelectionService;
     private readonly NavigationTargetSelectionService navigationTargetSelectionService;
@@ -287,6 +290,12 @@ public sealed class ClientManager : IDisposable
 
         this.gameIconService =
             new GameIconService(this.gameKeyMapLocator);
+        this.gameBuffDefinitionCatalogService =
+            new GameBuffDefinitionCatalogService(
+                this.gameKeyMapLocator);
+        this.gameBuffPresentationService =
+            new GameBuffPresentationService(
+                this.gameBuffDefinitionCatalogService);
 
         this.gameShortcutInvocationService =
             new GameShortcutInvocationService(
@@ -542,6 +551,9 @@ public sealed class ClientManager : IDisposable
 
     public GameItemToolTipSettings GameItemToolTipSettings =>
         this.settings.GameItemToolTips;
+
+    public GameBuffOverlaySettings GameBuffOverlaySettings =>
+        this.settings.GameBuffOverlay;
 
     public GameSettingsEditorSettings GameSettingsEditorSettings =>
         this.settings.GameSettingsEditor;
@@ -2962,6 +2974,43 @@ public sealed class ClientManager : IDisposable
                 enabled,
                 horizontalOffset,
                 verticalOffset);
+        }
+    }
+
+    internal void SetGameBuffOverlayOptions(bool showDurations)
+    {
+        this.settings.GameBuffOverlay.ShowDurations = showDurations;
+
+        ClientInstance[] clients;
+
+        lock (this.lockObject)
+        {
+            clients = [.. this.clients.Values];
+        }
+
+        foreach (var client in clients)
+        {
+            var hostForm = client.HostForm;
+
+            if (hostForm == null)
+            {
+                continue;
+            }
+
+            hostForm.SetShowBuffDurations(showDurations);
+
+            if (showDurations &&
+                this.clientObservationCoordinator.TryGetSnapshot(
+                    client.ProcessId,
+                    out var snapshot) &&
+                snapshot.LoadingOrTransitionFlag == 0 &&
+                snapshot.LocalPlayer.Buffs.IsAvailable)
+            {
+                hostForm.UpdateBuffDurationPresentation(
+                    this.gameBuffPresentationService.Build(
+                        client,
+                        snapshot));
+            }
         }
     }
 
@@ -8598,6 +8647,8 @@ public sealed class ClientManager : IDisposable
             this.settings.GameItemToolTips.Enabled,
             this.settings.GameItemToolTips.HorizontalOffset,
             this.settings.GameItemToolTips.VerticalOffset);
+        hostForm.SetShowBuffDurations(
+            this.settings.GameBuffOverlay.ShowDurations);
         hostForm.SetVendorShoppingCompanionEnabled(
             this.settings.WorldFind.ShowVendorCompanion);
         hostForm.SetAddonsSuspendedForSession(
@@ -8652,6 +8703,17 @@ public sealed class ClientManager : IDisposable
                 currentSnapshot);
             hostForm.UpdateGameItemToolTipSnapshot(
                 currentSnapshot);
+
+            if (this.settings.GameBuffOverlay.ShowDurations &&
+                currentSnapshot.LoadingOrTransitionFlag == 0 &&
+                currentSnapshot.LocalPlayer.Buffs.IsAvailable)
+            {
+                hostForm.UpdateBuffDurationPresentation(
+                    this.gameBuffPresentationService.Build(
+                        client,
+                        currentSnapshot));
+            }
+
             hostForm.UpdateVendorShoppingCompanionPresentation(
                 this.ResolveVendorShoppingCompanionPresentation(
                     currentSnapshot));
@@ -9777,6 +9839,17 @@ public sealed class ClientManager : IDisposable
             e.Snapshot.LoadingOrTransitionFlag != 0);
         client.HostForm?.UpdateGameItemToolTipSnapshot(
             e.Snapshot);
+
+        if (this.settings.GameBuffOverlay.ShowDurations &&
+            e.Snapshot.LoadingOrTransitionFlag == 0 &&
+            e.Snapshot.LocalPlayer.Buffs.IsAvailable)
+        {
+            client.HostForm?.UpdateBuffDurationPresentation(
+                this.gameBuffPresentationService.Build(
+                    client,
+                    e.Snapshot));
+        }
+
         client.HostForm?.UpdateVendorShoppingCompanionPresentation(
             this.ResolveVendorShoppingCompanionPresentation(
                 e.Snapshot));

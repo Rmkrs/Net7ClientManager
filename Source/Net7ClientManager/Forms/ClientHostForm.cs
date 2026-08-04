@@ -369,6 +369,8 @@ public sealed partial class ClientHostForm : Form
     public void ApplySlot(ClientSlot slot)
     {
         var slotChanged = this.appliedSlotId != slot.Id;
+        var missionWikiCompanionOpen =
+            this.IsMissionWikiCompanionOpen;
         this.appliedSlotId = slot.Id;
 
         if (slotChanged)
@@ -376,15 +378,19 @@ public sealed partial class ClientHostForm : Form
             this.CloseNavigationCompanion(
                 preserveOpenPreference: true);
             this.navigationInGamePresenter?.Hide();
-            this.CloseMissionWikiCompanion(
-                preserveOpenPreference: true);
-            this.HideMissionWikiInGame();
+
+            if (!missionWikiCompanionOpen)
+            {
+                this.HideMissionWikiInGame();
+            }
         }
 
         this.navigationPresentationMode =
             slot.NavigationPresentationMode;
         this.missionWikiPresentationMode =
-            slot.MissionWikiPresentationMode;
+            missionWikiCompanionOpen
+                ? MissionWikiPresentationMode.Companion
+                : slot.MissionWikiPresentationMode;
         this.missionWikiLeftPaneRatio =
             slot.MissionWikiLeftPaneRatio;
         this.missionWikiListPaneRatio =
@@ -408,11 +414,16 @@ public sealed partial class ClientHostForm : Form
             this.clientInstance.GameWindowHandle,
             this.gamePanel.ClientSize);
 
-        this.SetMissionWikiEnabled(
+        var missionWikiEnabledForSlot =
             !this.addonsSuspendedForSession &&
             slot.EnabledAddonIds.Contains(
                 MissionWikiFeature.AddonId,
-                StringComparer.Ordinal));
+                StringComparer.Ordinal);
+
+        if (!missionWikiCompanionOpen || missionWikiEnabledForSlot)
+        {
+            this.SetMissionWikiEnabled(missionWikiEnabledForSlot);
+        }
 
         if (slotChanged)
         {
@@ -439,21 +450,27 @@ public sealed partial class ClientHostForm : Form
     public void SetUnassignedTitle()
     {
         var slotChanged = this.appliedSlotId != null;
+        var missionWikiCompanionOpen =
+            this.IsMissionWikiCompanionOpen;
         this.appliedSlotId = null;
 
         this.appliedSlotName = null;
         this.navigationPresentationMode =
             NavigationPresentationMode.Companion;
         this.missionWikiPresentationMode =
-            MissionWikiPresentationMode.InGame;
+            missionWikiCompanionOpen
+                ? MissionWikiPresentationMode.Companion
+                : MissionWikiPresentationMode.InGame;
         this.CloseNavigationCompanion(
             preserveOpenPreference: true);
         this.navigationInGamePresenter?.Hide();
-        this.CloseMissionWikiCompanion(
-            preserveOpenPreference: true);
         this.HideMissionWikiInGame();
         this.ClearTitleStatus();
-        this.SetMissionWikiEnabled(enabled: false);
+
+        if (!missionWikiCompanionOpen)
+        {
+            this.SetMissionWikiEnabled(enabled: false);
+        }
 
         if (slotChanged)
         {
@@ -1072,6 +1089,11 @@ public sealed partial class ClientHostForm : Form
         this.addonLifecycleState = lifecycleState;
         this.addonTransitioning = isTransitioning;
 
+        if (lifecycleState != ClientLifecycleState.InGame)
+        {
+            this.ClearBuffDurationPresentation();
+        }
+
         if (isTransitioning || wasTransitioning)
         {
             this.HoldMissionWikiMissionSnapshot();
@@ -1093,6 +1115,7 @@ public sealed partial class ClientHostForm : Form
         this.SyncBuildEquipmentCompanion();
         this.SyncVendorShoppingCompanion();
         this.SyncGameItemToolTip();
+        this.SyncBuffDurationOverlay();
     }
 
     public void ApplyAddonUiCommand(AddonUiCommand command)
@@ -1266,6 +1289,7 @@ public sealed partial class ClientHostForm : Form
             this.CloseBuildSkillsCompanionForms();
             this.CloseBuildEquipmentCompanionForms();
             this.CloseVendorShoppingCompanionForm();
+            this.CloseBuffDurationOverlayForm();
             this.gameItemToolTip.Dispose();
 
             lock (this.pendingUiCommandLock)
@@ -1593,6 +1617,7 @@ public sealed partial class ClientHostForm : Form
             this.SyncBuildEquipmentCompanion();
             this.SyncVendorShoppingCompanion();
             this.SyncGameItemToolTip();
+            this.SyncBuffDurationOverlay();
         });
     }
 
@@ -1618,6 +1643,7 @@ public sealed partial class ClientHostForm : Form
         this.SyncVendorShoppingCompanion();
         this.gameItemToolTip.HideExternal();
         this.SyncGameItemToolTip();
+        this.SyncBuffDurationOverlay();
     }
 
     private void ClientHostForm_OnMove(object? sender, EventArgs e)
@@ -1631,6 +1657,7 @@ public sealed partial class ClientHostForm : Form
         this.SyncVendorShoppingCompanion();
         this.gameItemToolTip.HideExternal();
         this.SyncGameItemToolTip();
+        this.SyncBuffDurationOverlay();
     }
 
     private void ClientHostForm_OnVisibleChanged(
@@ -1645,11 +1672,13 @@ public sealed partial class ClientHostForm : Form
         this.SyncBuildEquipmentCompanion();
         this.SyncVendorShoppingCompanion();
         this.SyncGameItemToolTip();
+        this.SyncBuffDurationOverlay();
     }
 
     private void ClientHostForm_OnFormClosing(object? sender, FormClosingEventArgs e)
     {
         this.gameItemToolTip.HideExternal();
+        this.ActiveBuffDurationOverlayForm?.HideToolTip();
 
         if (this.closeRequestedByManager ||
             e.CloseReason !=
@@ -2071,25 +2100,29 @@ public sealed partial class ClientHostForm : Form
         this.RefreshMissionWikiEnabledFromSettings();
         this.RefreshMissionWikiActiveSelection();
 
-        if (!this.missionWikiEnabled)
+        if (this.missionWikiPresentationMode ==
+                MissionWikiPresentationMode.Companion &&
+            this.IsMissionWikiCompanionOpen)
         {
+            // Once opened, the desktop companion belongs to this game process,
+            // not to whichever temporary slot, lifecycle, transition, or group
+            // snapshot happens to be reported right now. Preserve the complete
+            // workspace until the user closes it, the feature is explicitly
+            // disabled, or the hosted process itself is disposed.
             this.HideMissionWikiInGame();
-            this.CloseMissionWikiCompanion(
-                preserveOpenPreference: true);
+
+            if (this.missionWikiEnabled &&
+                this.addonLifecycleState == ClientLifecycleState.InGame &&
+                !this.addonTransitioning)
+            {
+                this.SyncMissionWikiCompanionPresentation();
+            }
+
             return;
         }
 
-        if (this.missionWikiPresentationMode ==
-                MissionWikiPresentationMode.Companion &&
-            this.missionWikiCompanionForm is
-                { IsDisposed: false } &&
-            this.addonTransitioning)
+        if (!this.missionWikiEnabled)
         {
-            // An already-open desktop companion is a stable user workspace,
-            // not an in-game overlay. Sector transitions temporarily remove
-            // readable client state, but they must not close, dispose, hide,
-            // re-show, reactivate, or rebind this window. Keep the exact last
-            // visible frame until the observation becomes usable again.
             this.HideMissionWikiInGame();
             return;
         }
@@ -2097,8 +2130,6 @@ public sealed partial class ClientHostForm : Form
         if (this.addonLifecycleState != ClientLifecycleState.InGame)
         {
             this.HideMissionWikiInGame();
-            this.CloseMissionWikiCompanion(
-                preserveOpenPreference: true);
             return;
         }
 

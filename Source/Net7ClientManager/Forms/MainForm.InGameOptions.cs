@@ -42,6 +42,8 @@ public sealed partial class MainForm
         var worldFindSettings = this.clientManager.WorldFindSettings;
         var itemToolTipSettings =
             this.clientManager.GameItemToolTipSettings;
+        var buffOverlaySettings =
+            this.clientManager.GameBuffOverlaySettings;
         var initialValues = new InGameOptionsValues(
             settings.EffectiveCommandMenuShowMode,
             settings.CommandMenuPlacement,
@@ -56,6 +58,7 @@ public sealed partial class MainForm
             historySettings.RecordCombatHistory,
             worldFindSettings.KeepSearchOpenInTab,
             worldFindSettings.ShowVendorCompanion,
+            buffOverlaySettings.ShowDurations,
             itemToolTipSettings.Enabled,
             itemToolTipSettings.HorizontalOffset,
             itemToolTipSettings.VerticalOffset);
@@ -134,12 +137,16 @@ public sealed partial class MainForm
             worldFindSettings.ShowVendorCompanion;
         var itemToolTipSettings =
             this.clientManager.GameItemToolTipSettings;
+        var buffOverlaySettings =
+            this.clientManager.GameBuffOverlaySettings;
         var previousItemToolTipsEnabled =
             itemToolTipSettings.Enabled;
         var previousItemToolTipHorizontalOffset =
             itemToolTipSettings.HorizontalOffset;
         var previousItemToolTipVerticalOffset =
             itemToolTipSettings.VerticalOffset;
+        var previousShowBuffDurations =
+            buffOverlaySettings.ShowDurations;
 
         settings.SetCommandMenuShowMode(values.ShowMode);
         settings.CommandMenuHotKey = values.HotKey;
@@ -184,6 +191,8 @@ public sealed partial class MainForm
         this.worldFindForm?.ApplyCurrentSettings();
         this.clientManager.SetVendorShoppingCompanionEnabled(
             values.ShowVendorCompanion);
+        this.clientManager.SetGameBuffOverlayOptions(
+            values.ShowBuffDurations);
         this.clientManager.SetGameItemToolTipOptions(
             values.EnhancedItemToolTipsEnabled,
             values.ItemToolTipHorizontalOffset,
@@ -218,6 +227,8 @@ public sealed partial class MainForm
             this.worldFindForm?.ApplyCurrentSettings();
             this.clientManager.SetVendorShoppingCompanionEnabled(
                 previousShowVendorCompanion);
+            this.clientManager.SetGameBuffOverlayOptions(
+                previousShowBuffDurations);
             this.clientManager.SetGameItemToolTipOptions(
                 previousItemToolTipsEnabled,
                 previousItemToolTipHorizontalOffset,

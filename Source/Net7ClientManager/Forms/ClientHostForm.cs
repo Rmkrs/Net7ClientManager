@@ -1244,6 +1244,9 @@ public sealed partial class ClientHostForm : Form
                 this.addonOverlayForm.NavigationRequested -=
                     this.AddonOverlayForm_OnNavigationRequested;
 
+                this.addonOverlayForm.ChatCompanionRequested -=
+                    this.AddonOverlayForm_OnChatCompanionRequested;
+
                 this.addonOverlayForm.GalaxyAtlasRequested -=
                     this.AddonOverlayForm_OnGalaxyAtlasRequested;
 
@@ -1824,6 +1827,9 @@ public sealed partial class ClientHostForm : Form
 
         this.addonOverlayForm.NavigationRequested +=
             this.AddonOverlayForm_OnNavigationRequested;
+
+        this.addonOverlayForm.ChatCompanionRequested +=
+            this.AddonOverlayForm_OnChatCompanionRequested;
 
         this.addonOverlayForm.GalaxyAtlasRequested +=
             this.AddonOverlayForm_OnGalaxyAtlasRequested;
@@ -2543,6 +2549,11 @@ public sealed partial class ClientHostForm : Form
                 OpenMenu: true,
                 "Navigation",
                 "Open built-in Navigation in its last chosen presentation. Keep it over Earth & Beyond, or pop it into a desktop companion beside the game or on another monitor."),
+            new(
+                "chat",
+                OpenMenu: true,
+                "Chat Companion",
+                "Keep an independent, resizable transcript beside the game. The first version records raw messages and channel IDs without guessing what the channels mean."),
             new(
                 "atlas",
                 OpenMenu: true,
@@ -3778,6 +3789,14 @@ public sealed partial class ClientHostForm : Form
         }
 
         this.ShowNavigationCompanion();
+    }
+
+    private void AddonOverlayForm_OnChatCompanionRequested(
+        object? sender,
+        EventArgs e)
+    {
+        this.clientManager.OpenChatCompanion(
+            this.clientInstance.ProcessId);
     }
 
     private bool CanPresentNavigation =>

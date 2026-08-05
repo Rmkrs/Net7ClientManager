@@ -156,6 +156,12 @@ public sealed class ClientObservationCoordinator : IDisposable
 
     private readonly ClientTooltipDelayObserver tooltipDelayObserver = new();
 
+    private readonly ClientChatChannelOptionsReader
+        chatChannelOptionsReader = new();
+
+    private readonly ClientChatColorOptionsReader
+        chatColorOptionsReader = new();
+
     private readonly ClientTooltipHoverObserver tooltipHoverObserver = new();
 
     private readonly ClientManufacturingLabObserver manufacturingLabObserver =
@@ -409,6 +415,224 @@ public sealed class ClientObservationCoordinator : IDisposable
 
         snapshot = null!;
         return false;
+    }
+
+    public ClientChatChannelOptionsState ReadChatChannelOptions(
+        int processId)
+    {
+        ObservedClientState state;
+
+        lock (this.lockObject)
+        {
+            if (!this.observedClients.TryGetValue(processId, out state) ||
+                state.LifecycleState != ClientLifecycleState.InGame ||
+                !state.HasDirectClientState)
+            {
+                return ClientChatChannelOptionsState.Unavailable(
+                    "The client is not in an observable gameplay session");
+            }
+        }
+
+        try
+        {
+            using var memory = ProcessMemoryReader.Open(processId);
+            return this.chatChannelOptionsReader.Read(memory, state);
+        }
+        catch (Exception exception) when (
+            exception is System.ComponentModel.Win32Exception or
+            InvalidOperationException or
+            ArgumentException)
+        {
+            return ClientChatChannelOptionsState.Unavailable(
+                string.Concat(
+                    "Live chat-channel options could not be read: ",
+                    exception.Message));
+        }
+    }
+
+    public ClientChatColorOptionsState ReadChatColorOptions(
+        int processId)
+    {
+        ObservedClientState state;
+
+        lock (this.lockObject)
+        {
+            if (!this.observedClients.TryGetValue(processId, out state) ||
+                state.LifecycleState != ClientLifecycleState.InGame ||
+                !state.HasDirectClientState)
+            {
+                return ClientChatColorOptionsState.Unavailable(
+                    "The client is not in an observable gameplay session");
+            }
+        }
+
+        try
+        {
+            using var memory = ProcessMemoryReader.Open(processId);
+            return this.chatColorOptionsReader.Read(memory, state);
+        }
+        catch (Exception exception) when (
+            exception is System.ComponentModel.Win32Exception or
+            InvalidOperationException or
+            ArgumentException)
+        {
+            return ClientChatColorOptionsState.Unavailable(
+                string.Concat(
+                    "Live chat colors could not be read: ",
+                    exception.Message));
+        }
+    }
+
+    public ClientChatState ReadChatState(int processId)
+    {
+        const uint mainHudOffset = 0x127C;
+        const uint selectedChannelOffset = 0x148;
+        const uint selectedChannelNamePointerOffset = 0x23C;
+        const uint replyTargetPointerOffset = 0x1DC;
+
+        var inputState = this.ReadChatInputState(
+            processId,
+            out var inputStatus);
+
+        uint clientContextAddress;
+
+        lock (this.lockObject)
+        {
+            if (!this.observedClients.TryGetValue(
+                    processId,
+                    out var state) ||
+                state.LifecycleState != ClientLifecycleState.InGame ||
+                !state.HasDirectClientState ||
+                state.ClientContextAddress == 0)
+            {
+                return new ClientChatState(
+                    inputState,
+                    -1,
+                    ClientSelectedChatChannel.Unknown,
+                    null,
+                    null,
+                    inputStatus);
+            }
+
+            clientContextAddress = state.ClientContextAddress;
+        }
+
+        try
+        {
+            using var memory = ProcessMemoryReader.Open(processId);
+
+            if (!TryAddOffset(
+                    clientContextAddress,
+                    mainHudOffset,
+                    out var mainHudPointerAddress) ||
+                !memory.TryReadUInt32(
+                    mainHudPointerAddress,
+                    out var mainHudAddress) ||
+                mainHudAddress == 0)
+            {
+                return new ClientChatState(
+                    inputState,
+                    -1,
+                    ClientSelectedChatChannel.Unknown,
+                    null,
+                    null,
+                    string.Concat(
+                        inputStatus,
+                        "; SClient.MainHud is unavailable"));
+            }
+
+            var rawSelectedChannel = -1;
+
+            if (TryAddOffset(
+                    mainHudAddress,
+                    selectedChannelOffset,
+                    out var selectedChannelAddress) &&
+                memory.TryReadUInt32(
+                    selectedChannelAddress,
+                    out var selectedChannelValue))
+            {
+                rawSelectedChannel = unchecked((int)selectedChannelValue);
+            }
+
+            string? selectedChannelName = null;
+
+            if (TryAddOffset(
+                    mainHudAddress,
+                    selectedChannelNamePointerOffset,
+                    out var selectedChannelNamePointerAddress) &&
+                memory.TryReadUInt32(
+                    selectedChannelNamePointerAddress,
+                    out var selectedChannelNameAddress) &&
+                selectedChannelNameAddress != 0 &&
+                memory.TryReadNullTerminatedLatin1String(
+                    selectedChannelNameAddress,
+                    maximumLength: 96,
+                    out var observedSelectedChannelName) &&
+                !string.IsNullOrWhiteSpace(observedSelectedChannelName))
+            {
+                selectedChannelName = observedSelectedChannelName
+                    .Trim()
+                    .TrimEnd(':')
+                    .Trim();
+            }
+
+            string? replyTarget = null;
+
+            if (TryAddOffset(
+                    mainHudAddress,
+                    replyTargetPointerOffset,
+                    out var replyTargetPointerAddress) &&
+                memory.TryReadUInt32(
+                    replyTargetPointerAddress,
+                    out var replyTargetAddress) &&
+                replyTargetAddress != 0 &&
+                memory.TryReadNullTerminatedLatin1String(
+                    replyTargetAddress,
+                    maximumLength: 64,
+                    out var observedReplyTarget) &&
+                !string.IsNullOrWhiteSpace(observedReplyTarget))
+            {
+                replyTarget = observedReplyTarget.Trim();
+            }
+
+            var selectedChannel = rawSelectedChannel switch
+            {
+                0 => ClientSelectedChatChannel.Broadcast,
+                1 => ClientSelectedChatChannel.Local,
+                2 => ClientSelectedChatChannel.Guild,
+                3 => ClientSelectedChatChannel.Group,
+                4 => ClientSelectedChatChannel.PrivateChannel,
+                5 => ClientSelectedChatChannel.PublicChannel,
+                >= 6 and <= 9 => ClientSelectedChatChannel.DirectMessage,
+                _ => ClientSelectedChatChannel.Unknown,
+            };
+
+            return new ClientChatState(
+                inputState,
+                rawSelectedChannel,
+                selectedChannel,
+                selectedChannelName,
+                replyTarget,
+                string.Create(
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    $"{inputStatus}; MainHud=0x{mainHudAddress:X8}, selected={rawSelectedChannel}, name={selectedChannelName ?? "<none>"}, reply={replyTarget ?? "<none>"}"));
+        }
+        catch (Exception exception) when (
+            exception is System.ComponentModel.Win32Exception or
+            InvalidOperationException or
+            ArgumentException)
+        {
+            return new ClientChatState(
+                inputState,
+                -1,
+                ClientSelectedChatChannel.Unknown,
+                null,
+                null,
+                string.Concat(
+                    inputStatus,
+                    "; chat routing state could not be read: ",
+                    exception.Message));
+        }
     }
 
     public ClientChatInputState ReadChatInputState(
@@ -2790,6 +3014,8 @@ public sealed class ClientObservationCoordinator : IDisposable
         this.reputationObserver.Forget(processId);
         this.panelPresentationObserver.Forget(processId);
         this.tooltipDelayObserver.Forget(processId);
+        this.chatChannelOptionsReader.Forget(processId);
+        this.chatColorOptionsReader.Forget(processId);
     }
 
     private static void ResetFeatureObservations(

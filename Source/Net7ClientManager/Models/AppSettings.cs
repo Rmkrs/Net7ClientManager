@@ -79,6 +79,8 @@ public sealed class AppSettings
 
     public SocialSettings Social { get; set; } = new();
 
+    public ChatCompanionSettings ChatCompanion { get; set; } = new();
+
     public Dictionary<string, SavedWindowPlacement> WindowPlacements
     { get; set; } = new(StringComparer.Ordinal);
 
@@ -124,6 +126,8 @@ public sealed class AppSettings
         this.GameSettingsEditor ??= new GameSettingsEditorSettings();
         this.Social ??= new SocialSettings();
         this.Social.EnsureDefaults();
+        this.ChatCompanion ??= new ChatCompanionSettings();
+        this.ChatCompanion.EnsureDefaults();
         this.WindowPlacements ??= new Dictionary<string, SavedWindowPlacement>(
             StringComparer.Ordinal);
         this.AddonCenter ??= new AddonCenterSettings();

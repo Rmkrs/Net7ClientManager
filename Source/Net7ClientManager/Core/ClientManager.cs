@@ -5,6 +5,7 @@ namespace Net7ClientManager.Core;
 
 using System.Diagnostics;
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using Net7ClientManager.Addons.Contracts;
 using Net7ClientManager.Addons.Development;
@@ -12,6 +13,7 @@ using Net7ClientManager.Addons.Runtime;
 using Net7ClientManager.Addons.Registry;
 using Net7ClientManager.ActivityJournal;
 using Net7ClientManager.CombatJournal;
+using Net7ClientManager.ChatJournal;
 using Net7ClientManager.Contributions;
 using Net7ClientManager.Forms;
 using Net7ClientManager.GalaxyKnowledge;
@@ -32,6 +34,15 @@ public sealed class ClientManager : IDisposable
     private const string UiCommandArgument = "uiCommand";
     private const string GroupSkillsUiCommand = "group-skills";
     private const string FleetLootUiCommand = "fleet-loot";
+    private const int MinimumSelectableChatChannel = 0;
+    private const int MaximumSelectableChatChannel = 9;
+    private const int MaximumChatChannelSelectionSteps = 32;
+
+    private static readonly TimeSpan chatChannelObservationPollInterval =
+        TimeSpan.FromMilliseconds(25);
+
+    private static readonly TimeSpan chatChannelChangeTimeout =
+        TimeSpan.FromMilliseconds(600);
 
     private readonly System.Threading.Lock lockObject = new();
     private readonly System.Threading.Lock settingsSaveLock = new();
@@ -210,10 +221,13 @@ public sealed class ClientManager : IDisposable
     private readonly Dictionary<int, AddonCenterForm> addonCenterForms = [];
     private readonly Dictionary<int, GroupSkillsForm> groupSkillsForms = [];
     private readonly Dictionary<int, FleetLootWindowForm> fleetLootWindowForms = [];
+    private readonly Dictionary<uint, ChatCompanionForm> chatCompanionForms = [];
+    private readonly HashSet<int> chatCompanionOpenProcessIds = [];
     private readonly Dictionary<int, int> sessionLootOwnerByLeaderProcessId = [];
     private readonly Dictionary<int, bool> roundRobinLootEnabledByLeaderProcessId = [];
     private readonly Dictionary<int, FleetLootCorpseAssignment> activeLootAssignmentByLeaderProcessId = [];
     private readonly ForgeContributionCoordinator forgeContributionCoordinator;
+    private readonly ChatJournalCoordinator chatJournalCoordinator;
     private readonly MissionJournalCoordinator missionJournalCoordinator;
     private readonly ActivityJournalCoordinator activityJournalCoordinator;
     private readonly CombatJournalCoordinator combatJournalCoordinator;
@@ -369,6 +383,10 @@ public sealed class ClientManager : IDisposable
             this.pilotArchiveStore,
             () => this.GalaxyKnowledge,
             this.GetClientObservationSnapshots);
+        var chatJournalStore = new ChatJournalStore();
+        chatJournalStore.Initialize();
+        this.chatJournalCoordinator = new ChatJournalCoordinator(
+            chatJournalStore);
         var missionJournalStore = new MissionJournalStore();
         missionJournalStore.Initialize();
         this.missionJournalCoordinator = new MissionJournalCoordinator(
@@ -561,6 +579,9 @@ public sealed class ClientManager : IDisposable
     public SocialSettings SocialSettings =>
         this.settings.Social;
 
+    public ChatCompanionSettings ChatCompanionSettings =>
+        this.settings.ChatCompanion;
+
     public SocialDataSnapshot GetSocialSnapshot()
     {
         return this.socialCoordinator.GetSnapshot();
@@ -689,6 +710,20 @@ public sealed class ClientManager : IDisposable
     {
         add => this.shoppingListCoordinator.Changed += value;
         remove => this.shoppingListCoordinator.Changed -= value;
+    }
+
+    public ChatJournalSnapshot GetChatJournalSnapshot(
+        uint characterId,
+        int maximumResults = 5000) =>
+        this.chatJournalCoordinator.GetSnapshot(
+            characterId,
+            maximumResults);
+
+    public event EventHandler<ChatJournalChangedEventArgs>?
+        ChatJournalChanged
+    {
+        add => this.chatJournalCoordinator.JournalChanged += value;
+        remove => this.chatJournalCoordinator.JournalChanged -= value;
     }
 
     public IReadOnlyList<MissionJournalEntry> GetMissionHistory(
@@ -1088,6 +1123,1078 @@ public sealed class ClientManager : IDisposable
         return this.clientObservationCoordinator.ReadChatInputState(
             processId,
             out status);
+    }
+
+    public ClientChatState ReadChatState(int processId)
+    {
+        return this.clientObservationCoordinator.ReadChatState(processId);
+    }
+
+    public ClientChatChannelOptionsState ReadChatChannelOptions(
+        int processId)
+    {
+        return this.clientObservationCoordinator.ReadChatChannelOptions(
+            processId);
+    }
+
+    public ClientChatColorOptionsState ReadChatColorOptions(
+        int processId)
+    {
+        return this.clientObservationCoordinator.ReadChatColorOptions(
+            processId);
+    }
+
+    internal IReadOnlyList<ChatSendDestination>
+        GetAvailableChatDestinations(uint characterId)
+    {
+        if (!this.TryGetLiveChatContext(
+                characterId,
+                out var client,
+                out var snapshot,
+                out _))
+        {
+            return [];
+        }
+
+        var channelOptions = this.ReadChatChannelOptions(client.ProcessId);
+
+        return
+        [
+            .. ChatSendDestinationCatalog.Ordered
+                .Where(definition =>
+                    IsChatDestinationAvailable(
+                        definition,
+                        snapshot,
+                        channelOptions,
+                        out _))
+                .Select(definition => definition.Destination),
+        ];
+    }
+
+    internal bool CanUseChatDestination(
+        uint characterId,
+        ChatSendDestination destination,
+        out string reason)
+    {
+        if (!ChatSendDestinationCatalog.TryGet(
+                destination,
+                out var definition))
+        {
+            reason = "That chat destination is not supported.";
+            return false;
+        }
+
+        if (!this.TryGetLiveChatContext(
+                characterId,
+                out var client,
+                out var snapshot,
+                out reason))
+        {
+            return false;
+        }
+
+        var channelOptions = definition.IsTell
+            ? ClientChatChannelOptionsState.Unavailable(
+                "Direct messages do not require a monitored channel")
+            : this.ReadChatChannelOptions(client.ProcessId);
+
+        return IsChatDestinationAvailable(
+            definition,
+            snapshot,
+            channelOptions,
+            out reason);
+    }
+
+    private bool TryGetLiveChatContext(
+        uint characterId,
+        out ClientInstance client,
+        out ClientObservationSnapshot snapshot,
+        out string reason)
+    {
+        ClientInstance? candidate;
+
+        lock (this.lockObject)
+        {
+            candidate = this.clients.Values.FirstOrDefault(item =>
+                item.LiveCharacterIdentity.CharacterObjectId ==
+                characterId);
+        }
+
+        if (candidate == null ||
+            candidate.LifecycleState != ClientLifecycleState.InGame ||
+            candidate.GameWindowHandle == IntPtr.Zero)
+        {
+            client = null!;
+            snapshot = null!;
+            reason = "The pilot is not currently available in game.";
+            return false;
+        }
+
+        if (!this.clientObservationCoordinator.TryGetSnapshot(
+                candidate.ProcessId,
+                out snapshot) ||
+            !snapshot.IsAvailable ||
+            snapshot.LifecycleState != ClientLifecycleState.InGame ||
+            snapshot.LoadingOrTransitionFlag != 0)
+        {
+            client = null!;
+            snapshot = null!;
+            reason = "The live pilot state could not be verified.";
+            return false;
+        }
+
+        client = candidate;
+        reason = "";
+        return true;
+    }
+
+    private static bool IsChatDestinationAvailable(
+        ChatSendDestinationDefinition definition,
+        ClientObservationSnapshot snapshot,
+        ClientChatChannelOptionsState channelOptions,
+        out string reason)
+    {
+        if (!definition.IsTell)
+        {
+            if (!channelOptions.IsAvailable)
+            {
+                reason = string.Concat(
+                    "The game's live Set Channels To Monitor state could not be read. ",
+                    channelOptions.DiagnosticStatus);
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(definition.ChannelOptionName) ||
+                !channelOptions.TryGetEnabled(
+                    definition.ChannelOptionName,
+                    out var enabled))
+            {
+                reason = string.Concat(
+                    "The ",
+                    definition.DisplayName,
+                    " channel was not found in the game's live Set Channels To Monitor state.");
+                return false;
+            }
+
+            if (!enabled)
+            {
+                reason = string.Concat(
+                    definition.DisplayName,
+                    " is not enabled in Set Channels To Monitor.");
+                return false;
+            }
+        }
+
+        if (definition.RequiresGroupMembership)
+        {
+            if (!snapshot.Group.IsAvailable || !snapshot.Group.IsValid)
+            {
+                reason = "Group membership could not be verified.";
+                return false;
+            }
+
+            if (!snapshot.Group.IsInGroup)
+            {
+                reason = "This pilot is not in a group.";
+                return false;
+            }
+        }
+
+        if (definition.RequiresGuildMembership)
+        {
+            var operational = snapshot.LocalPlayer.Operational;
+
+            if (!snapshot.LocalPlayer.IsAvailable ||
+                !operational.IsAvailable)
+            {
+                reason = "Guild membership could not be verified.";
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(
+                    operational.Identity.GuildName))
+            {
+                reason = "This pilot is not in a guild.";
+                return false;
+            }
+        }
+
+        reason = "";
+        return true;
+    }
+
+    internal async Task<ChatSendResult> TestSelectChatChannelAsync(
+        uint characterId,
+        ChatSendDestination destination,
+        CancellationToken cancellationToken = default)
+    {
+        if (!ChatSendDestinationCatalog.TryGet(
+                destination,
+                out var definition) ||
+            !definition.IsSelectableChannel)
+        {
+            return ChatSendResult.Failure(
+                destination == ChatSendDestination.Tell
+                    ? "Private messages do not use a selectable chat channel."
+                    : "That chat destination is not supported.");
+        }
+
+        if (!this.CanUseChatDestination(
+                characterId,
+                destination,
+                out var availabilityFailure))
+        {
+            return ChatSendResult.Failure(availabilityFailure);
+        }
+
+        ClientInstance? client;
+
+        lock (this.lockObject)
+        {
+            client = this.clients.Values.FirstOrDefault(candidate =>
+                candidate.LiveCharacterIdentity.CharacterObjectId ==
+                characterId);
+        }
+
+        if (client == null)
+        {
+            return ChatSendResult.Failure(
+                "The pilot is not currently available in game.");
+        }
+
+        var initialState = this.ReadChatState(client.ProcessId);
+
+        if (initialState.InputState != ClientChatInputState.Inactive)
+        {
+            return ChatSendResult.Failure(
+                initialState.InputState == ClientChatInputState.Active
+                    ? "Game chat is already open. Nothing changed. Send or close it in game, then retry the channel test."
+                    : "The in-game chat input state could not be verified.");
+        }
+
+        var chatInputMayBeOpen = false;
+
+        try
+        {
+            using var foregroundLease =
+                await this.foregroundInputCoordinator
+                    .AcquireAsync(cancellationToken)
+                    .ConfigureAwait(true);
+
+            NativeMethods.FocusWindow(client.GameWindowHandle);
+            await Task.Delay(50, cancellationToken).ConfigureAwait(true);
+
+            if (!await NativeMethods.TryForegroundTapKeyAsync(
+                    client.GameWindowHandle,
+                    Keys.Enter,
+                    cancellationToken)
+                .ConfigureAwait(true))
+            {
+                return ChatSendResult.Failure(
+                    "The in-game chat box could not be opened.");
+            }
+
+            chatInputMayBeOpen = true;
+            await Task.Delay(75, cancellationToken).ConfigureAwait(true);
+
+            var selection = await this.SelectOpenedChatChannelAsync(
+                    client,
+                    characterId,
+                    destination,
+                    cancellationToken)
+                .ConfigureAwait(true);
+
+            if (!selection.Succeeded)
+            {
+                await this.TryCloseChatInputAsync(client)
+                    .ConfigureAwait(true);
+                chatInputMayBeOpen = false;
+
+                return ChatSendResult.Failure(
+                    string.Concat(
+                        selection.FailureReason,
+                        " The chat box was closed."));
+            }
+
+            var routeDescription = selection.TabCount == 0
+                ? "It was already selected."
+                : string.Concat(
+                    "It was reached after ",
+                    selection.TabCount.ToString(CultureInfo.InvariantCulture),
+                    " TAB",
+                    selection.TabCount == 1 ? "." : "s.");
+
+            return ChatSendResult.Success(
+                0,
+                string.Concat(
+                    definition.DisplayName,
+                    " channel selected and verified. ",
+                    routeDescription,
+                    " The empty chat box was left open for inspection."));
+        }
+        catch (OperationCanceledException)
+        {
+            if (chatInputMayBeOpen)
+            {
+                await this.TryCloseChatInputAsync(client)
+                    .ConfigureAwait(true);
+            }
+
+            return ChatSendResult.Failure(
+                "Channel selection testing was cancelled. The chat box was closed.");
+        }
+        catch (Exception exception)
+        {
+            if (chatInputMayBeOpen)
+            {
+                await this.TryCloseChatInputAsync(client)
+                    .ConfigureAwait(true);
+            }
+
+            Debug.WriteLine(
+                $"Chat channel selection test failed safely: {exception}");
+
+            return ChatSendResult.Failure(
+                "Channel selection testing failed safely. Nothing was typed and the chat box was closed.");
+        }
+    }
+
+    internal async Task<ChatSendResult> SendChatMessageAsync(
+        uint characterId,
+        ChatSendDestination destination,
+        string? recipient,
+        string message,
+        CancellationToken cancellationToken = default)
+    {
+        if (!ChatSendDestinationCatalog.TryGet(
+                destination,
+                out var definition))
+        {
+            return ChatSendResult.Failure(
+                "That chat destination is not supported.");
+        }
+
+        ClientInstance? client;
+
+        lock (this.lockObject)
+        {
+            client = this.clients.Values.FirstOrDefault(candidate =>
+                candidate.LiveCharacterIdentity.CharacterObjectId ==
+                characterId);
+        }
+
+        if (client == null ||
+            client.LifecycleState != ClientLifecycleState.InGame ||
+            client.GameWindowHandle == IntPtr.Zero)
+        {
+            return ChatSendResult.Failure(
+                "The pilot is not currently available in game.");
+        }
+
+        if (!this.CanUseChatDestination(
+                characterId,
+                destination,
+                out var availabilityFailure))
+        {
+            return ChatSendResult.Failure(availabilityFailure);
+        }
+
+        var normalizedMessage = NormalizeChatMessage(message);
+
+        if (normalizedMessage.Length == 0)
+        {
+            return ChatSendResult.Failure("Enter a message to send.");
+        }
+
+        recipient = recipient?.Trim();
+
+        if (definition.IsTell &&
+            string.IsNullOrWhiteSpace(recipient))
+        {
+            return ChatSendResult.Failure(
+                "Choose a pilot for the private message.");
+        }
+
+        var chatState = this.ReadChatState(client.ProcessId);
+
+        if (chatState.InputState != ClientChatInputState.Inactive)
+        {
+            return ChatSendResult.Failure(
+                chatState.InputState == ClientChatInputState.Active
+                    ? "Game chat is already open. Nothing changed. Send or close it in game, then retry."
+                    : "The in-game chat input state could not be verified.");
+        }
+
+        var prefix = definition.IsTell
+            ? string.Concat("/t ", recipient, " ")
+            : "";
+
+        var availableCharacters = 255 - prefix.Length;
+
+        if (availableCharacters <= 0)
+        {
+            return ChatSendResult.Failure(
+                "The private-message recipient leaves no room for message text.");
+        }
+
+        var segments = SplitChatMessage(
+            normalizedMessage,
+            availableCharacters);
+
+        var capsLockWasEnabled = NativeMethods.IsCapsLockEnabled();
+        var totalTabCount = 0;
+        var chatInputMayBeOpen = false;
+
+        try
+        {
+            if (capsLockWasEnabled &&
+                !await NativeMethods.TrySetCapsLockEnabledAsync(
+                        enabled: false,
+                        cancellationToken)
+                    .ConfigureAwait(true))
+            {
+                return ChatSendResult.Failure(
+                    "Caps Lock could not be disabled before typing into the game.");
+            }
+
+            using var foregroundLease =
+                await this.foregroundInputCoordinator
+                    .AcquireAsync(cancellationToken)
+                    .ConfigureAwait(true);
+
+            foreach (var segment in segments)
+            {
+                if (!this.CanUseChatDestination(
+                        characterId,
+                        destination,
+                        out availabilityFailure))
+                {
+                    return ChatSendResult.Failure(availabilityFailure);
+                }
+
+                NativeMethods.FocusWindow(client.GameWindowHandle);
+                await Task.Delay(50, cancellationToken)
+                    .ConfigureAwait(true);
+
+                if (!await NativeMethods.TryForegroundTapKeyAsync(
+                        client.GameWindowHandle,
+                        Keys.Enter,
+                        cancellationToken)
+                    .ConfigureAwait(true))
+                {
+                    return ChatSendResult.Failure(
+                        "The in-game chat box could not be opened.");
+                }
+
+                chatInputMayBeOpen = true;
+                await Task.Delay(75, cancellationToken)
+                    .ConfigureAwait(true);
+
+                var openedChatState = this.ReadChatState(client.ProcessId);
+
+                if (openedChatState.InputState != ClientChatInputState.Active)
+                {
+                    await this.TryCloseChatInputAsync(client)
+                        .ConfigureAwait(true);
+                    chatInputMayBeOpen = false;
+
+                    return ChatSendResult.Failure(
+                        "The in-game chat box did not become verifiably active. Nothing was typed.");
+                }
+
+                if (!this.CanUseChatDestination(
+                        characterId,
+                        destination,
+                        out availabilityFailure))
+                {
+                    await this.TryCloseChatInputAsync(client)
+                        .ConfigureAwait(true);
+                    chatInputMayBeOpen = false;
+
+                    return ChatSendResult.Failure(availabilityFailure);
+                }
+
+                var segmentTabCount = 0;
+
+                if (!definition.IsTell)
+                {
+                    var selection = await this.SelectOpenedChatChannelAsync(
+                            client,
+                            characterId,
+                            destination,
+                            cancellationToken)
+                        .ConfigureAwait(true);
+
+                    if (!selection.Succeeded)
+                    {
+                        await this.TryCloseChatInputAsync(client)
+                            .ConfigureAwait(true);
+                        chatInputMayBeOpen = false;
+
+                        return ChatSendResult.Failure(
+                            string.Concat(
+                                selection.FailureReason,
+                                " Nothing was typed."));
+                    }
+
+                    segmentTabCount = selection.TabCount;
+                }
+
+                if (!this.CanUseChatDestination(
+                        characterId,
+                        destination,
+                        out availabilityFailure))
+                {
+                    await this.TryCloseChatInputAsync(client)
+                        .ConfigureAwait(true);
+                    chatInputMayBeOpen = false;
+
+                    return ChatSendResult.Failure(availabilityFailure);
+                }
+
+                if (!definition.IsTell)
+                {
+                    var finalChannelState = this.ReadChatState(
+                        client.ProcessId);
+
+                    if (finalChannelState.InputState !=
+                            ClientChatInputState.Active ||
+                        !IsRequestedChatChannel(
+                            finalChannelState,
+                            definition))
+                    {
+                        await this.TryCloseChatInputAsync(client)
+                            .ConfigureAwait(true);
+                        chatInputMayBeOpen = false;
+
+                        return ChatSendResult.Failure(
+                            string.Concat(
+                                "The selected ",
+                                definition.DisplayName,
+                                " channel changed before typing. Nothing was typed."));
+                    }
+                }
+
+                SendKeys.SendWait(
+                    EscapeChatSendKeysText(
+                        string.Concat(prefix, segment)));
+
+                await Task.Delay(75, cancellationToken)
+                    .ConfigureAwait(true);
+
+                if (!await NativeMethods.TryForegroundTapKeyAsync(
+                        client.GameWindowHandle,
+                        Keys.Enter,
+                        cancellationToken)
+                    .ConfigureAwait(true))
+                {
+                    await this.TryCloseChatInputAsync(client)
+                        .ConfigureAwait(true);
+                    chatInputMayBeOpen = false;
+
+                    return ChatSendResult.Failure(
+                        "The chat message could not be submitted. The typed text was cancelled.");
+                }
+
+                chatInputMayBeOpen = false;
+                totalTabCount += segmentTabCount;
+                await Task.Delay(100, cancellationToken)
+                    .ConfigureAwait(true);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            if (chatInputMayBeOpen)
+            {
+                await this.TryCloseChatInputAsync(client)
+                    .ConfigureAwait(true);
+            }
+
+            return ChatSendResult.Failure(
+                "Sending was cancelled. Any open chat input was closed.");
+        }
+        catch (Exception exception)
+        {
+            if (chatInputMayBeOpen)
+            {
+                await this.TryCloseChatInputAsync(client)
+                    .ConfigureAwait(true);
+            }
+
+            Debug.WriteLine(
+                $"Chat sender failed safely: {exception}");
+
+            return ChatSendResult.Failure(
+                "Chat input failed safely. Any open chat input was closed and no further input was sent.");
+        }
+        finally
+        {
+            if (capsLockWasEnabled)
+            {
+                try
+                {
+                    _ = await NativeMethods.TrySetCapsLockEnabledAsync(
+                            enabled: true,
+                            CancellationToken.None)
+                        .ConfigureAwait(true);
+                }
+                catch (Exception exception)
+                {
+                    Debug.WriteLine(
+                        $"Chat sender could not restore Caps Lock: {exception}");
+                }
+            }
+        }
+
+        var routeDescription = definition.IsTell
+            ? "explicit private-message shortcut"
+            : totalTabCount == 0
+                ? "the already-selected verified channel"
+                : string.Concat(
+                    totalTabCount.ToString(CultureInfo.InvariantCulture),
+                    " verified TAB",
+                    totalTabCount == 1 ? "" : "s");
+
+        return ChatSendResult.Success(
+            segments.Count,
+            string.Concat(
+                "Sent ",
+                segments.Count.ToString(CultureInfo.InvariantCulture),
+                segments.Count == 1 ? " message via " : " message parts via ",
+                routeDescription,
+                "."));
+    }
+
+    private async Task<ChatChannelSelectionResult>
+        SelectOpenedChatChannelAsync(
+            ClientInstance client,
+            uint characterId,
+            ChatSendDestination destination,
+            CancellationToken cancellationToken)
+    {
+        if (!ChatSendDestinationCatalog.TryGet(
+                destination,
+                out var definition) ||
+            !definition.RawSelectedChannel.HasValue)
+        {
+            return new ChatChannelSelectionResult(
+                false,
+                0,
+                "That chat destination does not have a selectable in-game channel.");
+        }
+
+        var currentState = this.ReadChatState(client.ProcessId);
+
+        if (currentState.InputState != ClientChatInputState.Active)
+        {
+            return new ChatChannelSelectionResult(
+                false,
+                0,
+                "The in-game chat box is not verifiably active.");
+        }
+
+        if (!TryBuildChatChannelIdentity(
+                currentState,
+                out var currentIdentity))
+        {
+            return new ChatChannelSelectionResult(
+                false,
+                0,
+                "The active in-game channel could not be identified.");
+        }
+
+        if (!this.CanUseChatDestination(
+                characterId,
+                destination,
+                out var availabilityFailure))
+        {
+            return new ChatChannelSelectionResult(
+                false,
+                0,
+                availabilityFailure);
+        }
+
+        if (IsRequestedChatChannel(currentState, definition))
+        {
+            return await this.VerifySelectedChatChannelAsync(
+                    client,
+                    characterId,
+                    definition,
+                    0,
+                    cancellationToken)
+                .ConfigureAwait(true);
+        }
+
+        var initialIdentity = currentIdentity;
+        HashSet<string> visitedChannels =
+            new(StringComparer.OrdinalIgnoreCase)
+            {
+                initialIdentity,
+            };
+        var previousIdentity = initialIdentity;
+
+        for (var tabCount = 1;
+             tabCount <= MaximumChatChannelSelectionSteps;
+             tabCount++)
+        {
+            if (!await NativeMethods.TryForegroundTapKeyAsync(
+                    client.GameWindowHandle,
+                    Keys.Tab,
+                    cancellationToken)
+                .ConfigureAwait(true))
+            {
+                return new ChatChannelSelectionResult(
+                    false,
+                    tabCount - 1,
+                    "The game did not accept the next channel-selection key.");
+            }
+
+            var nextState = await this.WaitForChatChannelChangeAsync(
+                    client.ProcessId,
+                    previousIdentity,
+                    cancellationToken)
+                .ConfigureAwait(true);
+
+            if (nextState.InputState != ClientChatInputState.Active)
+            {
+                return new ChatChannelSelectionResult(
+                    false,
+                    tabCount,
+                    "The chat box stopped being active during channel selection.");
+            }
+
+            if (!TryBuildChatChannelIdentity(
+                    nextState,
+                    out var nextIdentity))
+            {
+                return new ChatChannelSelectionResult(
+                    false,
+                    tabCount,
+                    "The selected in-game channel became unreadable during channel selection.");
+            }
+
+            if (string.Equals(
+                    nextIdentity,
+                    previousIdentity,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return new ChatChannelSelectionResult(
+                    false,
+                    tabCount,
+                    "The game did not confirm a channel change after TAB.");
+            }
+
+            if (IsRequestedChatChannel(nextState, definition))
+            {
+                return await this.VerifySelectedChatChannelAsync(
+                        client,
+                        characterId,
+                        definition,
+                        tabCount,
+                        cancellationToken)
+                    .ConfigureAwait(true);
+            }
+
+            if (string.Equals(
+                    nextIdentity,
+                    initialIdentity,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return new ChatChannelSelectionResult(
+                    false,
+                    tabCount,
+                    string.Concat(
+                        "The game cycled through every available channel without finding ",
+                        definition.DisplayName,
+                        "."));
+            }
+
+            if (!visitedChannels.Add(nextIdentity))
+            {
+                return new ChatChannelSelectionResult(
+                    false,
+                    tabCount,
+                    "The game repeated a channel before the requested destination was found.");
+            }
+
+            previousIdentity = nextIdentity;
+        }
+
+        return new ChatChannelSelectionResult(
+            false,
+            MaximumChatChannelSelectionSteps,
+            "Channel selection exceeded the bounded safety limit.");
+    }
+
+    private async Task<ChatChannelSelectionResult>
+        VerifySelectedChatChannelAsync(
+            ClientInstance client,
+            uint characterId,
+            ChatSendDestinationDefinition definition,
+            int tabCount,
+            CancellationToken cancellationToken)
+    {
+        await Task.Delay(50, cancellationToken).ConfigureAwait(true);
+
+        for (var verificationPass = 0;
+             verificationPass < 2;
+             verificationPass++)
+        {
+            var verifiedState = this.ReadChatState(client.ProcessId);
+
+            if (verifiedState.InputState != ClientChatInputState.Active ||
+                !IsRequestedChatChannel(verifiedState, definition))
+            {
+                return new ChatChannelSelectionResult(
+                    false,
+                    tabCount,
+                    string.Concat(
+                        "The game did not keep the requested ",
+                        definition.DisplayName,
+                        " channel selected."));
+            }
+
+            if (verificationPass == 0)
+            {
+                await Task.Delay(
+                        chatChannelObservationPollInterval,
+                        cancellationToken)
+                    .ConfigureAwait(true);
+            }
+        }
+
+        if (!this.CanUseChatDestination(
+                characterId,
+                definition.Destination,
+                out var availabilityFailure))
+        {
+            return new ChatChannelSelectionResult(
+                false,
+                tabCount,
+                availabilityFailure);
+        }
+
+        return new ChatChannelSelectionResult(
+            true,
+            tabCount,
+            "");
+    }
+
+    private async Task<ClientChatState> WaitForChatChannelChangeAsync(
+        int processId,
+        string previousIdentity,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTimeOffset.UtcNow +
+                       chatChannelChangeTimeout;
+        var latestState = this.ReadChatState(processId);
+        string? candidateIdentity = null;
+
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (latestState.InputState != ClientChatInputState.Active)
+            {
+                return latestState;
+            }
+
+            if (TryBuildChatChannelIdentity(
+                    latestState,
+                    out var latestIdentity) &&
+                !string.Equals(
+                    latestIdentity,
+                    previousIdentity,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                if (string.Equals(
+                        candidateIdentity,
+                        latestIdentity,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return latestState;
+                }
+
+                candidateIdentity = latestIdentity;
+            }
+            else
+            {
+                candidateIdentity = null;
+            }
+
+            await Task.Delay(
+                    chatChannelObservationPollInterval,
+                    cancellationToken)
+                .ConfigureAwait(true);
+
+            latestState = this.ReadChatState(processId);
+        }
+
+        return latestState;
+    }
+
+    private static bool IsRequestedChatChannel(
+        ClientChatState state,
+        ChatSendDestinationDefinition definition)
+    {
+        if (!definition.RawSelectedChannel.HasValue ||
+            state.RawSelectedChannel != definition.RawSelectedChannel.Value)
+        {
+            return false;
+        }
+
+        if (definition.RawSelectedChannel.Value != 5)
+        {
+            return true;
+        }
+
+        return ChatSendDestinationCatalog.ChannelNamesEqual(
+            state.SelectedChannelName,
+            definition.SelectedChannelName);
+    }
+
+    private static bool TryBuildChatChannelIdentity(
+        ClientChatState state,
+        out string identity)
+    {
+        identity = "";
+
+        if (!IsSelectableChatChannel(state.RawSelectedChannel))
+        {
+            return false;
+        }
+
+        if (state.RawSelectedChannel <= 3)
+        {
+            identity = state.RawSelectedChannel.ToString(
+                CultureInfo.InvariantCulture);
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(state.SelectedChannelName))
+        {
+            return false;
+        }
+
+        identity = string.Concat(
+            state.RawSelectedChannel.ToString(
+                CultureInfo.InvariantCulture),
+            "|",
+            ChatSendDestinationCatalog.NormalizeChannelName(
+                state.SelectedChannelName));
+        return true;
+    }
+
+    private async Task TryCloseChatInputAsync(ClientInstance client)
+    {
+        try
+        {
+            NativeMethods.FocusWindow(client.GameWindowHandle);
+            await Task.Delay(25, CancellationToken.None)
+                .ConfigureAwait(true);
+            _ = await NativeMethods.TryForegroundTapKeyAsync(
+                    client.GameWindowHandle,
+                    Keys.Escape,
+                    CancellationToken.None)
+                .ConfigureAwait(true);
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine(
+                $"Chat sender could not close the chat input safely: {exception}");
+        }
+    }
+
+    private static bool IsSelectableChatChannel(int rawChannel)
+    {
+        return rawChannel is >= MinimumSelectableChatChannel and
+            <= MaximumSelectableChatChannel;
+    }
+
+    private readonly record struct ChatChannelSelectionResult(
+        bool Succeeded,
+        int TabCount,
+        string FailureReason);
+
+    private static string NormalizeChatMessage(string message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            return "";
+        }
+
+        var builder = new StringBuilder(message.Length);
+        var previousWasWhitespace = false;
+
+        foreach (var character in message)
+        {
+            if (char.IsWhiteSpace(character))
+            {
+                if (!previousWasWhitespace && builder.Length > 0)
+                {
+                    builder.Append(' ');
+                }
+
+                previousWasWhitespace = true;
+                continue;
+            }
+
+            builder.Append(character);
+            previousWasWhitespace = false;
+        }
+
+        return builder.ToString().Trim();
+    }
+
+    private static IReadOnlyList<string> SplitChatMessage(
+        string message,
+        int maximumLength)
+    {
+        List<string> result = [];
+        var remaining = message;
+
+        while (remaining.Length > maximumLength)
+        {
+            var splitAt = remaining.LastIndexOf(
+                ' ',
+                maximumLength,
+                maximumLength);
+
+            if (splitAt <= 0)
+            {
+                splitAt = maximumLength;
+            }
+
+            result.Add(remaining[..splitAt].TrimEnd());
+            remaining = remaining[splitAt..].TrimStart();
+        }
+
+        if (remaining.Length > 0)
+        {
+            result.Add(remaining);
+        }
+
+        return result;
+    }
+
+    private static string EscapeChatSendKeysText(string text)
+    {
+        var result = new StringBuilder(text.Length);
+
+        foreach (var character in text)
+        {
+            if (character is '+' or '^' or '%' or '~' or '(' or ')' or '[' or ']' or '{' or '}')
+            {
+                result.Append('{');
+                result.Append(character);
+                result.Append('}');
+                continue;
+            }
+
+            result.Append(character);
+        }
+
+        return result.ToString();
     }
 
     public NavigationRouteSnapshot GetNavigationRouteSnapshot(
@@ -3558,6 +4665,13 @@ public sealed class ClientManager : IDisposable
         }
 
         this.fleetLootWindowForms.Clear();
+
+        foreach (var form in this.chatCompanionForms.Values.ToArray())
+        {
+            form.ClosePreservingOpenPreference();
+        }
+
+        this.chatCompanionForms.Clear();
 
         this.socialCoordinator.Dispose();
         this.galaxyKnowledgeCoordinator.Dispose();
@@ -8372,6 +9486,7 @@ public sealed class ClientManager : IDisposable
         client.HostForm?.CloseFromManager();
         this.gameKeyBindingResolver.ForgetProcess(processId);
         this.clientObservationCoordinator.Detach(processId);
+        this.chatJournalCoordinator.ForgetProcess(processId);
         this.missionJournalCoordinator.ForgetProcess(processId);
         this.activityJournalCoordinator.ForgetProcess(processId);
         this.combatJournalCoordinator.ForgetProcess(processId);
@@ -9465,11 +10580,21 @@ public sealed class ClientManager : IDisposable
             }
 
             this.CloseAddonCenter(client.ProcessId);
+            this.CloseChatCompanionForProcess(
+                client.ProcessId,
+                preserveOpenPreference: true);
+
+            lock (this.lockObject)
+            {
+                this.chatCompanionOpenProcessIds.Remove(client.ProcessId);
+            }
+
             this.navigationAutoPilotCoordinator.ForgetProcess(
                 client.ProcessId);
             client.HostForm?.CloseFromManager();
             this.gameKeyBindingResolver.ForgetProcess(client.ProcessId);
             this.clientObservationCoordinator.Detach(client.ProcessId);
+            this.chatJournalCoordinator.ForgetProcess(client.ProcessId);
             this.NavigationRoutes.DetachProcess(client.ProcessId);
             this.addonRuntimeCoordinator.DetachOwner(client.ProcessId);
         }
@@ -9837,6 +10962,7 @@ public sealed class ClientManager : IDisposable
         client.HostForm?.SetAddonPresentationState(
             e.Snapshot.LifecycleState,
             e.Snapshot.LoadingOrTransitionFlag != 0);
+        this.QueueChatCompanionLifecycleSync(e.Snapshot.ProcessId);
         client.HostForm?.UpdateGameItemToolTipSnapshot(
             e.Snapshot);
 
@@ -10961,6 +12087,8 @@ public sealed class ClientManager : IDisposable
             return;
         }
 
+        this.chatJournalCoordinator.Observe(client, e.Message);
+
         this.forgeContributionCoordinator.Observe(e.Message);
 
         this.addonRuntimeCoordinator.PublishChatMessage(
@@ -11249,6 +12377,280 @@ public sealed class ClientManager : IDisposable
         var form = this.socialForm;
         form?.BeginInvoke(() => form.ShowHelpTour());
         return true;
+    }
+
+    internal void OpenChatCompanion(int processId)
+    {
+        this.OpenChatCompanion(
+            processId,
+            activate: true,
+            rememberOpenPreference: true);
+    }
+
+    private void OpenChatCompanion(
+        int processId,
+        bool activate,
+        bool rememberOpenPreference)
+    {
+        ClientInstance? client;
+
+        lock (this.lockObject)
+        {
+            this.clients.TryGetValue(processId, out client);
+        }
+
+        if (client?.LifecycleState != ClientLifecycleState.InGame ||
+            client.LiveCharacterIdentity.CharacterObjectId is not
+                { } characterId ||
+            string.IsNullOrWhiteSpace(
+                client.LiveCharacterIdentity.Name))
+        {
+            return;
+        }
+
+        var pilotName = client.LiveCharacterIdentity.Name.Trim();
+        var assignedSlotId = client.AssignedSlotId;
+
+        if (rememberOpenPreference)
+        {
+            this.SetChatCompanionOpenPreference(
+                processId,
+                assignedSlotId,
+                isOpen: true);
+        }
+
+        if (this.chatCompanionForms.TryGetValue(
+                characterId,
+                out var existing) &&
+            !existing.IsDisposed &&
+            !existing.Disposing)
+        {
+            if (existing.ProcessId != processId)
+            {
+                existing.ClosePreservingOpenPreference();
+            }
+            else
+            {
+                existing.UpdatePilotName(pilotName);
+
+                if (existing.WindowState == FormWindowState.Minimized)
+                {
+                    existing.WindowState = FormWindowState.Normal;
+                }
+
+                if (!existing.Visible)
+                {
+                    existing.Show();
+                }
+
+                if (activate)
+                {
+                    existing.BringToFront();
+                    existing.Activate();
+                }
+
+                return;
+            }
+        }
+
+        var form = new ChatCompanionForm(
+            this,
+            processId,
+            assignedSlotId,
+            characterId,
+            pilotName);
+        this.chatCompanionForms[characterId] = form;
+        form.FormClosed += (_, _) =>
+        {
+            if (this.chatCompanionForms.TryGetValue(
+                    characterId,
+                    out var current) &&
+                ReferenceEquals(current, form))
+            {
+                this.chatCompanionForms.Remove(characterId);
+            }
+
+            if (!form.PreserveOpenPreferenceOnClose)
+            {
+                this.SetChatCompanionOpenPreference(
+                    form.ProcessId,
+                    form.AssignedSlotId,
+                    isOpen: false);
+            }
+        };
+
+        form.Show();
+
+        if (activate)
+        {
+            form.Activate();
+        }
+    }
+
+    private void QueueChatCompanionLifecycleSync(int processId)
+    {
+        ClientHostForm? hostForm;
+
+        lock (this.lockObject)
+        {
+            hostForm = this.clients.TryGetValue(
+                    processId,
+                    out var client)
+                ? client.HostForm
+                : null;
+        }
+
+        if (hostForm == null ||
+            hostForm.IsDisposed ||
+            hostForm.Disposing ||
+            !hostForm.IsHandleCreated)
+        {
+            return;
+        }
+
+        if (hostForm.InvokeRequired)
+        {
+            _ = hostForm.BeginInvoke(
+                new MethodInvoker(() =>
+                    this.SyncChatCompanionLifecycle(processId)));
+            return;
+        }
+
+        this.SyncChatCompanionLifecycle(processId);
+    }
+
+    private void SyncChatCompanionLifecycle(int processId)
+    {
+        ClientInstance? client;
+
+        lock (this.lockObject)
+        {
+            this.clients.TryGetValue(processId, out client);
+        }
+
+        if (client == null)
+        {
+            return;
+        }
+
+        if (client.LifecycleState != ClientLifecycleState.InGame)
+        {
+            this.CloseChatCompanionForProcess(
+                processId,
+                preserveOpenPreference: true);
+            return;
+        }
+
+        if (client.LiveCharacterIdentity.CharacterObjectId == null ||
+            string.IsNullOrWhiteSpace(
+                client.LiveCharacterIdentity.Name) ||
+            !this.IsChatCompanionOpenPreferred(client))
+        {
+            return;
+        }
+
+        this.OpenChatCompanion(
+            processId,
+            activate: false,
+            rememberOpenPreference: false);
+    }
+
+    private bool IsChatCompanionOpenPreferred(ClientInstance client)
+    {
+        lock (this.lockObject)
+        {
+            return this.chatCompanionOpenProcessIds.Contains(
+                       client.ProcessId) ||
+                   client.AssignedSlotId is { } slotId &&
+                   this.settings.ChatCompanion.OpenSlotIds.Contains(slotId);
+        }
+    }
+
+    private void SetChatCompanionOpenPreference(
+        int processId,
+        Guid? assignedSlotId,
+        bool isOpen)
+    {
+        var settingsChanged = false;
+
+        lock (this.lockObject)
+        {
+            if (isOpen)
+            {
+                this.chatCompanionOpenProcessIds.Add(processId);
+            }
+            else
+            {
+                this.chatCompanionOpenProcessIds.Remove(processId);
+            }
+
+            if (assignedSlotId is not { } slotId)
+            {
+                return;
+            }
+
+            if (isOpen)
+            {
+                if (!this.settings.ChatCompanion.OpenSlotIds.Contains(slotId))
+                {
+                    this.settings.ChatCompanion.OpenSlotIds.Add(slotId);
+                    settingsChanged = true;
+                }
+            }
+            else
+            {
+                settingsChanged = this.settings.ChatCompanion.OpenSlotIds
+                    .RemoveAll(candidate => candidate == slotId) > 0;
+            }
+        }
+
+        if (settingsChanged)
+        {
+            this.SaveSettings();
+        }
+    }
+
+    private void CloseChatCompanionForProcess(
+        int processId,
+        bool preserveOpenPreference)
+    {
+        var forms = this.chatCompanionForms.Values
+            .Where(form => form.ProcessId == processId)
+            .ToArray();
+
+        foreach (var form in forms)
+        {
+            if (form.IsDisposed || form.Disposing)
+            {
+                continue;
+            }
+
+            void CloseForm()
+            {
+                if (form.IsDisposed || form.Disposing)
+                {
+                    return;
+                }
+
+                if (preserveOpenPreference)
+                {
+                    form.ClosePreservingOpenPreference();
+                }
+                else
+                {
+                    form.Close();
+                }
+            }
+
+            if (form.IsHandleCreated && form.InvokeRequired)
+            {
+                _ = form.BeginInvoke(new MethodInvoker(CloseForm));
+            }
+            else
+            {
+                CloseForm();
+            }
+        }
     }
 
     private void OpenPilotArchive(

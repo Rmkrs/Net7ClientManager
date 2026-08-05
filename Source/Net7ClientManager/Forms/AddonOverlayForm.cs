@@ -52,6 +52,9 @@ internal sealed class AddonOverlayForm : Form
     private static readonly WidgetKey navigationKey =
         new("net7.addons.host", "navigation");
 
+    private static readonly WidgetKey chatCompanionKey =
+        new("net7.addons.host", "chat-companion");
+
     private static readonly WidgetKey galaxyAtlasKey =
         new("net7.addons.host", "galaxy-atlas");
 
@@ -141,6 +144,8 @@ internal sealed class AddonOverlayForm : Form
     public event EventHandler? InGameOptionsRequested;
 
     public event EventHandler? NavigationRequested;
+
+    public event EventHandler? ChatCompanionRequested;
 
     public event EventHandler? GalaxyAtlasRequested;
 
@@ -452,6 +457,9 @@ internal sealed class AddonOverlayForm : Form
             "navigation" => new InteractiveIdentity(
                 InteractiveKind.AddonsMenuNavigation,
                 navigationKey),
+            "chat" => new InteractiveIdentity(
+                InteractiveKind.AddonsMenuChatCompanion,
+                chatCompanionKey),
             "atlas" => new InteractiveIdentity(
                 InteractiveKind.AddonsMenuGalaxyAtlas,
                 galaxyAtlasKey),
@@ -971,6 +979,14 @@ internal sealed class AddonOverlayForm : Form
                 this.gameMenuOpen = false;
                 this.menuPointerLeftAt = null;
                 this.NavigationRequested?.Invoke(
+                    this,
+                    EventArgs.Empty);
+                break;
+
+            case InteractiveKind.AddonsMenuChatCompanion:
+                this.gameMenuOpen = false;
+                this.menuPointerLeftAt = null;
+                this.ChatCompanionRequested?.Invoke(
                     this,
                     EventArgs.Empty);
                 break;
@@ -1638,6 +1654,7 @@ internal sealed class AddonOverlayForm : Form
                 InteractiveKind.AddonsMenuToggle or
                 InteractiveKind.AddonsMenuOptions or
                 InteractiveKind.AddonsMenuNavigation or
+                InteractiveKind.AddonsMenuChatCompanion or
                 InteractiveKind.AddonsMenuGalaxyAtlas or
                 InteractiveKind.AddonsMenuWorldFind or
                 InteractiveKind.AddonsMenuPilotArchive or
@@ -2429,6 +2446,7 @@ internal sealed class AddonOverlayForm : Form
                      "Help",
                      "Options",
                      "Navigation",
+                     "Chat Companion",
                      "Galaxy Atlas",
                      "Galaxy Finder",
                      "Social",
@@ -2488,7 +2506,7 @@ internal sealed class AddonOverlayForm : Form
             120,
             maximumMenuWidth);
 
-        const int builtInItemCount = 9;
+        const int builtInItemCount = 10;
         var registeredRowCount = sections.Sum(section =>
             1 + section.Items.Count);
 
@@ -2591,6 +2609,22 @@ internal sealed class AddonOverlayForm : Form
                 CreateItemBounds(),
                 optionsSeparator,
                 "Navigation",
+                string.Empty,
+                IsChecked: false,
+                IsEnabled: true,
+                IsHeader: false,
+                TextIndent: 0));
+
+        currentTop += itemHeight;
+
+        items.Add(
+            new ResolvedGameMenuItem(
+                new InteractiveIdentity(
+                    InteractiveKind.AddonsMenuChatCompanion,
+                    chatCompanionKey),
+                CreateItemBounds(),
+                optionsSeparator,
+                "Chat Companion",
                 string.Empty,
                 IsChecked: false,
                 IsEnabled: true,
@@ -4050,6 +4084,7 @@ internal sealed class AddonOverlayForm : Form
         AddonsMenuHelp,
         AddonsMenuOptions,
         AddonsMenuNavigation,
+        AddonsMenuChatCompanion,
         AddonsMenuGalaxyAtlas,
         AddonsMenuWorldFind,
         AddonsMenuPilotArchive,

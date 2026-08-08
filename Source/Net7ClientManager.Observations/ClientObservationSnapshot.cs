@@ -116,6 +116,14 @@ public sealed record ClientObservationSnapshot
     public ClientProductionRecipeObservation ProductionRecipe { get; init; } =
         ClientProductionRecipeObservation.Unavailable("Not observed yet");
 
+    public ClientManufacturingActivityObservation ManufacturingActivity
+    { get; init; } =
+        ClientManufacturingActivityObservation.Unavailable("Not observed yet");
+
+    public ClientManufacturingCatalogObservation ManufacturingCatalog
+    { get; init; } =
+        ClientManufacturingCatalogObservation.Unavailable("Not observed yet");
+
     public ClientCombatObservation Combat { get; init; } =
         ClientCombatObservation.Unavailable("Not observed yet");
 }

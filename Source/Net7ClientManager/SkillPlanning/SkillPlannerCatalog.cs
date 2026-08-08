@@ -14,6 +14,9 @@ internal sealed class SkillPlannerCatalog
     private readonly IReadOnlyDictionary<string, SkillPlannerProfessionDefinition>
         professionsByTag;
 
+    private readonly IReadOnlyDictionary<string, SkillPlannerProfessionDefinition>
+        professionsByDisplayName;
+
     private readonly IReadOnlyDictionary<int, SkillPlannerSkillDefinition>
         skillsById;
 
@@ -46,6 +49,11 @@ internal sealed class SkillPlannerCatalog
             new ReadOnlyDictionary<string, SkillPlannerProfessionDefinition>(
                 professionDefinitions.ToDictionary(
                     profession => profession.Tag,
+                    StringComparer.OrdinalIgnoreCase));
+        this.professionsByDisplayName =
+            new ReadOnlyDictionary<string, SkillPlannerProfessionDefinition>(
+                professionDefinitions.ToDictionary(
+                    profession => profession.DisplayName,
                     StringComparer.OrdinalIgnoreCase));
 
         var groupOrder = BuildGroupOrder(document.Groups);
@@ -108,6 +116,21 @@ internal sealed class SkillPlannerCatalog
 
         return this.professionsByTag.TryGetValue(
             tag.Trim(),
+            out definition!);
+    }
+
+    public bool TryGetProfessionByDisplayName(
+        string? displayName,
+        out SkillPlannerProfessionDefinition definition)
+    {
+        if (string.IsNullOrWhiteSpace(displayName))
+        {
+            definition = default!;
+            return false;
+        }
+
+        return this.professionsByDisplayName.TryGetValue(
+            displayName.Trim(),
             out definition!);
     }
 

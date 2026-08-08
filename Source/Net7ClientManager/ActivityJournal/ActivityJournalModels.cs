@@ -10,6 +10,7 @@ public enum ActivityJournalCategory
     Credits = 8,
     Loot = 16,
     Combat = 32,
+    Crafting = 64,
 }
 
 public enum ActivityJournalKind
@@ -34,6 +35,16 @@ public enum ActivityJournalKind
     CombatDied = 501,
     CombatDisengaged = 502,
     CombatInterrupted = 503,
+    CraftingRecipeScan = 600,
+    CraftingAnalyzeFailed = 610,
+    CraftingAnalyzeSucceeded = 611,
+    CraftingAnalyzeCritical = 612,
+    CraftingDismantleFailed = 620,
+    CraftingDismantled = 621,
+    CraftingDismantleCritical = 622,
+    CraftingManufactureFailed = 630,
+    CraftingManufactured = 631,
+    CraftingManufactureCritical = 632,
 }
 
 public sealed record ActivityJournalEntry
@@ -106,6 +117,11 @@ public sealed record ActivityJournalEntry
             if (this.Category.HasFlag(ActivityJournalCategory.Combat))
             {
                 parts.Add("Combat");
+            }
+
+            if (this.Category.HasFlag(ActivityJournalCategory.Crafting))
+            {
+                parts.Add("Crafting");
             }
 
             return parts.Count == 0

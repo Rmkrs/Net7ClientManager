@@ -10,6 +10,7 @@ using Net7ClientManager.Models;
 using Net7ClientManager.Observations.Models;
 using Net7ClientManager.Observations.Observers;
 using Net7ClientManager.PilotArchive;
+using Net7ClientManager.RecipeMapping;
 using Net7ClientManager.Services;
 using Net7ClientManager.Win32;
 
@@ -106,6 +107,9 @@ public sealed partial class PilotArchiveForm : ThemedForm
         this.RegisterGridState(this.vaultGrid, PilotArchiveSections.Vault);
         this.RegisterGridState(this.skillsGrid, PilotArchiveSections.Skills);
         this.RegisterGridState(
+            this.craftingRecipesGrid,
+            PilotArchiveSections.CraftingRecipes);
+        this.RegisterGridState(
             this.missionsGrid,
             PilotArchiveSections.Missions);
         this.RegisterGridState(
@@ -154,6 +158,10 @@ public sealed partial class PilotArchiveForm : ThemedForm
             this.SearchGrid_OnCellDoubleClick;
         this.missionHistoryGrid.SelectionChanged +=
             this.MissionHistoryGrid_OnSelectionChanged;
+        this.craftingRecipesGrid.SelectionChanged +=
+            this.CraftingRecipesGrid_OnSelectionChanged;
+        this.craftingRecipeHistoryGrid.SelectionChanged +=
+            this.CraftingRecipeHistoryGrid_OnSelectionChanged;
         this.activityHistoryGrid.SelectionChanged +=
             this.ActivityHistoryGrid_OnSelectionChanged;
         this.combatHistoryGrid.SelectionChanged +=
@@ -169,6 +177,8 @@ public sealed partial class PilotArchiveForm : ThemedForm
         this.activityLootFilterCheckBox.CheckedChanged +=
             this.ActivityFilterCheckBox_OnCheckedChanged;
         this.activityCombatFilterCheckBox.CheckedChanged +=
+            this.ActivityFilterCheckBox_OnCheckedChanged;
+        this.activityCraftingFilterCheckBox.CheckedChanged +=
             this.ActivityFilterCheckBox_OnCheckedChanged;
         this.reputationsGrid.SelectionChanged +=
             this.ReputationsGrid_OnSelectionChanged;
@@ -309,8 +319,13 @@ public sealed partial class PilotArchiveForm : ThemedForm
             this.searchGrid.CellDoubleClick -=
                 this.SearchGrid_OnCellDoubleClick;
             this.UnconfigureInventoryToolTips();
+            this.UnconfigureCraftingRecipesToolTips();
             this.missionHistoryGrid.SelectionChanged -=
                 this.MissionHistoryGrid_OnSelectionChanged;
+            this.craftingRecipesGrid.SelectionChanged -=
+                this.CraftingRecipesGrid_OnSelectionChanged;
+            this.craftingRecipeHistoryGrid.SelectionChanged -=
+                this.CraftingRecipeHistoryGrid_OnSelectionChanged;
             this.activityHistoryGrid.SelectionChanged -=
                 this.ActivityHistoryGrid_OnSelectionChanged;
             this.combatHistoryGrid.SelectionChanged -=
@@ -326,6 +341,8 @@ public sealed partial class PilotArchiveForm : ThemedForm
             this.activityLootFilterCheckBox.CheckedChanged -=
                 this.ActivityFilterCheckBox_OnCheckedChanged;
             this.activityCombatFilterCheckBox.CheckedChanged -=
+                this.ActivityFilterCheckBox_OnCheckedChanged;
+            this.activityCraftingFilterCheckBox.CheckedChanged -=
                 this.ActivityFilterCheckBox_OnCheckedChanged;
             this.reputationsGrid.SelectionChanged -=
                 this.ReputationsGrid_OnSelectionChanged;
@@ -403,7 +420,7 @@ public sealed partial class PilotArchiveForm : ThemedForm
         headingPanel.Controls.Add(new Label
         {
             AutoSize = true,
-            Text = "Pilot details, inventories, missions, and history.",
+            Text = "Pilot details, inventories, recipes, missions, and history.",
             ForeColor = MainWindowTheme.MutedText,
             Location = new Point(1, 34),
         });
@@ -488,6 +505,9 @@ public sealed partial class PilotArchiveForm : ThemedForm
         this.AddSectionTab(
             PilotArchiveSections.Skills,
             this.CreateGridTab("Skills", PilotArchiveSections.Skills, this.skillsGrid));
+        this.AddSectionTab(
+            PilotArchiveSections.CraftingRecipes,
+            this.CreateCraftingRecipesTab());
         this.AddSectionTab(
             PilotArchiveSections.Missions,
             this.CreateGridTab("Missions", PilotArchiveSections.Missions, this.missionsGrid));
@@ -996,10 +1016,22 @@ public sealed partial class PilotArchiveForm : ThemedForm
             context.IconOutputDirectory,
             context.Slot.TemplateId,
             new Size(36, 36));
+        RecipeMappingItemPresentation? recipeMapping = null;
+
+        if (this.selectedCharacterId.HasValue &&
+            context.Slot.TemplateId is { } recipeItemTemplateId &&
+            recipeItemTemplateId > 0)
+        {
+            recipeMapping = this.clientManager
+                .ResolvePilotArchiveRecipeMappingItemPresentation(
+                    recipeItemTemplateId);
+        }
+
         var content = PilotArchiveItemToolTipBuilder.Build(
             context.Slot,
             template,
-            icon);
+            icon,
+            recipeMapping);
 
         this.itemToolTip.SetHoveredToolTip(
             grid,
@@ -1050,6 +1082,8 @@ public sealed partial class PilotArchiveForm : ThemedForm
         AddColumn(this.skillsGrid, "Rank", 90);
         AddColumn(this.skillsGrid, "Active", 80);
         AddColumn(this.skillsGrid, "Spent points", 110);
+
+        this.ConfigureCraftingRecipesGrid();
 
         AddColumn(this.missionsGrid, "Mission", 260);
         AddColumn(this.missionsGrid, "Stage", 90);
@@ -1523,6 +1557,7 @@ public sealed partial class PilotArchiveForm : ThemedForm
         this.selectedCharacterId = details.Pilot.CharacterId;
         this.clientManager.PilotArchiveSettings.SelectedCharacterId =
             this.selectedCharacterId;
+        this.SyncCraftingObservation();
         this.PopulateOverview(details);
         var iconOutputDirectory =
             this.clientManager.LocateGameOutputDirectory();
@@ -1583,6 +1618,7 @@ public sealed partial class PilotArchiveForm : ThemedForm
         }
 
         this.RefreshLaunchState(details.Pilot.CharacterId);
+        this.RefreshCrafting(details.Pilot.CharacterId);
     }
 
     private void PopulateOverview(PilotArchivePilotDetails details)
@@ -2422,6 +2458,7 @@ public sealed partial class PilotArchiveForm : ThemedForm
         this.itemToolTip.Remove(this.cargoGrid);
         this.itemToolTip.Remove(this.equipmentGrid);
         this.itemToolTip.Remove(this.vaultGrid);
+        this.itemToolTip.Remove(this.craftingRecipesGrid);
         this.cargoGrid.Rows.Clear();
         this.equipmentGrid.Rows.Clear();
         this.vaultGrid.Rows.Clear();
@@ -2435,6 +2472,7 @@ public sealed partial class PilotArchiveForm : ThemedForm
         this.ClearCombatHistory();
         this.reputationsGrid.Rows.Clear();
         this.reputationHistoryGrid.Rows.Clear();
+        this.ClearCrafting();
         this.startCharacterButton.Visible = false;
         this.startCharacterButton.Enabled = false;
         this.launchStatusLabel.Text = "Select an archived pilot.";
@@ -2517,6 +2555,7 @@ public sealed partial class PilotArchiveForm : ThemedForm
         object? sender,
         FormClosingEventArgs e)
     {
+        this.StopCraftingArchiveObservation(cancelRunningScans: true);
         this.SaveUiState();
     }
 
@@ -2590,6 +2629,14 @@ public sealed partial class PilotArchiveForm : ThemedForm
             this.clientManager.PilotArchiveSettings.SelectedSection =
                 selectedSection;
             this.clientManager.SaveSettings();
+        }
+
+        this.SyncCraftingObservation();
+
+        if (selectedSection == PilotArchiveSections.CraftingRecipes &&
+            this.selectedCharacterId is { } characterId)
+        {
+            this.RefreshCrafting(characterId);
         }
     }
 

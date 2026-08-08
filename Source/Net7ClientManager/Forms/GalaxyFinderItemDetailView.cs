@@ -6,6 +6,7 @@ using Net7ClientManager.Core;
 using Net7ClientManager.GalaxyKnowledge;
 using Net7ClientManager.Shopping;
 using Net7ClientManager.Services;
+using Net7ClientManager.SkillPlanning;
 
 internal sealed class GalaxyFinderItemDetailView : UserControl
 {
@@ -1472,53 +1473,10 @@ internal sealed class GalaxyFinderItemDetailView : UserControl
 
     private string BuildRestrictionText()
     {
-        var profession = FormatExclusionMask(
+        return ItemTemplateRestrictionEvaluator.FormatRestrictionText(
             this.item.ProfessionRestrictionMask,
-            ["Warrior", "Trader", "Explorer"]);
-        var raceMask = this.item.RaceRestrictionMask & 0x07;
-        raceMask |= this.item.LoreRestriction switch
-        {
-            1 => 1 << 2,
-            2 => 1 << 1,
-            _ => 0,
-        };
-        var race = FormatExclusionMask(
-            raceMask,
-            ["Terran", "Jenquai", "Progen"]);
-
-        return string.Join(
-            " · ",
-            new[] { profession, race }
-                .Where(value => value.Length != 0));
-    }
-
-    private static string FormatExclusionMask(
-        int mask,
-        IReadOnlyList<string> names)
-    {
-        var normalized = mask & 0x07;
-        if (normalized == 0)
-        {
-            return "";
-        }
-
-        var excluded = names
-            .Where((_, index) =>
-                (normalized & (1 << index)) != 0)
-            .ToArray();
-        var allowed = names
-            .Where((_, index) =>
-                (normalized & (1 << index)) == 0)
-            .ToArray();
-
-        if (allowed.Length == 1)
-        {
-            return string.Concat(allowed[0], " only");
-        }
-
-        return excluded.Length == 0
-            ? ""
-            : string.Concat("Not for ", string.Join(", ", excluded));
+            this.item.RaceRestrictionMask,
+            this.item.LoreRestriction);
     }
 
     private static void AddRequirement(

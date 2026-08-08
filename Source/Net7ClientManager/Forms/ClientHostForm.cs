@@ -9,6 +9,7 @@ using Net7ClientManager.Models;
 using Net7ClientManager.Navigation;
 using Net7ClientManager.Observations;
 using Net7ClientManager.Observations.Models;
+using Net7ClientManager.RecipeMapping;
 using Net7ClientManager.Services;
 using Net7ClientManager.SkillPlanning;
 using Net7ClientManager.Win32;
@@ -289,6 +290,8 @@ public sealed partial class ClientHostForm : Form
         this.ApplyInitialBoundsFromGameWindow();
 
         this.titleStatusTimer.Tick += this.TitleStatusTimer_OnTick;
+        this.dismantleReadyHideTimer.Tick +=
+            this.DismantleReadyHideTimer_OnTick;
 
         this.titleBlinkTimer.Interval = 500;
         this.titleBlinkTimer.Tick += this.TitleBlinkTimer_OnTick;
@@ -1116,6 +1119,7 @@ public sealed partial class ClientHostForm : Form
         this.SyncVendorShoppingCompanion();
         this.SyncGameItemToolTip();
         this.SyncBuffDurationOverlay();
+        this.SyncDismantleCooldownOverlay();
     }
 
     public void ApplyAddonUiCommand(AddonUiCommand command)
@@ -1256,6 +1260,9 @@ public sealed partial class ClientHostForm : Form
                 this.addonOverlayForm.PilotArchiveRequested -=
                     this.AddonOverlayForm_OnPilotArchiveRequested;
 
+                this.addonOverlayForm.CraftingRequested -=
+                    this.AddonOverlayForm_OnCraftingRequested;
+
                 this.addonOverlayForm.BuildsRequested -=
                     this.AddonOverlayForm_OnBuildsRequested;
 
@@ -1293,6 +1300,7 @@ public sealed partial class ClientHostForm : Form
             this.CloseBuildEquipmentCompanionForms();
             this.CloseVendorShoppingCompanionForm();
             this.CloseBuffDurationOverlayForm();
+            this.CloseDismantleCooldownOverlayForm();
             this.gameItemToolTip.Dispose();
 
             lock (this.pendingUiCommandLock)
@@ -1621,6 +1629,7 @@ public sealed partial class ClientHostForm : Form
             this.SyncVendorShoppingCompanion();
             this.SyncGameItemToolTip();
             this.SyncBuffDurationOverlay();
+            this.SyncDismantleCooldownOverlay();
         });
     }
 
@@ -1647,6 +1656,7 @@ public sealed partial class ClientHostForm : Form
         this.gameItemToolTip.HideExternal();
         this.SyncGameItemToolTip();
         this.SyncBuffDurationOverlay();
+        this.SyncDismantleCooldownOverlay();
     }
 
     private void ClientHostForm_OnMove(object? sender, EventArgs e)
@@ -1661,6 +1671,7 @@ public sealed partial class ClientHostForm : Form
         this.gameItemToolTip.HideExternal();
         this.SyncGameItemToolTip();
         this.SyncBuffDurationOverlay();
+        this.SyncDismantleCooldownOverlay();
     }
 
     private void ClientHostForm_OnVisibleChanged(
@@ -1676,6 +1687,7 @@ public sealed partial class ClientHostForm : Form
         this.SyncVendorShoppingCompanion();
         this.SyncGameItemToolTip();
         this.SyncBuffDurationOverlay();
+        this.SyncDismantleCooldownOverlay();
     }
 
     private void ClientHostForm_OnFormClosing(object? sender, FormClosingEventArgs e)
@@ -1843,6 +1855,9 @@ public sealed partial class ClientHostForm : Form
         this.addonOverlayForm.PilotArchiveRequested +=
             this.AddonOverlayForm_OnPilotArchiveRequested;
 
+        this.addonOverlayForm.CraftingRequested +=
+            this.AddonOverlayForm_OnCraftingRequested;
+
         this.addonOverlayForm.BuildsRequested +=
             this.AddonOverlayForm_OnBuildsRequested;
 
@@ -1966,7 +1981,11 @@ public sealed partial class ClientHostForm : Form
             GameItemToolTipPresentationBuilder.Prepare(
                 snapshot,
                 this.gameItemToolTipHover,
-                this.resolveBuildItemIcon);
+                this.resolveBuildItemIcon,
+                itemTemplateId =>
+                    this.clientManager.ResolveRecipeMappingItemPresentation(
+                        snapshot,
+                        itemTemplateId));
 
         this.gameItemToolTipPreparation = preparation;
 
@@ -4099,6 +4118,15 @@ public sealed partial class ClientHostForm : Form
         EventArgs e)
     {
         this.openPilotArchiveRequested(
+            this.clientInstance,
+            this);
+    }
+
+    private void AddonOverlayForm_OnCraftingRequested(
+        object? sender,
+        EventArgs e)
+    {
+        this.clientManager.OpenCrafting(
             this.clientInstance,
             this);
     }

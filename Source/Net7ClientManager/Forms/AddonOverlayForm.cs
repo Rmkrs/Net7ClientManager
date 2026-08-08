@@ -64,6 +64,9 @@ internal sealed class AddonOverlayForm : Form
     private static readonly WidgetKey pilotArchiveKey =
         new("net7.addons.host", "pilot-archive");
 
+    private static readonly WidgetKey craftingKey =
+        new("net7.addons.host", "crafting");
+
     private static readonly WidgetKey buildsKey =
         new("net7.addons.host", "builds");
 
@@ -154,6 +157,8 @@ internal sealed class AddonOverlayForm : Form
     public event EventHandler? ForgeContributionsRequested;
 
     public event EventHandler? PilotArchiveRequested;
+
+    public event EventHandler? CraftingRequested;
 
     public event EventHandler? BuildsRequested;
 
@@ -469,6 +474,9 @@ internal sealed class AddonOverlayForm : Form
             "archive" => new InteractiveIdentity(
                 InteractiveKind.AddonsMenuPilotArchive,
                 pilotArchiveKey),
+            "crafting" or "recipes" => new InteractiveIdentity(
+                InteractiveKind.AddonsMenuCrafting,
+                craftingKey),
             "builds" => new InteractiveIdentity(
                 InteractiveKind.AddonsMenuBuilds,
                 buildsKey),
@@ -1011,6 +1019,14 @@ internal sealed class AddonOverlayForm : Form
                 this.gameMenuOpen = false;
                 this.menuPointerLeftAt = null;
                 this.PilotArchiveRequested?.Invoke(
+                    this,
+                    EventArgs.Empty);
+                break;
+
+            case InteractiveKind.AddonsMenuCrafting:
+                this.gameMenuOpen = false;
+                this.menuPointerLeftAt = null;
+                this.CraftingRequested?.Invoke(
                     this,
                     EventArgs.Empty);
                 break;
@@ -1658,6 +1674,7 @@ internal sealed class AddonOverlayForm : Form
                 InteractiveKind.AddonsMenuGalaxyAtlas or
                 InteractiveKind.AddonsMenuWorldFind or
                 InteractiveKind.AddonsMenuPilotArchive or
+                InteractiveKind.AddonsMenuCrafting or
                 InteractiveKind.AddonsMenuBuilds or
                 InteractiveKind.AddonsMenuForgeContributions or
                 InteractiveKind.AddonsMenuManage)
@@ -2451,6 +2468,7 @@ internal sealed class AddonOverlayForm : Form
                      "Galaxy Finder",
                      "Social",
                      "Pilot Archive",
+                     "Crafting",
                      "Builds",
                      "Forge Contributions",
                      "Addon Center",
@@ -2506,7 +2524,7 @@ internal sealed class AddonOverlayForm : Form
             120,
             maximumMenuWidth);
 
-        const int builtInItemCount = 10;
+        const int builtInItemCount = 11;
         var registeredRowCount = sections.Sum(section =>
             1 + section.Items.Count);
 
@@ -2690,6 +2708,22 @@ internal sealed class AddonOverlayForm : Form
                 SeparatorBounds: null,
                 "Pilot Archive",
                 string.Empty,
+                IsChecked: false,
+                IsEnabled: true,
+                IsHeader: false,
+                TextIndent: 0));
+
+        currentTop += itemHeight;
+
+        items.Add(
+            new ResolvedGameMenuItem(
+                new InteractiveIdentity(
+                    InteractiveKind.AddonsMenuCrafting,
+                    craftingKey),
+                CreateItemBounds(),
+                SeparatorBounds: null,
+                "Crafting",
+                "Browse your learned manufacturing recipes and crafting data.",
                 IsChecked: false,
                 IsEnabled: true,
                 IsHeader: false,
@@ -4088,6 +4122,7 @@ internal sealed class AddonOverlayForm : Form
         AddonsMenuGalaxyAtlas,
         AddonsMenuWorldFind,
         AddonsMenuPilotArchive,
+        AddonsMenuCrafting,
         AddonsMenuBuilds,
         AddonsMenuSocial,
         AddonsMenuForgeContributions,

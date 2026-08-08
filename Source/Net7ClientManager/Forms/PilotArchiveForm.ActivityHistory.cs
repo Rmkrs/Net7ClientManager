@@ -17,6 +17,7 @@ public sealed partial class PilotArchiveForm
     private readonly ThemedCheckBox activityCreditsFilterCheckBox = new();
     private readonly ThemedCheckBox activityLootFilterCheckBox = new();
     private readonly ThemedCheckBox activityCombatFilterCheckBox = new();
+    private readonly ThemedCheckBox activityCraftingFilterCheckBox = new();
     private readonly Dictionary<long, ActivityJournalEntry>
         activityHistoryEntriesById = [];
     private bool updatingActivityFilters;
@@ -89,6 +90,12 @@ public sealed partial class PilotArchiveForm
         this.activityCombatFilterCheckBox.ForeColor = MainWindowTheme.Text;
         this.activityCombatFilterCheckBox.Margin = new Padding(0, 4, 18, 0);
         filters.Controls.Add(this.activityCombatFilterCheckBox);
+
+        this.activityCraftingFilterCheckBox.Text = "Crafting";
+        this.activityCraftingFilterCheckBox.AutoSize = true;
+        this.activityCraftingFilterCheckBox.ForeColor = MainWindowTheme.Text;
+        this.activityCraftingFilterCheckBox.Margin = new Padding(0, 4, 18, 0);
+        filters.Controls.Add(this.activityCraftingFilterCheckBox);
 
         this.activityHistorySplit.Dock = DockStyle.Fill;
         this.activityHistorySplit.Orientation = Orientation.Horizontal;
@@ -196,6 +203,8 @@ public sealed partial class PilotArchiveForm
                 settings.ShowActivityLoot;
             this.activityCombatFilterCheckBox.Checked =
                 settings.ShowActivityCombat;
+            this.activityCraftingFilterCheckBox.Checked =
+                settings.ShowActivityCrafting;
         }
         finally
         {
@@ -245,6 +254,11 @@ public sealed partial class PilotArchiveForm
             categories |= ActivityJournalCategory.Combat;
         }
 
+        if (this.activityCraftingFilterCheckBox.Checked)
+        {
+            categories |= ActivityJournalCategory.Crafting;
+        }
+
         return categories;
     }
 
@@ -285,6 +299,18 @@ public sealed partial class PilotArchiveForm
                 ActivityJournalKind.CombatDisengaged => MainWindowTheme.Warning,
                 ActivityJournalKind.CombatInterrupted =>
                     MainWindowTheme.MutedText,
+                ActivityJournalKind.CraftingRecipeScan => MainWindowTheme.Accent,
+                ActivityJournalKind.CraftingAnalyzeSucceeded or
+                    ActivityJournalKind.CraftingAnalyzeCritical or
+                    ActivityJournalKind.CraftingDismantled or
+                    ActivityJournalKind.CraftingDismantleCritical or
+                    ActivityJournalKind.CraftingManufactured or
+                    ActivityJournalKind.CraftingManufactureCritical =>
+                    MainWindowTheme.Success,
+                ActivityJournalKind.CraftingAnalyzeFailed or
+                    ActivityJournalKind.CraftingDismantleFailed or
+                    ActivityJournalKind.CraftingManufactureFailed =>
+                    MainWindowTheme.Danger,
                 _ when activity.Category.HasFlag(
                     ActivityJournalCategory.Navigation) =>
                     MainWindowTheme.Accent,
@@ -494,6 +520,8 @@ public sealed partial class PilotArchiveForm
             this.activityLootFilterCheckBox.Checked;
         settings.ShowActivityCombat =
             this.activityCombatFilterCheckBox.Checked;
+        settings.ShowActivityCrafting =
+            this.activityCraftingFilterCheckBox.Checked;
         this.clientManager.SaveSettings();
 
         if (this.selectedCharacterId is { } characterId)

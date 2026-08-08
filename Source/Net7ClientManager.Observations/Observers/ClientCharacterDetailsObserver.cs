@@ -180,6 +180,63 @@ internal sealed class ClientCharacterDetailsObserver
         };
     }
 
+    public bool TryRefreshCreditsFast(
+        ProcessMemoryReader memory,
+        ClientCharacterDetailsObservation current,
+        out ClientCharacterDetailsObservation updated)
+    {
+        ArgumentNullException.ThrowIfNull(memory);
+        ArgumentNullException.ThrowIfNull(current);
+
+        updated = current;
+        var propertyAddress = current.MoneyPropertyAddress;
+        if (propertyAddress == 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            if (!memory.TryReadUInt32(
+                    checked(propertyAddress + PropertyValidOffset),
+                    out var validState))
+            {
+                return false;
+            }
+
+            if (validState == 0)
+            {
+                updated = current with
+                {
+                    MoneyValidState = 0,
+                    Credits = null,
+                };
+                return true;
+            }
+
+            if (!memory.TryReadUInt32(
+                    checked(propertyAddress + UInt64PropertyLowWordOffset),
+                    out var lowWord) ||
+                !memory.TryReadUInt32(
+                    checked(propertyAddress + UInt64PropertyHighWordOffset),
+                    out var highWord))
+            {
+                return false;
+            }
+
+            updated = current with
+            {
+                MoneyValidState = validState,
+                Credits = ((ulong)highWord << 32) | lowWord,
+            };
+            return true;
+        }
+        catch (OverflowException)
+        {
+            return false;
+        }
+    }
+
     private static UInt64PropertySample ReadUInt64Property(
         ProcessMemoryReader memory,
         uint propertyAddress,

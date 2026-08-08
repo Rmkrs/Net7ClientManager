@@ -132,6 +132,27 @@ internal static class SkillBuildBoardScenarios
                 unrestricted with { LoreRestriction = 1 },
                 progenWarrior),
             "lore restriction excludes Progen");
+        AssertEqual(
+            "Jenquai Only",
+            ItemTemplateRestrictionEvaluator.FormatRestrictionText(
+                professionRestriction: 0,
+                raceRestriction: (1 << 0) | (1 << 2),
+                loreRestriction: 0),
+            "shared restriction text for Jenquai-only equipment");
+        AssertEqual(
+            "Progen Restricted",
+            ItemTemplateRestrictionEvaluator.FormatRestrictionText(
+                professionRestriction: 0,
+                raceRestriction: 1 << 2,
+                loreRestriction: 0),
+            "shared native-style restriction text for Progen-restricted equipment");
+        AssertEqual(
+            "Warrior Only · Progen Only",
+            ItemTemplateRestrictionEvaluator.FormatRestrictionText(
+                professionRestriction: (1 << 1) | (1 << 2),
+                raceRestriction: (1 << 0) | (1 << 1),
+                loreRestriction: 0),
+            "shared profession and race restriction text");
     }
 
     private static void ValidateHullSlotLimits(

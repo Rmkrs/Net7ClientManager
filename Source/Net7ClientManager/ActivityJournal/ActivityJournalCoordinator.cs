@@ -8,6 +8,7 @@ using Net7ClientManager.CombatJournal;
 using Net7ClientManager.MissionJournal;
 using Net7ClientManager.Observations;
 using Net7ClientManager.Observations.Models;
+using Net7ClientManager.RecipeMapping;
 
 internal sealed class ActivityJournalCoordinator
 {
@@ -38,6 +39,8 @@ internal sealed class ActivityJournalCoordinator
         TimeSpan.FromSeconds(5);
     private static readonly TimeSpan pendingVendorCreditWindow =
         TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan craftingCreditCorrelationWindow =
+        TimeSpan.FromSeconds(8);
 
     private readonly ActivityJournalStore store;
     private readonly Lock stateLock = new();
@@ -253,6 +256,46 @@ internal sealed class ActivityJournalCoordinator
         this.StoreAndPublish(writes);
     }
 
+    internal void RecordCraftingEvent(
+        RecipeMappingHistoryEventRecord craftingEvent,
+        ClientObservationSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(craftingEvent);
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        var identity = ClientLiveCharacterIdentityResolver.Resolve(snapshot);
+        if (identity.CharacterObjectId != craftingEvent.CharacterId ||
+            string.IsNullOrWhiteSpace(identity.Name))
+        {
+            return;
+        }
+
+        lock (this.stateLock)
+        {
+            if (!this.enabled)
+            {
+                return;
+            }
+
+            if (this.processStates.TryGetValue(
+                    snapshot.ProcessId,
+                    out var state) &&
+                state.CharacterId == craftingEvent.CharacterId)
+            {
+                state.RegisterCraftingCredit(craftingEvent);
+            }
+        }
+
+        var activity = BuildCraftingActivity(
+            craftingEvent,
+            identity.Name.Trim(),
+            JournalLocationResolver.Capture(snapshot));
+        if (activity != null)
+        {
+            this.StoreAndPublish([new ActivityEntryWrite(activity)]);
+        }
+    }
+
     public void ForgetProcess(int processId)
     {
         lock (this.stateLock)
@@ -362,6 +405,244 @@ internal sealed class ActivityJournalCoordinator
                 this,
                 new ActivityJournalChangedEventArgs(characterId));
         }
+    }
+
+    private static ActivityJournalEntry? BuildCraftingActivity(
+        RecipeMappingHistoryEventRecord craftingEvent,
+        string pilotName,
+        JournalLocationContext location)
+    {
+        if (craftingEvent.Kind == RecipeMappingHistoryEventKind.RecipeLearnedByScan)
+        {
+            // The recipe-specific acquisition belongs in Crafting Recipes.
+            // Activity History receives one compact event for the completed
+            // scan instead of one row per discovered formula.
+            return null;
+        }
+
+        var itemName = craftingEvent.ItemTemplateId > 0
+            ? ClientItemTemplateNameResolver.GetKnownName(
+                craftingEvent.ItemTemplateId) ??
+                string.Concat("Item ", craftingEvent.ItemTemplateId)
+            : "";
+        var kind = craftingEvent.Kind switch
+        {
+            RecipeMappingHistoryEventKind.RecipeScanCompleted =>
+                ActivityJournalKind.CraftingRecipeScan,
+            RecipeMappingHistoryEventKind.AnalyzeFailed or
+                RecipeMappingHistoryEventKind.AnalyzeFailedDamaged =>
+                ActivityJournalKind.CraftingAnalyzeFailed,
+            RecipeMappingHistoryEventKind.AnalyzeSucceeded =>
+                ActivityJournalKind.CraftingAnalyzeSucceeded,
+            RecipeMappingHistoryEventKind.AnalyzeCriticalSucceeded =>
+                ActivityJournalKind.CraftingAnalyzeCritical,
+            RecipeMappingHistoryEventKind.DismantleFailed or
+                RecipeMappingHistoryEventKind.DismantleFailedDamaged =>
+                ActivityJournalKind.CraftingDismantleFailed,
+            RecipeMappingHistoryEventKind.DismantleSucceeded =>
+                ActivityJournalKind.CraftingDismantled,
+            RecipeMappingHistoryEventKind.DismantleCriticalSucceeded =>
+                ActivityJournalKind.CraftingDismantleCritical,
+            RecipeMappingHistoryEventKind.ManufactureFailed or
+                RecipeMappingHistoryEventKind.ManufactureFailedDamaged =>
+                ActivityJournalKind.CraftingManufactureFailed,
+            RecipeMappingHistoryEventKind.ManufactureSucceeded =>
+                ActivityJournalKind.CraftingManufactured,
+            RecipeMappingHistoryEventKind.ManufactureCriticalSucceeded =>
+                ActivityJournalKind.CraftingManufactureCritical,
+            _ => (ActivityJournalKind?)null,
+        };
+        if (!kind.HasValue)
+        {
+            return null;
+        }
+
+        var outcome = craftingEvent.Kind switch
+        {
+            RecipeMappingHistoryEventKind.AnalyzeFailed => "Failed",
+            RecipeMappingHistoryEventKind.AnalyzeFailedDamaged =>
+                "Failed; item damaged",
+            RecipeMappingHistoryEventKind.AnalyzeSucceeded => "Succeeded",
+            RecipeMappingHistoryEventKind.AnalyzeCriticalSucceeded =>
+                "Critical success",
+            RecipeMappingHistoryEventKind.DismantleFailed => "Failed",
+            RecipeMappingHistoryEventKind.DismantleFailedDamaged =>
+                "Failed; item damaged",
+            RecipeMappingHistoryEventKind.DismantleSucceeded => "Succeeded",
+            RecipeMappingHistoryEventKind.DismantleCriticalSucceeded =>
+                "Critical success",
+            RecipeMappingHistoryEventKind.ManufactureFailed => "Failed",
+            RecipeMappingHistoryEventKind.ManufactureFailedDamaged =>
+                "Failed; item damaged",
+            RecipeMappingHistoryEventKind.ManufactureSucceeded => "Succeeded",
+            RecipeMappingHistoryEventKind.ManufactureCriticalSucceeded =>
+                "Critical success",
+            _ => "Completed",
+        };
+
+        string summary;
+        if (craftingEvent.Kind == RecipeMappingHistoryEventKind.RecipeScanCompleted)
+        {
+            summary = craftingEvent.NewRecipeCount == 1
+                ? string.Create(
+                    CultureInfo.CurrentCulture,
+                    $"Scanned {craftingEvent.RecipeCount:N0} recipes · 1 new recipe")
+                : string.Create(
+                    CultureInfo.CurrentCulture,
+                    $"Scanned {craftingEvent.RecipeCount:N0} recipes · {craftingEvent.NewRecipeCount:N0} new recipes");
+        }
+        else if ((craftingEvent.Kind is
+                  RecipeMappingHistoryEventKind.ManufactureSucceeded or
+                  RecipeMappingHistoryEventKind.ManufactureCriticalSucceeded) &&
+                 craftingEvent.OutcomeQualityPercent.HasValue)
+        {
+            summary = string.Create(
+                CultureInfo.CurrentCulture,
+                $"Manufactured {itemName} at {craftingEvent.OutcomeQualityPercent.Value:0.#}%");
+        }
+        else
+        {
+            summary = craftingEvent.Kind switch
+            {
+                RecipeMappingHistoryEventKind.AnalyzeFailed or
+                    RecipeMappingHistoryEventKind.AnalyzeFailedDamaged =>
+                    string.Concat("Analyze failed: ", itemName),
+                RecipeMappingHistoryEventKind.AnalyzeSucceeded =>
+                    string.Concat("Analyzed ", itemName, " · recipe mapped"),
+                RecipeMappingHistoryEventKind.AnalyzeCriticalSucceeded =>
+                    string.Concat(
+                        "Critical analyze: ",
+                        itemName,
+                        " · recipe mapped"),
+                RecipeMappingHistoryEventKind.DismantleFailed or
+                    RecipeMappingHistoryEventKind.DismantleFailedDamaged =>
+                    string.Concat("Dismantle failed: ", itemName),
+                RecipeMappingHistoryEventKind.DismantleSucceeded =>
+                    string.Concat("Dismantled ", itemName),
+                RecipeMappingHistoryEventKind.DismantleCriticalSucceeded =>
+                    string.Concat("Critical dismantle: ", itemName),
+                RecipeMappingHistoryEventKind.ManufactureFailed or
+                    RecipeMappingHistoryEventKind.ManufactureFailedDamaged =>
+                    string.Concat("Manufacture failed: ", itemName),
+                RecipeMappingHistoryEventKind.ManufactureSucceeded =>
+                    string.Concat("Manufactured ", itemName),
+                RecipeMappingHistoryEventKind.ManufactureCriticalSucceeded =>
+                    string.Concat("Critical manufacture: ", itemName),
+                _ => string.Concat("Crafting: ", itemName),
+            };
+        }
+
+        List<string> details = [];
+        if (craftingEvent.Kind == RecipeMappingHistoryEventKind.RecipeScanCompleted)
+        {
+            details.Add(string.Create(
+                CultureInfo.CurrentCulture,
+                $"Recipes observed: {craftingEvent.RecipeCount:N0}"));
+            details.Add(string.Create(
+                CultureInfo.CurrentCulture,
+                $"New recipes recorded: {craftingEvent.NewRecipeCount:N0}"));
+        }
+        else
+        {
+            details.Add(string.Concat("Result: ", outcome));
+
+            if (craftingEvent.Kind is
+                RecipeMappingHistoryEventKind.AnalyzeSucceeded or
+                RecipeMappingHistoryEventKind.AnalyzeCriticalSucceeded)
+            {
+                details.Add("Recipe: Mapped");
+            }
+
+            if (craftingEvent.CreditsSpent.HasValue)
+            {
+                details.Add(string.Create(
+                    CultureInfo.CurrentCulture,
+                    $"Cost: {craftingEvent.CreditsSpent.Value:N0} credits"));
+            }
+
+            if (craftingEvent.SuccessProbabilityPercent.HasValue)
+            {
+                details.Add(string.Create(
+                    CultureInfo.CurrentCulture,
+                    $"Success chance: {craftingEvent.SuccessProbabilityPercent.Value:0.#}%"));
+            }
+
+            if (craftingEvent.CriticalSuccessProbabilityPercent.HasValue)
+            {
+                details.Add(string.Create(
+                    CultureInfo.CurrentCulture,
+                    $"Critical chance: {craftingEvent.CriticalSuccessProbabilityPercent.Value:0.#}%"));
+            }
+
+            if (craftingEvent.OutputQuantity > 0)
+            {
+                details.Add(string.Create(
+                    CultureInfo.CurrentCulture,
+                    $"Output quantity: {craftingEvent.OutputQuantity:N0}"));
+            }
+
+            if (craftingEvent.OutcomeQualityPercent.HasValue)
+            {
+                details.Add(string.Create(
+                    CultureInfo.CurrentCulture,
+                    $"Output quality: {craftingEvent.OutcomeQualityPercent.Value:0.#}%"));
+            }
+
+            if (craftingEvent.ResultItems.Count > 0)
+            {
+                details.Add("");
+                details.Add("Components recovered");
+                foreach (var item in craftingEvent.ResultItems)
+                {
+                    var name = ClientItemTemplateNameResolver.GetKnownName(
+                        item.ItemTemplateId) ??
+                        string.Concat("Item ", item.ItemTemplateId);
+                    details.Add(string.Concat(
+                        item.Quantity.ToString(CultureInfo.CurrentCulture),
+                        " × ",
+                        name,
+                        item.QualityPercent.HasValue
+                            ? string.Create(
+                                CultureInfo.CurrentCulture,
+                                $" ({item.QualityPercent.Value:0.#}%)")
+                            : ""));
+                }
+            }
+        }
+
+        var payload = JsonSerializer.Serialize(new
+        {
+            craftingEvent.ItemTemplateId,
+            craftingEvent.Kind,
+            craftingEvent.ResultValidity,
+            craftingEvent.OutcomeQualityPercent,
+            craftingEvent.CreditsSpent,
+            craftingEvent.SuccessProbabilityPercent,
+            craftingEvent.CriticalSuccessProbabilityPercent,
+            craftingEvent.OutputQuantity,
+            craftingEvent.ResultItems,
+            craftingEvent.RecipeCount,
+            craftingEvent.NewRecipeCount,
+        });
+
+        return new ActivityJournalEntry
+        {
+            CharacterId = craftingEvent.CharacterId,
+            PilotName = pilotName,
+            OccurredAt = craftingEvent.ObservedAtUtc,
+            Category = craftingEvent.CreditsSpent is > 0
+                ? ActivityJournalCategory.Crafting | ActivityJournalCategory.Credits
+                : ActivityJournalCategory.Crafting,
+            Kind = kind.Value,
+            Summary = summary,
+            Details = string.Join(Environment.NewLine, details),
+            SystemName = location.SystemName,
+            SectorName = location.SectorName,
+            StarbaseName = location.StarbaseName,
+            NearestNavName = location.NearestNavName,
+            PayloadVersion = 2,
+            PayloadJson = payload,
+        };
     }
 
     private static ActivityJournalEntry? BuildCombatActivity(
@@ -625,6 +906,8 @@ internal sealed class ActivityJournalCoordinator
         private LootSessionAccumulator? activeLootSession;
         private readonly List<PendingVendorItemChange> pendingVendorItems = [];
         private PendingVendorCredit? pendingVendorCredit;
+        private readonly List<PendingCraftingCredit> pendingCraftingCredits = [];
+        private PendingCraftingDebit? pendingCraftingDebit;
         private VendorContext? recentVendorContext;
 
         public ActivityProcessState(
@@ -1042,12 +1325,129 @@ internal sealed class ActivityJournalCoordinator
             return new ReputationEntryWrite(activity, reputation);
         }
 
+        public void RegisterCraftingCredit(
+            RecipeMappingHistoryEventRecord craftingEvent)
+        {
+            if (craftingEvent.CreditsSpent is not { } amount || amount <= 0)
+            {
+                return;
+            }
+
+            this.PruneCraftingCredits(craftingEvent.ObservedAtUtc);
+
+            if (this.pendingCraftingDebit is { } pendingDebit &&
+                pendingDebit.Amount == amount &&
+                craftingEvent.ObservedAtUtc <= pendingDebit.ExpiresAt)
+            {
+                // The slow credit lane saw the debit before the crafting result
+                // arrived. The result now owns that exact debit, so the held
+                // anonymous credit row is discarded.
+                this.pendingCraftingDebit = null;
+                return;
+            }
+
+            this.pendingCraftingCredits.Add(new PendingCraftingCredit(
+                amount,
+                craftingEvent.ObservedAtUtc,
+                craftingEvent.ObservedAtUtc + craftingCreditCorrelationWindow));
+        }
+
+        private bool TryConsumeCraftingCredits(
+            long amount,
+            DateTimeOffset observedAt)
+        {
+            if (amount <= 0)
+            {
+                return false;
+            }
+
+            this.PruneCraftingCredits(observedAt);
+            long sum = 0;
+            for (var index = this.pendingCraftingCredits.Count - 1;
+                 index >= 0;
+                 index--)
+            {
+                var candidate = this.pendingCraftingCredits[index];
+                if (candidate.Amount > amount - sum)
+                {
+                    break;
+                }
+
+                sum += candidate.Amount;
+
+                if (sum == amount)
+                {
+                    this.pendingCraftingCredits.RemoveRange(
+                        index,
+                        this.pendingCraftingCredits.Count - index);
+                    return true;
+                }
+
+                if (sum > amount)
+                {
+                    break;
+                }
+            }
+
+            return false;
+        }
+
+        private void PruneCraftingCredits(DateTimeOffset observedAt)
+        {
+            this.pendingCraftingCredits.RemoveAll(item =>
+                observedAt > item.ExpiresAt);
+        }
+
+        private ActivityEntryWrite? ResolvePendingCraftingDebit(
+            DateTimeOffset observedAt)
+        {
+            if (this.pendingCraftingDebit == null ||
+                observedAt <= this.pendingCraftingDebit.ExpiresAt)
+            {
+                return null;
+            }
+
+            var pending = this.pendingCraftingDebit;
+            this.pendingCraftingDebit = null;
+            return this.BuildGenericCreditWrite(
+                pending.PreviousCredits,
+                pending.CurrentCredits,
+                -pending.Amount,
+                pending.Location,
+                pending.OccurredAt,
+                null);
+        }
+
+        private static long? ResolveActiveCraftingCost(
+            ClientObservationSnapshot snapshot)
+        {
+            var activity = snapshot.ManufacturingActivity;
+            if (!activity.IsAvailable ||
+                (!activity.IsAnalyzePanelActive &&
+                 !activity.IsManufacturingPanelActive) ||
+                activity.NegotiatedCostCredits is not { } cost ||
+                cost == 0 ||
+                cost > (ulong)long.MaxValue)
+            {
+                return null;
+            }
+
+            return checked((long)cost);
+        }
+
         private IReadOnlyList<ActivityJournalWrite> ObserveCredits(
             ClientObservationSnapshot snapshot,
             JournalLocationContext location,
             RecentMissionContext? missionContext)
         {
             List<ActivityJournalWrite> writes = [];
+            var pendingCraftingWrite = this.ResolvePendingCraftingDebit(
+                snapshot.ObservedAt);
+            if (pendingCraftingWrite != null)
+            {
+                writes.Add(pendingCraftingWrite);
+            }
+
             var pendingVendorWrite = this.ResolvePendingVendorCredit(
                 snapshot.ObservedAt);
 
@@ -1075,22 +1475,35 @@ internal sealed class ActivityJournalCoordinator
                 return writes;
             }
 
-            if (!this.candidateCredits.HasValue ||
-                this.candidateCredits.Value != currentCredits)
-            {
-                this.candidateCredits = currentCredits;
-                this.candidateCreditsFirstSeenAt = snapshot.ObservedAt;
-                this.candidateCreditsSamples = 1;
-                return writes;
-            }
+            // A transaction-speed cargo edge is stronger evidence than the
+            // slower starbase interaction snapshot. Commit the matching credit
+            // balance immediately instead of waiting 500 ms, otherwise several
+            // rapid vendor clicks collapse into one fake high-price purchase.
+            var hasFreshVendorTransactionEvidence =
+                this.pendingVendorItems.Any(item =>
+                    Math.Abs(
+                        (item.ObservedAt - snapshot.ObservedAt)
+                        .TotalMilliseconds) <= 250);
 
-            this.candidateCreditsSamples++;
-
-            if (this.candidateCreditsSamples < 2 ||
-                snapshot.ObservedAt - this.candidateCreditsFirstSeenAt <
-                    valueSettleDuration)
+            if (!hasFreshVendorTransactionEvidence)
             {
-                return writes;
+                if (!this.candidateCredits.HasValue ||
+                    this.candidateCredits.Value != currentCredits)
+                {
+                    this.candidateCredits = currentCredits;
+                    this.candidateCreditsFirstSeenAt = snapshot.ObservedAt;
+                    this.candidateCreditsSamples = 1;
+                    return writes;
+                }
+
+                this.candidateCreditsSamples++;
+
+                if (this.candidateCreditsSamples < 2 ||
+                    snapshot.ObservedAt - this.candidateCreditsFirstSeenAt <
+                        valueSettleDuration)
+                {
+                    return writes;
+                }
             }
 
             var previousCredits = this.stableCredits.Value;
@@ -1101,6 +1514,40 @@ internal sealed class ActivityJournalCoordinator
             if (delta == 0)
             {
                 return writes;
+            }
+
+            if (delta < 0)
+            {
+                var spentAmount = Math.Abs(delta);
+                if (this.TryConsumeCraftingCredits(
+                        spentAmount,
+                        snapshot.ObservedAt))
+                {
+                    return writes;
+                }
+
+                if (ResolveActiveCraftingCost(snapshot) == spentAmount)
+                {
+                    if (this.pendingCraftingDebit != null)
+                    {
+                        writes.Add(this.BuildGenericCreditWrite(
+                            this.pendingCraftingDebit.PreviousCredits,
+                            this.pendingCraftingDebit.CurrentCredits,
+                            -this.pendingCraftingDebit.Amount,
+                            this.pendingCraftingDebit.Location,
+                            this.pendingCraftingDebit.OccurredAt,
+                            null));
+                    }
+
+                    this.pendingCraftingDebit = new PendingCraftingDebit(
+                        previousCredits,
+                        currentCredits,
+                        spentAmount,
+                        location,
+                        snapshot.ObservedAt,
+                        snapshot.ObservedAt + craftingCreditCorrelationWindow);
+                    return writes;
+                }
             }
 
             var correlatedMission = TryCorrelateMissionCreditReward(
@@ -2099,6 +2546,19 @@ internal sealed class ActivityJournalCoordinator
         string Key,
         string DisplayName,
         DateTimeOffset ObservedAt);
+
+    private sealed record PendingCraftingDebit(
+        ulong PreviousCredits,
+        ulong CurrentCredits,
+        long Amount,
+        JournalLocationContext Location,
+        DateTimeOffset OccurredAt,
+        DateTimeOffset ExpiresAt);
+
+    private sealed record PendingCraftingCredit(
+        long Amount,
+        DateTimeOffset OccurredAt,
+        DateTimeOffset ExpiresAt);
 
     private sealed record PendingVendorItemChange(
         VendorContext Context,

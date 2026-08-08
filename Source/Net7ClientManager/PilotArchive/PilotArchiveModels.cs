@@ -8,6 +8,7 @@ public static class PilotArchiveSections
     public const string Location = "location";
     public const string Progression = "progression";
     public const string Skills = "skills";
+    public const string CraftingRecipes = "crafting-recipes";
     public const string Cargo = "cargo";
     public const string Equipment = "equipment";
     public const string Vault = "vault";

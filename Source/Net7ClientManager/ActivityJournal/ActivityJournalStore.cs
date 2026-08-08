@@ -16,7 +16,8 @@ public sealed class ActivityJournalStore
         ActivityJournalCategory.Reputation |
         ActivityJournalCategory.Credits |
         ActivityJournalCategory.Loot |
-        ActivityJournalCategory.Combat;
+        ActivityJournalCategory.Combat |
+        ActivityJournalCategory.Crafting;
 
     private readonly string databasePath;
     private readonly string connectionString;

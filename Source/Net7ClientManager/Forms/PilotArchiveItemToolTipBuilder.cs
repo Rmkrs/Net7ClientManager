@@ -3,6 +3,8 @@ namespace Net7ClientManager.Forms;
 using System.Globalization;
 using Net7ClientManager.Addons.Contracts;
 using Net7ClientManager.Observations.Models;
+using Net7ClientManager.RecipeMapping;
+using Net7ClientManager.SkillPlanning;
 using Net7ClientManager.Services;
 
 internal static class PilotArchiveItemToolTipBuilder
@@ -10,7 +12,8 @@ internal static class PilotArchiveItemToolTipBuilder
     public static ActionToolTipContent Build(
         AddonInventorySlotSnapshot slot,
         ClientRuntimeItemTemplateObservation? template,
-        Image? icon)
+        Image? icon,
+        RecipeMappingItemPresentation? recipeMapping = null)
     {
         ArgumentNullException.ThrowIfNull(slot);
 
@@ -57,6 +60,9 @@ internal static class PilotArchiveItemToolTipBuilder
                     conditionRuns,
                     SpaceAfter: 5));
         }
+
+        AppendItemRestrictions(paragraphs, template, recipeMapping);
+        AppendRecipeMapping(paragraphs, recipeMapping);
 
         if (template != null)
         {
@@ -133,7 +139,8 @@ internal static class PilotArchiveItemToolTipBuilder
         int itemTemplateId,
         string itemName,
         ClientRuntimeItemTemplateObservation? template,
-        Image? icon)
+        Image? icon,
+        RecipeMappingItemPresentation? recipeMapping = null)
     {
         List<ActionToolTipParagraph> paragraphs = [];
         var typeName = ItemTypeDisplayNameResolver.Resolve(
@@ -164,6 +171,12 @@ internal static class PilotArchiveItemToolTipBuilder
                 ],
                 ActionToolTipParagraphStyle.Header,
                 SpaceAfter: 7));
+
+        if (recipeMapping != null)
+        {
+            AppendItemRestrictions(paragraphs, template, recipeMapping);
+            AppendRecipeMapping(paragraphs, recipeMapping);
+        }
 
         if (template != null)
         {
@@ -284,6 +297,130 @@ internal static class PilotArchiveItemToolTipBuilder
                     suffix),
                 ActionToolTipTextRole.Accent,
                 Bold: true));
+    }
+
+
+    private static void AppendItemRestrictions(
+        ICollection<ActionToolTipParagraph> paragraphs,
+        ClientRuntimeItemTemplateObservation? template,
+        RecipeMappingItemPresentation? recipeMapping)
+    {
+        IReadOnlyList<RecipeMappingRestrictionLine> restrictions;
+
+        if (recipeMapping?.RestrictionLines.Count > 0)
+        {
+            restrictions = recipeMapping.RestrictionLines;
+        }
+        else
+        {
+            restrictions = ItemTemplateRestrictionEvaluator
+                .Evaluate(template, profession: null)
+                .Lines
+                .Select(line => new RecipeMappingRestrictionLine
+                {
+                    Text = line.Text,
+                    IsCharacterEligible = null,
+                })
+                .ToArray();
+        }
+
+        if (restrictions.Count == 0)
+        {
+            return;
+        }
+
+        for (var index = 0; index < restrictions.Count; index++)
+        {
+            var restriction = restrictions[index];
+            var isViolated = restriction.IsCharacterEligible == false;
+            paragraphs.Add(
+                new ActionToolTipParagraph(
+                    [
+                        new(
+                            restriction.Text,
+                            isViolated
+                                ? ActionToolTipTextRole.Danger
+                                : ActionToolTipTextRole.Normal,
+                            Bold: isViolated),
+                    ],
+                    SpaceBefore: index == 0 ? 2 : 0,
+                    SpaceAfter: index == restrictions.Count - 1 ? 4 : 1));
+        }
+    }
+
+    private static void AppendRecipeMapping(
+        ICollection<ActionToolTipParagraph> paragraphs,
+        RecipeMappingItemPresentation? recipeMapping)
+    {
+        if (recipeMapping == null)
+        {
+            return;
+        }
+
+        var mapping = recipeMapping;
+        var hasRecipeStatus =
+            mapping.Knowledge != RecipeMappingItemKnowledge.NotApplicable;
+        var hasMappedPilots = mapping.MappedOnPilotNames.Count != 0;
+
+        if (!hasRecipeStatus && !hasMappedPilots)
+        {
+            return;
+        }
+
+        AppendSectionHeading(paragraphs, "Manufacturing");
+
+        if (hasRecipeStatus)
+        {
+            var role = mapping.Knowledge switch
+            {
+                RecipeMappingItemKnowledge.Mapped =>
+                    ActionToolTipTextRole.Success,
+                RecipeMappingItemKnowledge.Missing =>
+                    ActionToolTipTextRole.Danger,
+                _ => ActionToolTipTextRole.Normal,
+            };
+            var prefix = mapping.Knowledge ==
+                         RecipeMappingItemKnowledge.NotManufacturable
+                ? ""
+                : "Recipe: ";
+
+            paragraphs.Add(
+                new ActionToolTipParagraph(
+                    [
+                        new(prefix),
+                        new(
+                            mapping.Text,
+                            role,
+                            Bold: mapping.Knowledge is
+                                RecipeMappingItemKnowledge.Mapped or
+                                RecipeMappingItemKnowledge.Missing),
+                    ],
+                    SpaceAfter: string.IsNullOrWhiteSpace(mapping.Detail) &&
+                                !hasMappedPilots
+                        ? 1
+                        : 2));
+
+            if (!string.IsNullOrWhiteSpace(mapping.Detail))
+            {
+                paragraphs.Add(
+                    new ActionToolTipParagraph(
+                        [new(mapping.Detail, ActionToolTipTextRole.Muted)],
+                        SpaceAfter: hasMappedPilots ? 2 : 1));
+            }
+        }
+
+        if (hasMappedPilots)
+        {
+            paragraphs.Add(
+                new ActionToolTipParagraph(
+                    [
+                        new("Mapped on: "),
+                        new(
+                            string.Join(", ", mapping.MappedOnPilotNames),
+                            ActionToolTipTextRole.Normal),
+                    ],
+                    SpaceAfter: 1));
+        }
     }
 
     private static void AppendSeparator(

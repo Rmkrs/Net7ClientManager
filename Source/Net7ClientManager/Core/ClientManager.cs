@@ -3,6 +3,8 @@
 // ReSharper disable CommentTypo
 namespace Net7ClientManager.Core;
 
+using System.Collections.Concurrent;
+using System.Collections.Frozen;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
@@ -23,6 +25,7 @@ using Net7ClientManager.Navigation;
 using Net7ClientManager.Observations;
 using Net7ClientManager.Observations.Models;
 using Net7ClientManager.PilotArchive;
+using Net7ClientManager.RecipeMapping;
 using Net7ClientManager.Services;
 using Net7ClientManager.Shopping;
 using Net7ClientManager.SkillPlanning;
@@ -206,6 +209,8 @@ public sealed class ClientManager : IDisposable
     private ForgeProductionRecipeCatalogSnapshot
         forgeProductionRecipeCatalog =
             ForgeProductionRecipeCatalogSnapshot.Unavailable();
+    private FrozenSet<int> forgeKnownManufacturableItemTemplateIds =
+        Array.Empty<int>().ToFrozenSet();
     private readonly ForgeMissionCatalogStore
         forgeMissionCatalogStore = new();
     private ForgeMissionCatalogSnapshot forgeMissionCatalog =
@@ -238,11 +243,14 @@ public sealed class ClientManager : IDisposable
     private ForgeContributionsForm? forgeContributionsForm;
     private readonly PilotArchiveStore pilotArchiveStore;
     private readonly PilotArchiveCoordinator pilotArchiveCoordinator;
+    private readonly RecipeMappingCoordinator recipeMappingCoordinator;
     private readonly ShoppingListStore shoppingListStore;
     private readonly ShoppingListCoordinator shoppingListCoordinator;
     private readonly VendorShoppingCompanionCoordinator
         vendorShoppingCompanionCoordinator = new();
     private PilotArchiveForm? pilotArchiveForm;
+    private readonly ConcurrentDictionary<int, CancellationTokenSource> craftingScanCancellations = [];
+    private readonly ConcurrentDictionary<int, CraftingBaselineScanState> craftingScanStates = [];
     private SkillBuildBoardForm? pilotArchiveBuildBoardForm;
     private ManagedClientLaunchRequest? pendingManagedClientLaunch;
 
@@ -326,6 +334,9 @@ public sealed class ClientManager : IDisposable
         this.NavigationData = navigationLoad.DataSet;
         this.forgeProductionRecipeCatalog =
             this.forgeProductionRecipeCatalogStore.Load();
+        this.forgeKnownManufacturableItemTemplateIds =
+            BuildKnownManufacturableItemTemplateIds(
+                this.forgeProductionRecipeCatalog);
         this.forgeMissionCatalog =
             this.forgeMissionCatalogStore.Load();
         this.galaxyKnowledgeCoordinator =
@@ -376,6 +387,8 @@ public sealed class ClientManager : IDisposable
         this.pilotArchiveStore.Initialize();
         this.pilotArchiveCoordinator = new PilotArchiveCoordinator(
             this.pilotArchiveStore);
+        this.recipeMappingCoordinator = new RecipeMappingCoordinator(
+            new RecipeMappingStore());
         this.shoppingListStore = new ShoppingListStore();
         this.shoppingListStore.Initialize();
         this.shoppingListCoordinator = new ShoppingListCoordinator(
@@ -454,6 +467,9 @@ public sealed class ClientManager : IDisposable
 
         this.clientObservationCoordinator.SnapshotChanged +=
             this.ClientObservationCoordinator_OnSnapshotChanged;
+
+        this.clientObservationCoordinator.CraftingActivityRealtimeChanged +=
+            this.ClientObservationCoordinator_OnCraftingActivityRealtimeChanged;
 
         this.clientObservationCoordinator.MissionPresentationChanged +=
             this.ClientObservationCoordinator_OnMissionPresentationChanged;
@@ -3707,6 +3723,9 @@ public sealed class ClientManager : IDisposable
             Volatile.Write(
                 ref this.forgeProductionRecipeCatalog,
                 next);
+            Volatile.Write(
+                ref this.forgeKnownManufacturableItemTemplateIds,
+                BuildKnownManufacturableItemTemplateIds(next));
             this.galaxyKnowledgeCoordinator.UpdateRecipeCatalog(next);
             this.addonRuntimeCoordinator.PublishGlobalEvent(
                 "forge.recipe_catalog_updated",
@@ -4587,6 +4606,9 @@ public sealed class ClientManager : IDisposable
         this.clientObservationCoordinator.SnapshotChanged -=
             this.ClientObservationCoordinator_OnSnapshotChanged;
 
+        this.clientObservationCoordinator.CraftingActivityRealtimeChanged -=
+            this.ClientObservationCoordinator_OnCraftingActivityRealtimeChanged;
+
         this.clientObservationCoordinator.MissionPresentationChanged -=
             this.ClientObservationCoordinator_OnMissionPresentationChanged;
 
@@ -4638,6 +4660,17 @@ public sealed class ClientManager : IDisposable
 
         this.pilotArchiveForm?.Close();
         this.pilotArchiveForm = null;
+
+        foreach (var cancellation in this.craftingScanCancellations.Values.ToArray())
+        {
+            // The owning async scan disposes its CTS in its finally block.
+            // Cancelling here without disposing underneath active token
+            // registrations keeps Close/Cancel race-free.
+            cancellation.Cancel();
+        }
+
+        this.craftingScanCancellations.Clear();
+        this.craftingScanStates.Clear();
 
         this.pilotArchiveBuildBoardForm?.Close();
         this.pilotArchiveBuildBoardForm = null;
@@ -9480,6 +9513,9 @@ public sealed class ClientManager : IDisposable
         _ = this.gameInstallationObservedProcessIds.Remove(processId);
         this.navigationAutoPilotCoordinator.ForgetProcess(processId);
         this.pilotArchiveCoordinator.ForgetProcess(processId);
+        this.recipeMappingCoordinator.ForgetProcess(processId);
+        this.CancelCraftingScan(processId);
+        this.FinishCraftingScan(processId);
         this.CloseGroupSkillWindowsForProcess(processId);
         this.CloseLootWindowsForProcess(processId);
 
@@ -10897,6 +10933,27 @@ public sealed class ClientManager : IDisposable
         hostForm?.UpdateGameItemToolTipHover(e.Current);
     }
 
+    private void ClientObservationCoordinator_OnCraftingActivityRealtimeChanged(
+        object? sender,
+        ClientCraftingActivityRealtimeChangedEventArgs e)
+    {
+        ClientHostForm? hostForm;
+
+        lock (this.lockObject)
+        {
+            hostForm = this.clients.TryGetValue(
+                    e.ProcessId,
+                    out var client)
+                ? client.HostForm
+                : null;
+        }
+
+        // This event deliberately bypasses the general SnapshotChanged queue.
+        // The host method only posts a tiny UI update and must remain free of
+        // persistence or other feature work.
+        hostForm?.UpdateDismantleCooldownPresentation(e.Activity);
+    }
+
     private void ClientObservationCoordinator_OnSnapshotChanged(
         object? sender,
         ClientObservationSnapshotChangedEventArgs e)
@@ -10963,8 +11020,20 @@ public sealed class ClientManager : IDisposable
             e.Snapshot.LifecycleState,
             e.Snapshot.LoadingOrTransitionFlag != 0);
         this.QueueChatCompanionLifecycleSync(e.Snapshot.ProcessId);
+
+        // Tooltip replacement is interaction-critical. Publish the fresh
+        // authoritative item snapshot before any feature bookkeeping that can
+        // touch persistence or rebuild companion presentation state.
         client.HostForm?.UpdateGameItemToolTipSnapshot(
             e.Snapshot);
+
+        var recipeMappingObservation =
+            this.recipeMappingCoordinator.Observe(e.Snapshot);
+        if (recipeMappingObservation?.Presentation != null)
+        {
+            this.UpdateCraftingPresentation(
+                recipeMappingObservation.Presentation);
+        }
 
         if (this.settings.GameBuffOverlay.ShowDurations &&
             e.Snapshot.LoadingOrTransitionFlag == 0 &&
@@ -10982,7 +11051,40 @@ public sealed class ClientManager : IDisposable
 
         this.missionJournalCoordinator.Observe(e.Snapshot);
         this.combatJournalCoordinator.Observe(e.Snapshot);
+
+        // Register crafting costs before the generic credit observer sees the
+        // same balance delta. That lets Activity History fold the debit into
+        // the Analyze/Dismantle/Manufacture event instead of emitting a second
+        // anonymous "Spent N credits" row.
+        if (recipeMappingObservation != null)
+        {
+            foreach (var craftingEvent in recipeMappingObservation.RecordedEvents)
+            {
+                this.activityJournalCoordinator.RecordCraftingEvent(
+                    craftingEvent,
+                    e.Snapshot);
+            }
+        }
+
         this.activityJournalCoordinator.Observe(e.Snapshot);
+
+        if (recipeMappingObservation != null)
+        {
+            if (recipeMappingObservation.RecipeDetailsChanged ||
+                recipeMappingObservation.RecordedEvents.Count != 0)
+            {
+                var craftingCharacterId =
+                    recipeMappingObservation.Presentation?.CharacterId ?? 0;
+                if (craftingCharacterId is not 0 and not uint.MaxValue)
+                {
+                    // History/component changes do not necessarily alter the
+                    // recipe-count presentation key. Refresh the selected
+                    // recipe explicitly so its details pane updates live.
+                    this.pilotArchiveForm?.RefreshCraftingForCharacter(
+                        craftingCharacterId);
+                }
+            }
+        }
 
         client.HostForm?.UpdateFactionDetailsPresentation(
             this.ResolveFactionDetailsPresentation(
@@ -12650,6 +12752,1411 @@ public sealed class ClientManager : IDisposable
             {
                 CloseForm();
             }
+        }
+    }
+
+    internal void OpenCrafting(
+        ClientInstance client,
+        IWin32Window owner)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        ArgumentNullException.ThrowIfNull(owner);
+
+        var presentation = this.GetCraftingPresentation(client);
+        var characterId = presentation.CharacterId is not 0 and not uint.MaxValue
+            ? presentation.CharacterId
+            : client.LiveCharacterIdentity.CharacterObjectId;
+
+        if (characterId is not { } resolvedCharacterId ||
+            resolvedCharacterId is 0 or uint.MaxValue)
+        {
+            this.OpenPilotArchive(owner);
+            return;
+        }
+
+        if (!presentation.IsBaselineComplete)
+        {
+            this.clientObservationCoordinator
+                .SetRecipeMappingCatalogObservationEnabled(
+                    client.ProcessId,
+                    enabled: true);
+        }
+
+        this.OpenPilotArchive(owner, resolvedCharacterId);
+        this.pilotArchiveForm?.SelectCraftingRecipes(resolvedCharacterId);
+    }
+
+    private RecipeMappingPresentation GetCraftingPresentation(
+        ClientInstance client,
+        bool includeRecipes = false)
+    {
+        var characterId = client.LiveCharacterIdentity.CharacterObjectId;
+        ClientManufacturingCatalogObservation? catalog = null;
+        ClientCharacterSkillsObservation? skills = null;
+
+        if (this.clientObservationCoordinator.TryGetSnapshot(
+                client.ProcessId,
+                out var snapshot))
+        {
+            characterId = ClientLiveCharacterIdentityResolver
+                .Resolve(snapshot)
+                .CharacterObjectId;
+            catalog = snapshot.ManufacturingCatalog;
+            skills = snapshot.LocalPlayer.CharacterProgression.Skills;
+        }
+
+        return characterId is { } resolvedCharacterId &&
+               resolvedCharacterId is not 0 and not uint.MaxValue
+            ? this.recipeMappingCoordinator.GetPresentation(
+                resolvedCharacterId,
+                catalog,
+                skills,
+                includeRecipes)
+            : RecipeMappingPresentation.Unavailable(
+                "Crafting is waiting for the live character identity.");
+    }
+
+    internal RecipeMappingPresentation GetPilotArchiveCraftingPresentation(
+        uint characterId)
+    {
+        var client = this.FindLiveCraftingClient(characterId);
+        return client == null
+            ? this.recipeMappingCoordinator.GetPresentation(
+                characterId,
+                includeRecipes: true)
+            : this.GetCraftingPresentation(
+                client,
+                includeRecipes: true);
+    }
+
+    internal RecipeMappingRecipeDetailsPresentation
+        GetPilotArchiveCraftingRecipeDetails(
+            uint characterId,
+            int itemTemplateId)
+    {
+        var details = this.recipeMappingCoordinator.GetRecipeDetails(
+            characterId,
+            itemTemplateId);
+        if (details.Components.Count > 0 ||
+            !this.forgeProductionRecipeCatalog.IsAvailable)
+        {
+            return details;
+        }
+
+        var catalogRecipe = this.forgeProductionRecipeCatalog.Recipes
+            .FirstOrDefault(recipe =>
+                recipe.Kind == 1 &&
+                recipe.OutputItemTemplateId == itemTemplateId);
+        if (catalogRecipe == null)
+        {
+            return details;
+        }
+
+        return details with
+        {
+            Components = catalogRecipe.Ingredients
+                .Select(ingredient => new RecipeMappingRecipeComponent
+                {
+                    ItemTemplateId = ingredient.ItemTemplateId,
+                    Name = ClientItemTemplateNameResolver.GetKnownName(
+                            ingredient.ItemTemplateId) ??
+                        string.Concat("Item ", ingredient.ItemTemplateId),
+                    Quantity = ingredient.Quantity,
+                })
+                .ToArray(),
+            ComponentsSource = "forge",
+        };
+    }
+
+    internal CraftingBaselineScanState GetPilotArchiveCraftingScanState(
+        uint characterId)
+    {
+        var client = this.FindLiveCraftingClient(characterId);
+        return client == null
+            ? CraftingBaselineScanState.Idle
+            : this.craftingScanStates.GetValueOrDefault(
+                client.ProcessId,
+                CraftingBaselineScanState.Idle);
+    }
+
+    internal bool IsPilotLiveForCrafting(uint characterId)
+    {
+        var client = this.FindLiveCraftingClient(characterId);
+        return client != null &&
+               client.LifecycleState == ClientLifecycleState.InGame &&
+               client.GameWindowHandle != IntPtr.Zero;
+    }
+
+    internal void SetPilotArchiveCraftingObservation(
+        uint characterId,
+        bool enabled)
+    {
+        var client = this.FindLiveCraftingClient(characterId);
+        if (client == null)
+        {
+            return;
+        }
+
+        if (!enabled &&
+            this.craftingScanCancellations.ContainsKey(client.ProcessId))
+        {
+            return;
+        }
+
+        this.clientObservationCoordinator
+            .SetRecipeMappingCatalogObservationEnabled(
+                client.ProcessId,
+                enabled);
+    }
+
+    internal Task StartPilotArchiveCraftingScanAsync(uint characterId)
+    {
+        var client = this.FindLiveCraftingClient(characterId);
+        return client == null
+            ? Task.CompletedTask
+            : this.StartCraftingBaselineScanAsync(client);
+    }
+
+    internal void CancelPilotArchiveCraftingScan(uint characterId)
+    {
+        var client = this.FindLiveCraftingClient(characterId);
+        if (client == null)
+        {
+            return;
+        }
+
+        this.CancelCraftingScan(client.ProcessId);
+        this.craftingScanStates.TryRemove(client.ProcessId, out _);
+        this.UpdateCraftingPresentation(
+            this.GetCraftingPresentation(client));
+    }
+
+    private ClientInstance? FindLiveCraftingClient(uint characterId)
+    {
+        lock (this.lockObject)
+        {
+            return this.clients.Values.FirstOrDefault(client =>
+                client.State is not ClientState.Closing and
+                    not ClientState.Stopped &&
+                client.LiveCharacterIdentity.CharacterObjectId == characterId);
+        }
+    }
+
+    private void RestorePilotArchiveAfterCraftingScan(uint characterId)
+    {
+        var form = this.pilotArchiveForm;
+        if (form == null || form.IsDisposed || form.Disposing)
+        {
+            return;
+        }
+
+        void Restore()
+        {
+            if (form.IsDisposed || form.Disposing)
+            {
+                return;
+            }
+
+            form.SelectCraftingRecipes(characterId);
+            if (form.WindowState == FormWindowState.Minimized)
+            {
+                form.WindowState = FormWindowState.Normal;
+            }
+
+            if (!form.Visible)
+            {
+                form.Show();
+            }
+
+            form.BringToFront();
+            form.Activate();
+        }
+
+        if (form.InvokeRequired)
+        {
+            try
+            {
+                form.BeginInvoke(Restore);
+            }
+            catch (InvalidOperationException)
+            {
+            }
+        }
+        else
+        {
+            Restore();
+        }
+    }
+
+    private async Task StartCraftingBaselineScanAsync(
+        ClientInstance client)
+    {
+        if (this.craftingScanCancellations.ContainsKey(client.ProcessId))
+        {
+            return;
+        }
+
+        var presentation = this.GetCraftingPresentation(client);
+        var initialKnownRecipeCount = presentation.KnownRecipeCount;
+        var scanAllCategories = presentation.IsBaselineComplete;
+
+        if (!presentation.ManufacturingPanelActive)
+        {
+            this.SetCraftingScanState(
+                client.ProcessId,
+                presentation,
+                new CraftingBaselineScanState
+                {
+                    IsPaused = true,
+                    Status = "Open a Manufacturing terminal on this character, then press Scan.",
+                    CompletedCategoryCount = presentation.CompletedCategoryCount,
+                    TotalCategoryCount = presentation.TotalCategoryCount,
+                });
+            return;
+        }
+
+        var cancellation = new CancellationTokenSource();
+        if (!this.craftingScanCancellations.TryAdd(
+                client.ProcessId,
+                cancellation))
+        {
+            cancellation.Dispose();
+            return;
+        }
+
+        var succeeded = false;
+
+        try
+        {
+            this.clientObservationCoordinator
+                .SetRecipeMappingCatalogObservationEnabled(
+                    client.ProcessId,
+                    enabled: true);
+            this.SetCraftingScanState(
+                client.ProcessId,
+                presentation,
+                new CraftingBaselineScanState
+                {
+                    IsRunning = true,
+                    Status = "Starting recipe scan...",
+                    CompletedCategoryCount = presentation.CompletedCategoryCount,
+                    TotalCategoryCount = presentation.TotalCategoryCount,
+                });
+
+            await this.RunCraftingBaselineScanAsync(
+                client,
+                presentation.CharacterId,
+                scanAllCategories,
+                cancellation.Token);
+            succeeded = true;
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (CraftingScanInterruptedException exception)
+        {
+            var current = this.GetCraftingPresentation(client);
+            this.SetCraftingScanState(
+                client.ProcessId,
+                current,
+                new CraftingBaselineScanState
+                {
+                    IsPaused = true,
+                    Status = exception.Message,
+                    CompletedCategoryCount = current.CompletedCategoryCount,
+                    TotalCategoryCount = current.TotalCategoryCount,
+                });
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine(
+                $"[Crafting] Baseline scan stopped safely: {exception}");
+            var current = this.GetCraftingPresentation(client);
+            this.SetCraftingScanState(
+                client.ProcessId,
+                current,
+                new CraftingBaselineScanState
+                {
+                    IsPaused = true,
+                    Status = "The recipe scan paused after an unexpected problem. Reopen Manufacturing and press Scan to continue.",
+                    CompletedCategoryCount = current.CompletedCategoryCount,
+                    TotalCategoryCount = current.TotalCategoryCount,
+                });
+        }
+        finally
+        {
+            if (this.craftingScanCancellations.TryGetValue(
+                    client.ProcessId,
+                    out var currentCancellation) &&
+                ReferenceEquals(currentCancellation, cancellation))
+            {
+                this.craftingScanCancellations.TryRemove(client.ProcessId, out _);
+            }
+
+            cancellation.Dispose();
+
+            // A scan owns catalogue observation only while it is actively
+            // running. Pilot Archive will immediately re-arm it after this
+            // method returns if the Crafting Recipes tab is still open and
+            // more work remains. This prevents a paused scan from leaving
+            // the expensive Manufacturing observer enabled after the user
+            // has moved elsewhere.
+            this.clientObservationCoordinator
+                .SetRecipeMappingCatalogObservationEnabled(
+                    client.ProcessId,
+                    enabled: false);
+        }
+
+        if (!succeeded)
+        {
+            this.RestorePilotArchiveAfterCraftingScan(
+                presentation.CharacterId);
+            return;
+        }
+
+        var finalPresentation = this.GetCraftingPresentation(client);
+        this.craftingScanStates.TryRemove(client.ProcessId, out _);
+
+        if (!finalPresentation.IsBaselineComplete)
+        {
+            this.SetCraftingScanState(
+                client.ProcessId,
+                finalPresentation,
+                new CraftingBaselineScanState
+                {
+                    IsPaused = true,
+                    Status = "Some recipe groups still need to be scanned. Reopen Manufacturing and press Scan.",
+                    CompletedCategoryCount = finalPresentation.CompletedCategoryCount,
+                    TotalCategoryCount = finalPresentation.TotalCategoryCount,
+                });
+            this.RestorePilotArchiveAfterCraftingScan(
+                finalPresentation.CharacterId);
+            return;
+        }
+
+        var scanObservedAt = DateTimeOffset.UtcNow;
+        ClientObservationSnapshot? scanSnapshot = null;
+        if (this.clientObservationCoordinator.TryGetSnapshot(
+                client.ProcessId,
+                out var latestSnapshot))
+        {
+            scanSnapshot = latestSnapshot;
+            scanObservedAt = latestSnapshot.ObservedAt;
+        }
+
+        var scanEvent = this.recipeMappingCoordinator.RecordScanCompleted(
+            finalPresentation.CharacterId,
+            scanObservedAt,
+            finalPresentation.KnownRecipeCount,
+            Math.Max(
+                0,
+                finalPresentation.KnownRecipeCount - initialKnownRecipeCount));
+        if (scanSnapshot != null)
+        {
+            this.activityJournalCoordinator.RecordCraftingEvent(
+                scanEvent,
+                scanSnapshot);
+        }
+
+        this.pilotArchiveForm?.RefreshCraftingForCharacter(
+            finalPresentation.CharacterId);
+        this.FinishCraftingScan(client.ProcessId);
+        this.RestorePilotArchiveAfterCraftingScan(finalPresentation.CharacterId);
+    }
+
+    private async Task RunCraftingBaselineScanAsync(
+        ClientInstance client,
+        uint characterId,
+        bool scanAllCategories,
+        CancellationToken cancellationToken)
+    {
+        var executor = new InputActionExecutor(
+            this.gameCommandCoordinator,
+            this.foregroundInputCoordinator);
+        this.recipeMappingCoordinator.SetBaselineCaptureTarget(
+            client.ProcessId,
+            characterId,
+            categoryId: null);
+        var catalog = this.GetActiveCraftingCatalogOrThrow(
+            client.ProcessId,
+            characterId);
+
+        // Do not let the first automation click rely on a snapshot that may
+        // predate the user's Scan press. One fresh observation must still
+        // show the same active Manufacturing terminal before we touch the UI.
+        catalog = await this.WaitForCraftingCatalogAsync(
+            client.ProcessId,
+            characterId,
+            catalog.ObservedAt,
+            candidate => candidate.IsManufacturingPanelActive,
+            "The Manufacturing terminal closed before the scan could start. Reopen it and press Scan.",
+            cancellationToken);
+
+        catalog = await this.EnsureCraftingCategoryTreeReadyAsync(
+            executor,
+            client,
+            characterId,
+            catalog,
+            cancellationToken);
+        await this.WaitForCraftingScanPlanAsync(
+            client,
+            characterId,
+            cancellationToken);
+
+        HashSet<int>? rescanPendingCategoryIds = null;
+        if (scanAllCategories)
+        {
+            rescanPendingCategoryIds = this.GetCraftingPresentation(client)
+                .Categories
+                .Where(category => category.CategoryId > 0)
+                .Select(category => category.CategoryId)
+                .ToHashSet();
+        }
+
+        var allTechLevelsPrepared = catalog.AllTechLevelsEnabled;
+        RecipeMappingCategoryProgress? previousTarget = null;
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var presentation = this.GetCraftingPresentation(client);
+
+            if (!scanAllCategories && presentation.IsBaselineComplete)
+            {
+                return;
+            }
+
+            var target = presentation.Categories
+                .Where(category => scanAllCategories
+                    ? rescanPendingCategoryIds!.Contains(category.CategoryId)
+                    : !category.IsVisited)
+                .OrderBy(category => category.PrimaryIndex)
+                .ThenBy(category => category.SecondaryIndex)
+                .ThenBy(category => category.LeafIndex)
+                .FirstOrDefault();
+
+            if (target == null)
+            {
+                if (scanAllCategories && rescanPendingCategoryIds!.Count == 0)
+                {
+                    return;
+                }
+
+                throw new CraftingScanInterruptedException(
+                    "Crafting couldn't determine the next recipe category. Reopen Manufacturing and press Scan.");
+            }
+
+            this.SetCraftingScanState(
+                client.ProcessId,
+                presentation,
+                new CraftingBaselineScanState
+                {
+                    IsRunning = true,
+                    Status = string.Concat(
+                        "Reading ",
+                        target.DisplayName,
+                        "..."),
+                    CompletedCategoryCount = presentation.CompletedCategoryCount,
+                    TotalCategoryCount = presentation.TotalCategoryCount,
+                    ActiveCategoryId = target.CategoryId,
+                });
+
+            catalog = this.GetReadyCraftingCatalogOrThrow(
+                client.ProcessId,
+                characterId);
+
+            if (previousTarget != null &&
+                !IsExactCraftingLeaf(catalog, previousTarget))
+            {
+                throw new CraftingScanInterruptedException(
+                    "The Manufacturing selection changed. The scan paused instead of fighting your input. Reopen Manufacturing and press Scan.");
+            }
+
+            // A category with an older observation is being reconciled rather
+            // than visited for the first time. If Manufacturing is already
+            // sitting on that exact leaf, deliberately leave and re-enter it so
+            // the normal game UI issues a fresh category request under the
+            // current Build-skill/filter state.
+            if (target.LastObservedAtUtc.HasValue &&
+                IsExactCraftingLeaf(catalog, target))
+            {
+                var beforeRefresh = catalog.ObservedAt;
+                await ExecuteCraftingClickAsync(
+                    executor,
+                    client,
+                    CraftingManufacturingUiMap.TopLevel3,
+                    cancellationToken);
+                catalog = await this.WaitForCraftingCatalogAsync(
+                    client.ProcessId,
+                    characterId,
+                    beforeRefresh,
+                    candidate =>
+                        candidate.BrowserStage == 2 &&
+                        candidate.PrimaryIndex == target.PrimaryIndex &&
+                        candidate.SecondaryIndex == target.SecondaryIndex,
+                    "Manufacturing didn't refresh the recipe category. Reopen Manufacturing and press Scan.",
+                    cancellationToken);
+            }
+
+            await this.NavigateToCraftingCategoryAsync(
+                executor,
+                client,
+                characterId,
+                target,
+                requireAllTechLevels: allTechLevelsPrepared,
+                cancellationToken);
+
+            catalog = this.GetReadyCraftingCatalogOrThrow(
+                client.ProcessId,
+                characterId);
+
+            this.recipeMappingCoordinator.SetBaselineCaptureTarget(
+                client.ProcessId,
+                characterId,
+                target.CategoryId);
+            try
+            {
+                if (!catalog.AllTechLevelsEnabled)
+                {
+                    var current = this.GetCraftingPresentation(client);
+                    this.SetCraftingScanState(
+                        client.ProcessId,
+                        current,
+                        new CraftingBaselineScanState
+                        {
+                            IsRunning = true,
+                            Status = "Showing all tech levels...",
+                            CompletedCategoryCount = current.CompletedCategoryCount,
+                            TotalCategoryCount = current.TotalCategoryCount,
+                            ActiveCategoryId = target.CategoryId,
+                        });
+
+                    var before = catalog.ObservedAt;
+                    await ExecuteCraftingClickAsync(
+                        executor,
+                        client,
+                        CraftingManufacturingUiMap.AllTechLevels,
+                        cancellationToken);
+                    catalog = await this.WaitForCraftingCatalogAsync(
+                        client.ProcessId,
+                        characterId,
+                        before,
+                        candidate =>
+                            candidate.AllTechLevelsEnabled &&
+                            candidate.PendingTechFilterRequestCount == 0 &&
+                            IsExactCraftingLeaf(candidate, target) &&
+                            candidate.CurrentItemCategoryId == target.CategoryId,
+                        "The game didn't finish enabling all tech levels. Wait a moment, then press Scan.",
+                        cancellationToken);
+                    catalog = await this.WaitForCraftingCatalogStabilityAsync(
+                        client.ProcessId,
+                        characterId,
+                        target,
+                        catalog,
+                        cancellationToken);
+                    allTechLevelsPrepared = true;
+                }
+
+                await this.WaitForCraftingCategoryRecordedAsync(
+                    client,
+                    characterId,
+                    target,
+                    target.LastObservedAtUtc,
+                    cancellationToken);
+            }
+            finally
+            {
+                this.recipeMappingCoordinator.SetBaselineCaptureTarget(
+                    client.ProcessId,
+                    characterId,
+                    categoryId: null);
+            }
+
+            if (scanAllCategories)
+            {
+                rescanPendingCategoryIds!.Remove(target.CategoryId);
+            }
+
+            previousTarget = target;
+        }
+    }
+
+    private async Task NavigateToCraftingCategoryAsync(
+        InputActionExecutor executor,
+        ClientInstance client,
+        uint characterId,
+        RecipeMappingCategoryProgress target,
+        bool requireAllTechLevels,
+        CancellationToken cancellationToken)
+    {
+        if (!CraftingManufacturingUiMap.CanAddressCategory(
+                target.PrimaryIndex,
+                target.SecondaryIndex,
+                target.LeafIndex))
+        {
+            throw new CraftingScanInterruptedException(
+                "Crafting can't safely reach this recipe category with the current Manufacturing layout. The scan paused without guessing where to click.");
+        }
+
+        ClientManufacturingCatalogObservation? expectedNavigationState = null;
+
+        while (true)
+        {
+            var catalog = this.GetReadyCraftingCatalogOrThrow(
+                client.ProcessId,
+                characterId);
+
+            if (expectedNavigationState != null &&
+                !IsCompatibleCraftingNavigationState(
+                    catalog,
+                    expectedNavigationState))
+            {
+                throw new CraftingScanInterruptedException(
+                    "The Manufacturing selection changed while Crafting was navigating. The scan paused instead of correcting your input. Reopen Manufacturing and press Scan.");
+            }
+
+            if (requireAllTechLevels && !catalog.AllTechLevelsEnabled)
+            {
+                throw new CraftingScanInterruptedException(
+                    "The Manufacturing filters changed during the scan. Reopen Manufacturing and press Scan.");
+            }
+
+            if (catalog.BrowserStage == 3 &&
+                catalog.PrimaryIndex == target.PrimaryIndex &&
+                catalog.SecondaryIndex == target.SecondaryIndex &&
+                catalog.LeafIndex == target.LeafIndex)
+            {
+                return;
+            }
+
+            InputActionDefinition action;
+            Func<ClientManufacturingCatalogObservation, bool> predicate;
+
+            if (catalog.BrowserStage < 0)
+            {
+                action = CraftingManufacturingUiMap.TopLevel1;
+                predicate = candidate => candidate.BrowserStage == 0;
+            }
+            else if (catalog.BrowserStage == 0)
+            {
+                action = CraftingManufacturingUiMap.GetPrimarySlot(
+                    target.PrimaryIndex);
+                predicate = candidate =>
+                    candidate.BrowserStage == 1 &&
+                    candidate.PrimaryIndex == target.PrimaryIndex;
+            }
+            else if (catalog.PrimaryIndex != target.PrimaryIndex)
+            {
+                action = CraftingManufacturingUiMap.TopLevel1;
+                predicate = candidate => candidate.BrowserStage == 0;
+            }
+            else if (catalog.BrowserStage == 1)
+            {
+                action = CraftingManufacturingUiMap.GetSecondarySlot(
+                    target.SecondaryIndex);
+                predicate = candidate =>
+                    candidate.BrowserStage == 2 &&
+                    candidate.PrimaryIndex == target.PrimaryIndex &&
+                    candidate.SecondaryIndex == target.SecondaryIndex;
+            }
+            else if (catalog.SecondaryIndex != target.SecondaryIndex)
+            {
+                action = CraftingManufacturingUiMap.TopLevel2;
+                predicate = candidate =>
+                    candidate.BrowserStage == 1 &&
+                    candidate.PrimaryIndex == target.PrimaryIndex;
+            }
+            else if (catalog.BrowserStage == 2)
+            {
+                action = CraftingManufacturingUiMap.GetLeafSlot(
+                    target.LeafIndex);
+                predicate = candidate =>
+                    candidate.BrowserStage == 3 &&
+                    candidate.PrimaryIndex == target.PrimaryIndex &&
+                    candidate.SecondaryIndex == target.SecondaryIndex &&
+                    candidate.LeafIndex == target.LeafIndex;
+            }
+            else
+            {
+                action = CraftingManufacturingUiMap.TopLevel3;
+                predicate = candidate =>
+                    candidate.BrowserStage == 2 &&
+                    candidate.PrimaryIndex == target.PrimaryIndex &&
+                    candidate.SecondaryIndex == target.SecondaryIndex;
+            }
+
+            var before = catalog.ObservedAt;
+            await ExecuteCraftingClickAsync(
+                executor,
+                client,
+                action,
+                cancellationToken);
+            expectedNavigationState = await this.WaitForCraftingCatalogAsync(
+                client.ProcessId,
+                characterId,
+                before,
+                predicate,
+                "Manufacturing didn't open the expected recipe category. The scan paused before issuing another click. Reopen Manufacturing and press Scan.",
+                cancellationToken);
+        }
+    }
+
+    private static bool IsExactCraftingLeaf(
+        ClientManufacturingCatalogObservation catalog,
+        RecipeMappingCategoryProgress category)
+    {
+        return catalog.BrowserStage == 3 &&
+            catalog.PrimaryIndex == category.PrimaryIndex &&
+            catalog.SecondaryIndex == category.SecondaryIndex &&
+            catalog.LeafIndex == category.LeafIndex;
+    }
+
+    private static bool IsCompatibleCraftingNavigationState(
+        ClientManufacturingCatalogObservation current,
+        ClientManufacturingCatalogObservation expected)
+    {
+        if (current.BrowserStage != expected.BrowserStage)
+        {
+            return false;
+        }
+
+        return expected.BrowserStage switch
+        {
+            <= 0 => true,
+            1 => current.PrimaryIndex == expected.PrimaryIndex,
+            2 => current.PrimaryIndex == expected.PrimaryIndex &&
+                current.SecondaryIndex == expected.SecondaryIndex,
+            _ => current.PrimaryIndex == expected.PrimaryIndex &&
+                current.SecondaryIndex == expected.SecondaryIndex &&
+                current.LeafIndex == expected.LeafIndex,
+        };
+    }
+
+    private async Task WaitForCraftingCategoryRecordedAsync(
+        ClientInstance client,
+        uint characterId,
+        RecipeMappingCategoryProgress target,
+        DateTimeOffset? previousObservedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(15);
+
+        // Navigation returns only after the intended stage-3 leaf has already
+        // been observed. From this point onward, any different selection is
+        // user/client interference and should pause immediately rather than
+        // waiting for a timeout.
+        var reachedExpectedLeaf = true;
+
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!this.clientObservationCoordinator.TryGetSnapshot(
+                    client.ProcessId,
+                    out var snapshot))
+            {
+                throw new CraftingScanInterruptedException(
+                    "Crafting temporarily lost track of the game. Reopen Manufacturing and press Scan.");
+            }
+
+            var identity = ClientLiveCharacterIdentityResolver.Resolve(snapshot);
+            if (identity.CharacterObjectId != characterId)
+            {
+                throw new CraftingScanInterruptedException(
+                    "The active character changed. Reopen Crafting on the character you want to scan.");
+            }
+
+            var catalog = snapshot.ManufacturingCatalog;
+            var presentation = this.recipeMappingCoordinator.GetPresentation(
+                characterId,
+                catalog,
+                snapshot.LocalPlayer.CharacterProgression.Skills);
+            var category = presentation.Categories.FirstOrDefault(candidate =>
+                candidate.CategoryId == target.CategoryId);
+
+            // Persisted category completion wins over live terminal state. The
+            // final successful leaf can complete the baseline, which
+            // intentionally turns catalogue observation off immediately. In
+            // that case the current snapshot can already carry the idle
+            // catalogue marker even though the category we were waiting for
+            // was safely recorded.
+            if (category?.IsVisited == true &&
+                category.LastObservedAtUtc.HasValue &&
+                category.LastObservedAtUtc != previousObservedAtUtc)
+            {
+                return;
+            }
+
+            if (!catalog.IsManufacturingPanelActive)
+            {
+                throw new CraftingScanInterruptedException(
+                    "The Manufacturing terminal was closed. Reopen it and press Scan; completed recipes are already saved.");
+            }
+
+            if (catalog.IsAvailable)
+            {
+                if (catalog.ShowingPreviousAttempts)
+                {
+                    throw new CraftingScanInterruptedException(
+                        "Manufacturing switched away from the recipe browser. Reopen Manufacturing and press Scan.");
+                }
+
+                var exactLeaf =
+                    catalog.BrowserStage == 3 &&
+                    catalog.PrimaryIndex == target.PrimaryIndex &&
+                    catalog.SecondaryIndex == target.SecondaryIndex &&
+                    catalog.LeafIndex == target.LeafIndex;
+
+                if (exactLeaf)
+                {
+                    reachedExpectedLeaf = true;
+                }
+                else if (reachedExpectedLeaf)
+                {
+                    throw new CraftingScanInterruptedException(
+                        "The Manufacturing selection changed while Crafting was reading recipes. The scan paused safely. Reopen Manufacturing and press Scan.");
+                }
+
+                if (!catalog.AllTechLevelsEnabled)
+                {
+                    throw new CraftingScanInterruptedException(
+                        "The Manufacturing filters changed during the scan. Reopen Manufacturing and press Scan.");
+                }
+            }
+
+            await Task.Delay(
+                    TimeSpan.FromMilliseconds(50),
+                    cancellationToken)
+                .ConfigureAwait(true);
+        }
+
+        throw new CraftingScanInterruptedException(
+            "Manufacturing didn't finish loading this recipe list in time. The scan paused safely. Reopen Manufacturing and press Scan.");
+    }
+
+    private static bool IsCraftingCategoryTreeReady(
+        ClientManufacturingCatalogObservation catalog)
+    {
+        return catalog.IsAvailable &&
+            catalog.PrimaryIndex != -2 &&
+            catalog.Categories.Any(category =>
+                category.IsVisible && category.CategoryId > 0);
+    }
+
+    private ClientManufacturingCatalogObservation
+        GetActiveCraftingCatalogOrThrow(
+            int processId,
+            uint characterId)
+    {
+        if (!this.clientObservationCoordinator.TryGetSnapshot(
+                processId,
+                out var snapshot))
+        {
+            throw new CraftingScanInterruptedException(
+                "Crafting temporarily lost track of the game. Reopen Manufacturing and press Scan.");
+        }
+
+        var identity = ClientLiveCharacterIdentityResolver.Resolve(snapshot);
+        if (identity.CharacterObjectId != characterId)
+        {
+            throw new CraftingScanInterruptedException(
+                "The active character changed. Reopen Crafting on the character you want to scan.");
+        }
+
+        var catalog = snapshot.ManufacturingCatalog;
+        if (!catalog.IsManufacturingPanelActive)
+        {
+            throw new CraftingScanInterruptedException(
+                "The Manufacturing terminal was closed. Reopen it and press Scan; completed recipes are already saved.");
+        }
+
+        return catalog;
+    }
+
+    private async Task<ClientManufacturingCatalogObservation>
+        EnsureCraftingCategoryTreeReadyAsync(
+            InputActionExecutor executor,
+            ClientInstance client,
+            uint characterId,
+            ClientManufacturingCatalogObservation catalog,
+            CancellationToken cancellationToken)
+    {
+        if (IsCraftingCategoryTreeReady(catalog))
+        {
+            return catalog;
+        }
+
+        if (catalog.PrimaryIndex == -2)
+        {
+            catalog = await this.WaitForCraftingCatalogAsync(
+                client.ProcessId,
+                characterId,
+                catalog.ObservedAt,
+                candidate => candidate.PrimaryIndex != -2,
+                "Manufacturing didn't finish opening. Close and reopen the terminal, then press Scan.",
+                cancellationToken);
+
+            if (IsCraftingCategoryTreeReady(catalog))
+            {
+                return catalog;
+            }
+        }
+
+        if (catalog.BrowserStage < 0)
+        {
+            var current = this.GetCraftingPresentation(client);
+            this.SetCraftingScanState(
+                client.ProcessId,
+                current,
+                new CraftingBaselineScanState
+                {
+                    IsRunning = true,
+                    Status = "Preparing recipe categories...",
+                    CompletedCategoryCount = current.CompletedCategoryCount,
+                    TotalCategoryCount = current.TotalCategoryCount,
+                });
+
+            var before = catalog.ObservedAt;
+            await ExecuteCraftingClickAsync(
+                executor,
+                client,
+                CraftingManufacturingUiMap.TopLevel1,
+                cancellationToken);
+            return await this.WaitForCraftingCatalogAsync(
+                client.ProcessId,
+                characterId,
+                before,
+                candidate =>
+                    candidate.BrowserStage == 0 &&
+                    IsCraftingCategoryTreeReady(candidate),
+                "Manufacturing didn't open the recipe categories. Close and reopen the terminal, then press Scan.",
+                cancellationToken);
+        }
+
+        return await this.WaitForCraftingCatalogAsync(
+            client.ProcessId,
+            characterId,
+            catalog.ObservedAt,
+            IsCraftingCategoryTreeReady,
+            "Manufacturing didn't finish loading the recipe categories. Close and reopen the terminal, then press Scan.",
+            cancellationToken);
+    }
+
+    private async Task WaitForCraftingScanPlanAsync(
+        ClientInstance client,
+        uint characterId,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(12);
+
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var presentation = this.GetCraftingPresentation(client);
+            if (presentation.IsBaselineComplete ||
+                presentation.TotalCategoryCount > 0)
+            {
+                return;
+            }
+
+            var catalog = this.GetActiveCraftingCatalogOrThrow(
+                client.ProcessId,
+                characterId);
+            if (catalog.ShowingPreviousAttempts)
+            {
+                throw new CraftingScanInterruptedException(
+                    "Manufacturing switched away from the recipe browser. Reopen Manufacturing and press Scan.");
+            }
+
+            await Task.Delay(
+                    TimeSpan.FromMilliseconds(50),
+                    cancellationToken)
+                .ConfigureAwait(true);
+        }
+
+        throw new CraftingScanInterruptedException(
+            "Crafting couldn't prepare the recipe categories for this character. Close and reopen Manufacturing, then press Scan.");
+    }
+
+    private ClientManufacturingCatalogObservation
+        GetReadyCraftingCatalogOrThrow(
+            int processId,
+            uint characterId)
+    {
+        if (!this.clientObservationCoordinator.TryGetSnapshot(
+                processId,
+                out var snapshot))
+        {
+            throw new CraftingScanInterruptedException(
+                "Crafting temporarily lost track of the game. Reopen Manufacturing and press Scan.");
+        }
+
+        var identity = ClientLiveCharacterIdentityResolver.Resolve(snapshot);
+        if (identity.CharacterObjectId != characterId)
+        {
+            throw new CraftingScanInterruptedException(
+                "The active character changed. Reopen Crafting on the character you want to scan.");
+        }
+
+        var catalog = snapshot.ManufacturingCatalog;
+        if (!catalog.IsManufacturingPanelActive)
+        {
+            throw new CraftingScanInterruptedException(
+                "The Manufacturing terminal was closed. Reopen it and press Scan; completed recipes are already saved.");
+        }
+
+        if (!IsCraftingCategoryTreeReady(catalog))
+        {
+            throw new CraftingScanInterruptedException(
+                "Manufacturing is still opening. Leave it open, then press Scan.");
+        }
+
+        if (catalog.ShowingPreviousAttempts)
+        {
+            throw new CraftingScanInterruptedException(
+                "Manufacturing switched away from the recipe browser. Reopen Manufacturing and press Scan.");
+        }
+
+        return catalog;
+    }
+
+    private async Task<ClientManufacturingCatalogObservation>
+        WaitForCraftingCatalogAsync(
+            int processId,
+            uint characterId,
+            DateTimeOffset afterObservedAt,
+            Func<ClientManufacturingCatalogObservation, bool> predicate,
+            string timeoutMessage,
+            CancellationToken cancellationToken)
+    {
+        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(12);
+
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!this.clientObservationCoordinator.TryGetSnapshot(
+                    processId,
+                    out var snapshot))
+            {
+                throw new CraftingScanInterruptedException(
+                    "Crafting temporarily lost track of the game. Reopen Manufacturing and press Scan.");
+            }
+
+            var identity = ClientLiveCharacterIdentityResolver.Resolve(snapshot);
+            if (identity.CharacterObjectId != characterId)
+            {
+                throw new CraftingScanInterruptedException(
+                    "The active character changed. Reopen Crafting on the character you want to scan.");
+            }
+
+            var catalog = snapshot.ManufacturingCatalog;
+            if (catalog.ObservedAt > afterObservedAt &&
+                !catalog.IsManufacturingPanelActive)
+            {
+                throw new CraftingScanInterruptedException(
+                    "The Manufacturing terminal was closed. Reopen it and press Scan; completed recipes are already saved.");
+            }
+
+            if (catalog.IsAvailable &&
+                catalog.ObservedAt > afterObservedAt &&
+                catalog.ShowingPreviousAttempts)
+            {
+                throw new CraftingScanInterruptedException(
+                    "Manufacturing switched away from the recipe browser. Reopen Manufacturing and press Scan.");
+            }
+
+            if (catalog.IsAvailable &&
+                catalog.ObservedAt > afterObservedAt &&
+                predicate(catalog))
+            {
+                return catalog;
+            }
+
+            await Task.Delay(
+                    TimeSpan.FromMilliseconds(50),
+                    cancellationToken)
+                .ConfigureAwait(true);
+        }
+
+        throw new CraftingScanInterruptedException(timeoutMessage);
+    }
+
+    private async Task<ClientManufacturingCatalogObservation>
+        WaitForCraftingCatalogStabilityAsync(
+            int processId,
+            uint characterId,
+            RecipeMappingCategoryProgress target,
+            ClientManufacturingCatalogObservation first,
+            CancellationToken cancellationToken)
+    {
+        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(12);
+        var previous = first;
+
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var next = await this.WaitForCraftingCatalogAsync(
+                processId,
+                characterId,
+                previous.ObservedAt,
+                candidate =>
+                    candidate.AllTechLevelsEnabled &&
+                    candidate.PendingTechFilterRequestCount == 0 &&
+                    IsExactCraftingLeaf(candidate, target) &&
+                    candidate.CurrentItemCategoryId == target.CategoryId,
+                "Manufacturing didn't finish updating the recipe list. Wait a moment, then press Scan.",
+                cancellationToken);
+
+            if (string.Equals(
+                    previous.ResultFingerprint,
+                    next.ResultFingerprint,
+                    StringComparison.Ordinal))
+            {
+                return next;
+            }
+
+            previous = next;
+        }
+
+        throw new CraftingScanInterruptedException(
+            "Manufacturing kept updating the recipe list and never settled. Wait a moment, then press Scan.");
+    }
+
+    private static async Task ExecuteCraftingClickAsync(
+        InputActionExecutor executor,
+        ClientInstance client,
+        InputActionDefinition action,
+        CancellationToken cancellationToken)
+    {
+        var result = await executor.ExecuteAsync(
+                client,
+                action,
+                cancellationToken)
+            .ConfigureAwait(true);
+
+        if (!result.Succeeded)
+        {
+            throw new CraftingScanInterruptedException(
+                string.Concat(
+                    "Client Manager couldn't use the Manufacturing control safely: ",
+                    result.Error,
+                    " Reopen Manufacturing and press Scan."));
+        }
+    }
+
+    private void SetCraftingScanState(
+        int processId,
+        RecipeMappingPresentation presentation,
+        CraftingBaselineScanState state)
+    {
+        this.craftingScanStates[processId] = state;
+
+        if (presentation.CharacterId is not 0 and not uint.MaxValue)
+        {
+            this.pilotArchiveForm?.RefreshCraftingForCharacter(
+                presentation.CharacterId);
+        }
+    }
+
+    private void CancelCraftingScan(int processId)
+    {
+        if (!this.craftingScanCancellations.TryRemove(
+                processId,
+                out var cancellation))
+        {
+            return;
+        }
+
+        // The owning async scan disposes the CTS after cancellation has
+        // unwound; do not dispose underneath active token registrations.
+        cancellation.Cancel();
+    }
+
+    private void FinishCraftingScan(int processId)
+    {
+        this.CancelCraftingScan(processId);
+        this.craftingScanStates.TryRemove(processId, out _);
+        this.clientObservationCoordinator
+            .SetRecipeMappingCatalogObservationEnabled(
+                processId,
+                enabled: false);
+
+    }
+
+    private sealed class CraftingScanInterruptedException(string message)
+        : Exception(message);
+
+    internal RecipeMappingItemPresentation?
+        ResolveRecipeMappingItemPresentation(
+            ClientObservationSnapshot snapshot,
+            int itemTemplateId)
+    {
+        var identity = ClientLiveCharacterIdentityResolver.Resolve(snapshot);
+        var characterId = identity.CharacterObjectId;
+
+        if (characterId is not { } resolvedCharacterId ||
+            resolvedCharacterId is 0 or uint.MaxValue ||
+            itemTemplateId <= 0)
+        {
+            return null;
+        }
+
+        var template = ClientItemTemplateNameResolver.GetKnownTemplate(
+            itemTemplateId);
+        this.skillBuildLocalWorkspace.Catalog
+            .TryGetProfessionByDisplayName(
+                identity.Profession,
+                out var profession);
+        var restriction = ItemTemplateRestrictionEvaluator.Evaluate(
+            template,
+            profession);
+
+        var hasObservedRecipe = Volatile.Read(
+                ref this.forgeKnownManufacturableItemTemplateIds)
+            .Contains(itemTemplateId);
+        var isManufacturable =
+            RecipeMappingManufacturabilityResolver.Resolve(
+                template,
+                hasObservedRecipe);
+        var categoryId = template?.Subcategory ?? 0;
+        var applicableBuildSkills =
+            RecipeMappingBuildSkillCatalog.GetApplicableSkillNames(categoryId);
+        var (skillAvailable, skillLearned) = ResolveCraftingBuildSkillState(
+            snapshot.LocalPlayer.CharacterProgression.Skills.Skills,
+            applicableBuildSkills);
+        var presentation =
+            this.recipeMappingCoordinator.ResolveItemPresentation(
+                resolvedCharacterId,
+                itemTemplateId,
+                isManufacturable,
+                categoryId,
+                skillAvailable,
+                skillLearned);
+
+        if (presentation == null)
+        {
+            return null;
+        }
+
+        return presentation with
+        {
+            RestrictionText = restriction.Text,
+            IsCharacterEligible = restriction.IsCompatible,
+            RestrictionLines = BuildRecipeMappingRestrictionLines(
+                restriction,
+                neutral: false),
+        };
+    }
+
+    internal RecipeMappingItemPresentation?
+        ResolvePilotArchiveRecipeMappingItemPresentation(
+            int itemTemplateId)
+    {
+        if (itemTemplateId <= 0)
+        {
+            return null;
+        }
+
+        var template = ClientItemTemplateNameResolver.GetKnownTemplate(
+            itemTemplateId);
+        var restriction = ItemTemplateRestrictionEvaluator.Evaluate(
+            template,
+            profession: null);
+        var mappedOn = this.recipeMappingCoordinator.GetMappedPilotNames(
+            itemTemplateId);
+        var isManufacturable =
+            RecipeMappingManufacturabilityResolver.Resolve(
+                template,
+                hasObservedRecipe: mappedOn.Count != 0);
+
+        if (string.IsNullOrWhiteSpace(restriction.Text) &&
+            mappedOn.Count == 0 &&
+            isManufacturable != false)
+        {
+            return null;
+        }
+
+        return new RecipeMappingItemPresentation
+        {
+            IsManufacturable = isManufacturable,
+            Knowledge = isManufacturable == false
+                ? RecipeMappingItemKnowledge.NotManufacturable
+                : RecipeMappingItemKnowledge.NotApplicable,
+            Text = isManufacturable == false ? "Not Manufacturable" : "",
+            RestrictionText = restriction.Text,
+            // Pilot Archive is reference UI. Restrictions stay neutral and
+            // recipe state is not projected onto an archived pilot.
+            IsCharacterEligible = null,
+            RestrictionLines = BuildRecipeMappingRestrictionLines(
+                restriction,
+                neutral: true),
+            MappedOnPilotNames = mappedOn,
+        };
+    }
+
+    private static IReadOnlyList<RecipeMappingRestrictionLine>
+        BuildRecipeMappingRestrictionLines(
+            ItemTemplateRestrictionEvaluation restriction,
+            bool neutral)
+    {
+        return restriction.Lines
+            .Where(line => !string.IsNullOrWhiteSpace(line.Text))
+            .Select(line => new RecipeMappingRestrictionLine
+            {
+                Text = line.Text,
+                IsCharacterEligible = neutral
+                    ? null
+                    : line.IsCompatible,
+            })
+            .ToArray();
+    }
+
+    private static (bool Available, bool Learned)
+        ResolveCraftingBuildSkillState(
+            IEnumerable<ClientCharacterSkillObservation> skills,
+            IReadOnlyList<string> applicableBuildSkills)
+    {
+        var available = false;
+        var learned = false;
+
+        foreach (var skill in skills)
+        {
+            if (!applicableBuildSkills.Contains(
+                    skill.Name,
+                    StringComparer.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            available |= skill.MaximumRank > 0 || skill.CurrentRank > 0;
+            learned |= skill.CurrentRank > 0;
+        }
+
+        return (available, learned);
+    }
+
+
+    private static FrozenSet<int> BuildKnownManufacturableItemTemplateIds(
+        ForgeProductionRecipeCatalogSnapshot catalog)
+    {
+        return (!catalog.IsAvailable
+                ? Enumerable.Empty<int>()
+                : catalog.Recipes
+                    .Where(recipe => recipe.Kind == 1)
+                    .Select(recipe => recipe.OutputItemTemplateId)
+                    .Where(itemTemplateId => itemTemplateId > 0))
+            .ToFrozenSet();
+    }
+
+    private void UpdateCraftingPresentation(
+        RecipeMappingPresentation presentation)
+    {
+        if (presentation.CharacterId is not 0 and not uint.MaxValue)
+        {
+            this.pilotArchiveForm?.RefreshCraftingForCharacter(
+                presentation.CharacterId,
+                presentation);
         }
     }
 

@@ -3,6 +3,7 @@ namespace Net7ClientManager.Observations;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
+using System.Threading.Channels;
 using Net7ClientManager.Observations.Models;
 using Net7ClientManager.Observations.Observers;
 
@@ -16,7 +17,16 @@ using Net7ClientManager.Observations.Observers;
 /// </summary>
 public sealed class ClientObservationCoordinator : IDisposable
 {
+    // The coordinator scheduler is only a due-time gate. Tightening it does
+    // not pull ordinary feature lanes forward; their own intervals remain
+    // unchanged. The 10 ms quantum primarily services the narrow 20 ms vendor
+    // transaction lane; crafting itself uses its proven 50 ms cadence.
     private static readonly TimeSpan schedulerInterval =
+        TimeSpan.FromMilliseconds(10);
+
+    // Panel presentation does not need the crafting scheduler quantum. Keep its
+    // independent lightweight scheduler at the existing 50 ms cadence.
+    private static readonly TimeSpan panelPresentationSchedulerInterval =
         TimeSpan.FromMilliseconds(50);
 
     private static readonly TimeSpan navigationStatePollInterval =
@@ -62,6 +72,28 @@ public sealed class ClientObservationCoordinator : IDisposable
     private static readonly TimeSpan lootTractorActivePollInterval =
         TimeSpan.FromMilliseconds(50);
 
+    // Analyze/Dismantle terminal results remain resident for seconds in the
+    // native ManufacturingLab state. 50 ms is comfortably inside that proven
+    // window while retaining interaction-speed responsiveness. The hot path
+    // still reads only ManufacturingLab plus cached direct cargo properties.
+    private static readonly TimeSpan craftingActivityPollInterval =
+        TimeSpan.FromMilliseconds(50);
+
+    // The visible Analyze/Dismantle countdown must not share the general
+    // coordinator loop. PollClient and other due lanes can legitimately take
+    // hundreds of milliseconds, which turns an otherwise correct 50 ms due
+    // time into a visibly frozen countdown. This dedicated sampler reads only
+    // the Analyze panel's active/phase/timer fields plus ManufacturingLab Mode.
+    private static readonly TimeSpan dismantlePacingPollInterval =
+        TimeSpan.FromMilliseconds(50);
+
+    // Keep a tiny gatekeeper alive while the known native crafting panels are
+    // inactive. It reads only their active flags, so a player can open a
+    // terminal and immediately use it without waiting for the 500 ms ordinary
+    // snapshot lane to notice first.
+    private static readonly TimeSpan craftingActivityIdlePollInterval =
+        TimeSpan.FromMilliseconds(100);
+
     // Native tooltip hover is a tiny interaction lane: two stable ClientView
     // roots, two controller blocks and at most one gadget. Poll slowly while
     // idle and briefly tighten only while a gadget is active. Item contents
@@ -84,6 +116,16 @@ public sealed class ClientObservationCoordinator : IDisposable
     // player observations retain their proven two-second cadence.
     private static readonly TimeSpan vendorShoppingPollInterval =
         TimeSpan.FromMilliseconds(500);
+
+    // Rapid vendor clicks need transaction-speed credit/cargo observation, but
+    // the complete inventory and 128-slot vendor catalogue must stay out of
+    // the hot path. This lane reads only Hull.Money plus cached Cargo
+    // ItemTemplateID/StackCount properties.
+    private static readonly TimeSpan vendorTransactionPollInterval =
+        TimeSpan.FromMilliseconds(20);
+
+    private static readonly TimeSpan vendorTransactionIdlePollInterval =
+        TimeSpan.FromMilliseconds(50);
 
     private readonly System.Threading.Lock lockObject = new();
 
@@ -167,6 +209,9 @@ public sealed class ClientObservationCoordinator : IDisposable
     private readonly ClientManufacturingLabObserver manufacturingLabObserver =
         new();
 
+    private readonly ClientRecipeMappingObserver recipeMappingObserver =
+        new();
+
     private readonly ClientCombatObserver combatObserver = new();
 
     private CancellationTokenSource? cancellationTokenSource;
@@ -177,6 +222,39 @@ public sealed class ClientObservationCoordinator : IDisposable
 
     private Task? panelPresentationPollingTask;
 
+    private Task? dismantlePacingPollingTask;
+
+    // Observation-event consumers perform persistence, companion refreshes and
+    // addon publication. Never execute that work on the observation scheduler:
+    // doing so can make a 10 ms crafting result disappear while the sampler is
+    // busy writing the previous one. A single-reader channel preserves the
+    // coordinator's publication order without blocking memory sampling.
+    private readonly Channel<Action> eventDispatchChannel =
+        Channel.CreateUnbounded<Action>(
+            new UnboundedChannelOptions
+            {
+                SingleReader = true,
+                SingleWriter = false,
+                AllowSynchronousContinuations = false,
+            });
+
+    // Dismantle cooldown text is latency-sensitive presentation, not journal
+    // or persistence work. Keep it off the general ordered event queue so a
+    // burst of snapshot consumers cannot make a native 2-second countdown
+    // arrive late or play back stale intermediate values.
+    private readonly Channel<Action> realtimeEventDispatchChannel =
+        Channel.CreateUnbounded<Action>(
+            new UnboundedChannelOptions
+            {
+                SingleReader = true,
+                SingleWriter = false,
+                AllowSynchronousContinuations = false,
+            });
+
+    private Task? eventDispatchTask;
+
+    private Task? realtimeEventDispatchTask;
+
     public ClientObservationCoordinator()
     {
         this.reputationObserver =
@@ -186,6 +264,9 @@ public sealed class ClientObservationCoordinator : IDisposable
 
     public event EventHandler<ClientObservationSnapshotChangedEventArgs>?
         SnapshotChanged;
+
+    public event EventHandler<ClientCraftingActivityRealtimeChangedEventArgs>?
+        CraftingActivityRealtimeChanged;
 
     public event EventHandler<ClientMissionPresentationChangedEventArgs>?
         MissionPresentationChanged;
@@ -241,6 +322,17 @@ public sealed class ClientObservationCoordinator : IDisposable
                 () => this.PanelPresentationPollLoopAsync(
                     cancellationToken),
                 cancellationToken);
+
+            this.dismantlePacingPollingTask = Task.Run(
+                () => this.DismantlePacingPollLoopAsync(
+                    cancellationToken),
+                cancellationToken);
+
+            this.eventDispatchTask = Task.Run(
+                this.EventDispatchLoopAsync);
+
+            this.realtimeEventDispatchTask = Task.Run(
+                this.RealtimeEventDispatchLoopAsync);
         }
     }
 
@@ -298,11 +390,13 @@ public sealed class ClientObservationCoordinator : IDisposable
                 NextPanelPresentationPollAt = DateTimeOffset.UtcNow,
                 NextFeaturePollAt = DateTimeOffset.UtcNow,
                 NextLootTractorPollAt = DateTimeOffset.UtcNow,
+                NextCraftingActivityPollAt = DateTimeOffset.MaxValue,
                 NextTooltipHoverPollAt = DateTimeOffset.UtcNow,
                 NextTooltipItemPollAt = DateTimeOffset.MaxValue,
                 NextGroupSkillsTargetPollAt = DateTimeOffset.MaxValue,
                 NextSlowFeaturePollAt = DateTimeOffset.UtcNow,
                 NextVendorShoppingPollAt = DateTimeOffset.UtcNow,
+                NextVendorTransactionPollAt = DateTimeOffset.UtcNow,
             };
 
             initialSnapshot = this.CreateSnapshot(state);
@@ -311,10 +405,7 @@ public sealed class ClientObservationCoordinator : IDisposable
             this.observedClients[processId] = state;
         }
 
-        this.SnapshotChanged?.Invoke(
-            this,
-            new ClientObservationSnapshotChangedEventArgs(
-                initialSnapshot));
+        this.QueueSnapshotChanged(initialSnapshot);
     }
 
     public void Detach(int processId)
@@ -393,6 +484,32 @@ public sealed class ClientObservationCoordinator : IDisposable
             if (state.NextTooltipItemPollAt > now)
             {
                 state.NextTooltipItemPollAt = now;
+            }
+        }
+    }
+
+    public void SetRecipeMappingCatalogObservationEnabled(
+        int processId,
+        bool enabled)
+    {
+        lock (this.lockObject)
+        {
+            if (!this.observedClients.TryGetValue(processId, out var state) ||
+                state.RecipeMappingCatalogObservationEnabled == enabled)
+            {
+                return;
+            }
+
+            state.RecipeMappingCatalogObservationEnabled = enabled;
+
+            if (!enabled &&
+                (state.ManufacturingCatalog.IsAvailable ||
+                 state.ManufacturingCatalog.ObservedAt != DateTimeOffset.MinValue))
+            {
+                state.ManufacturingCatalog =
+                    ClientManufacturingCatalogObservation.Unavailable(
+                        "Crafting catalogue observation is idle");
+                this.recipeMappingObserver.ForgetCatalog(processId);
             }
         }
     }
@@ -1377,6 +1494,9 @@ public sealed class ClientObservationCoordinator : IDisposable
         Task? coordinatorPollingTask;
         Task? navigationPollingTask;
         Task? presentationPollingTask;
+        Task? dismantlePacingPollingTask;
+        Task? eventDispatchTask;
+        Task? realtimeEventDispatchTask;
         int[] processIds;
 
         lock (this.lockObject)
@@ -1389,11 +1509,18 @@ public sealed class ClientObservationCoordinator : IDisposable
                 this.navigationStatePollingTask;
             presentationPollingTask =
                 this.panelPresentationPollingTask;
+            dismantlePacingPollingTask =
+                this.dismantlePacingPollingTask;
+            eventDispatchTask = this.eventDispatchTask;
+            realtimeEventDispatchTask = this.realtimeEventDispatchTask;
 
             this.cancellationTokenSource = null;
             this.pollingTask = null;
             this.navigationStatePollingTask = null;
             this.panelPresentationPollingTask = null;
+            this.dismantlePacingPollingTask = null;
+            this.eventDispatchTask = null;
+            this.realtimeEventDispatchTask = null;
 
             processIds = [.. this.observedClients.Keys];
             this.observedClients.Clear();
@@ -1407,10 +1534,28 @@ public sealed class ClientObservationCoordinator : IDisposable
             navigationPollingTask?.Wait(TimeSpan.FromSeconds(2));
             presentationPollingTask?.Wait(
                 TimeSpan.FromSeconds(2));
+            dismantlePacingPollingTask?.Wait(
+                TimeSpan.FromSeconds(2));
         }
         catch
         {
             // Best-effort shutdown. Observation must never block app exit.
+        }
+
+        // No sampler can enqueue after the polling tasks have stopped. Let the
+        // ordered event worker drain anything already captured before exit so
+        // the last crafting/vendor event is not discarded during shutdown.
+        this.eventDispatchChannel.Writer.TryComplete();
+        this.realtimeEventDispatchChannel.Writer.TryComplete();
+
+        try
+        {
+            eventDispatchTask?.Wait(TimeSpan.FromSeconds(2));
+            realtimeEventDispatchTask?.Wait(TimeSpan.FromSeconds(2));
+        }
+        catch
+        {
+            // Best-effort drain. Application shutdown still owns the deadline.
         }
 
         foreach (var processId in processIds)
@@ -1420,6 +1565,86 @@ public sealed class ClientObservationCoordinator : IDisposable
 
         this.combatObserver.Dispose();
         coordinatorCancellationTokenSource?.Dispose();
+    }
+
+    private void QueueSnapshotChanged(
+        ClientObservationSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        this.QueueEventDispatch(() =>
+            this.SnapshotChanged?.Invoke(
+                this,
+                new ClientObservationSnapshotChangedEventArgs(snapshot)));
+    }
+
+    private void QueueCraftingActivityRealtimeChanged(
+        int processId,
+        ClientManufacturingActivityObservation activity)
+    {
+        ArgumentNullException.ThrowIfNull(activity);
+
+        this.QueueRealtimeEventDispatch(() =>
+            this.CraftingActivityRealtimeChanged?.Invoke(
+                this,
+                new ClientCraftingActivityRealtimeChangedEventArgs(
+                    processId,
+                    activity)));
+    }
+
+    private void QueueEventDispatch(Action dispatch)
+    {
+        ArgumentNullException.ThrowIfNull(dispatch);
+
+        // Unbounded single-reader channel: TryWrite only fails after the
+        // writer is completed. We intentionally never complete it during the
+        // coordinator lifetime; cancellation stops the reader on disposal.
+        _ = this.eventDispatchChannel.Writer.TryWrite(dispatch);
+    }
+
+    private async Task EventDispatchLoopAsync()
+    {
+        await foreach (var dispatch in this.eventDispatchChannel.Reader
+                           .ReadAllAsync()
+                           .ConfigureAwait(false))
+        {
+            try
+            {
+                dispatch();
+            }
+            catch (Exception ex)
+            {
+                // A consumer bug must not kill observation delivery for every
+                // client. Preserve best-effort delivery and leave a debugger
+                // breadcrumb.
+                Debug.WriteLine(
+                    $"Observation event consumer failed: {ex}");
+            }
+        }
+    }
+
+    private void QueueRealtimeEventDispatch(Action dispatch)
+    {
+        ArgumentNullException.ThrowIfNull(dispatch);
+        _ = this.realtimeEventDispatchChannel.Writer.TryWrite(dispatch);
+    }
+
+    private async Task RealtimeEventDispatchLoopAsync()
+    {
+        await foreach (var dispatch in this.realtimeEventDispatchChannel.Reader
+                           .ReadAllAsync()
+                           .ConfigureAwait(false))
+        {
+            try
+            {
+                dispatch();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine(
+                    $"Realtime observation event consumer failed: {ex}");
+            }
+        }
     }
 
     private async Task PollLoopAsync(
@@ -1472,7 +1697,7 @@ public sealed class ClientObservationCoordinator : IDisposable
         try
         {
             using var timer = new PeriodicTimer(
-                schedulerInterval);
+                panelPresentationSchedulerInterval);
 
             while (await timer
                        .WaitForNextTickAsync(cancellationToken)
@@ -1486,6 +1711,122 @@ public sealed class ClientObservationCoordinator : IDisposable
         {
             // Normal shutdown.
         }
+    }
+
+    private async Task DismantlePacingPollLoopAsync(
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(
+                dismantlePacingPollInterval);
+
+            while (await timer
+                       .WaitForNextTickAsync(cancellationToken)
+                       .ConfigureAwait(false))
+            {
+                this.PollDismantlePacingStates();
+            }
+        }
+        catch (OperationCanceledException)
+            when (cancellationToken.IsCancellationRequested)
+        {
+            // Normal shutdown.
+        }
+    }
+
+    private void PollDismantlePacingStates()
+    {
+        ObservedClientState[] states;
+
+        lock (this.lockObject)
+        {
+            states =
+            [
+                .. this.observedClients.Values,
+            ];
+        }
+
+        foreach (var state in states)
+        {
+            if (!this.IsCurrentObservedState(state))
+            {
+                continue;
+            }
+
+            this.PollDismantlePacing(state);
+        }
+    }
+
+    private void PollDismantlePacing(ObservedClientState state)
+    {
+        var previous = state.RealtimeManufacturingActivity;
+        ClientManufacturingActivityObservation current;
+        var observedAt = DateTimeOffset.UtcNow;
+
+        if (state.LifecycleState != ClientLifecycleState.InGame ||
+            !state.HasDirectClientState ||
+            state.ClientContextAddress == 0 ||
+            state.LoadingOrTransitionFlag != 0)
+        {
+            current = ClientManufacturingActivityObservation.Unavailable(
+                "Analyze pacing is inactive",
+                observedAt);
+        }
+        else
+        {
+            try
+            {
+                using var process = Process.GetProcessById(state.ProcessId);
+                if (process.HasExited ||
+                    new DateTimeOffset(
+                        process.StartTime.ToUniversalTime()) !=
+                    state.ProcessStartedAt)
+                {
+                    this.Detach(state.ProcessId);
+                    return;
+                }
+
+                using var memory = ProcessMemoryReader.Open(state.ProcessId);
+                current = this.recipeMappingObserver.ObserveAnalyzeUiPacing(
+                    memory,
+                    state,
+                    observedAt);
+            }
+            catch (ArgumentException)
+            {
+                this.Detach(state.ProcessId);
+                return;
+            }
+            catch (InvalidOperationException)
+            {
+                this.Detach(state.ProcessId);
+                return;
+            }
+            catch (Win32Exception)
+            {
+                current = ClientManufacturingActivityObservation.Unavailable(
+                    "Analyze pacing read failed",
+                    observedAt);
+            }
+            catch
+            {
+                current = ClientManufacturingActivityObservation.Unavailable(
+                    "Analyze pacing read failed",
+                    observedAt);
+            }
+        }
+
+        if (!this.IsCurrentObservedState(state))
+        {
+            return;
+        }
+
+        state.RealtimeManufacturingActivity = current;
+        this.QueueCraftingRealtimeIfChanged(
+            state.ProcessId,
+            previous,
+            current);
     }
 
     private void PollDueNavigationStates()
@@ -1582,6 +1923,18 @@ public sealed class ClientObservationCoordinator : IDisposable
                 state.NextLootTractorPollAt <= now)
             {
                 this.PollLootTractor(state);
+            }
+
+            if (this.IsCurrentObservedState(state) &&
+                state.NextCraftingActivityPollAt <= now)
+            {
+                this.PollCraftingActivity(state);
+            }
+
+            if (this.IsCurrentObservedState(state) &&
+                state.NextVendorTransactionPollAt <= now)
+            {
+                this.PollVendorTransactionState(state);
             }
 
             if (this.IsCurrentObservedState(state) &&
@@ -1777,9 +2130,7 @@ public sealed class ClientObservationCoordinator : IDisposable
 
         if (snapshot != null)
         {
-            this.SnapshotChanged?.Invoke(
-                this,
-                new ClientObservationSnapshotChangedEventArgs(snapshot));
+            this.QueueSnapshotChanged(snapshot);
         }
     }
 
@@ -2316,10 +2667,314 @@ public sealed class ClientObservationCoordinator : IDisposable
 
         if (snapshot != null)
         {
-            this.SnapshotChanged?.Invoke(
-                this,
-                new ClientObservationSnapshotChangedEventArgs(snapshot));
+            this.QueueSnapshotChanged(snapshot);
         }
+    }
+
+    private void QueueCraftingRealtimeIfChanged(
+        int processId,
+        ClientManufacturingActivityObservation previous,
+        ClientManufacturingActivityObservation current)
+    {
+        if (ReferenceEquals(previous, current) ||
+            previous.IsAvailable == current.IsAvailable &&
+            previous.IsAnalyzePanelActive == current.IsAnalyzePanelActive &&
+            previous.Mode == current.Mode &&
+            previous.Validity == current.Validity &&
+            previous.TargetItemTemplateId == current.TargetItemTemplateId &&
+            previous.IsAnalyzeUiPacingAvailable ==
+                current.IsAnalyzeUiPacingAvailable &&
+            previous.IsAnalyzeUiAttemptInProgress ==
+                current.IsAnalyzeUiAttemptInProgress &&
+            previous.AnalyzeUiDelayRemainingDeciseconds ==
+                current.AnalyzeUiDelayRemainingDeciseconds)
+        {
+            return;
+        }
+
+        this.QueueCraftingActivityRealtimeChanged(processId, current);
+    }
+
+    private void PollCraftingActivity(
+        ObservedClientState state)
+    {
+        var previous = state.ManufacturingActivity;
+
+        try
+        {
+            using var process = Process.GetProcessById(state.ProcessId);
+
+            if (process.HasExited ||
+                new DateTimeOffset(
+                    process.StartTime.ToUniversalTime()) !=
+                state.ProcessStartedAt)
+            {
+                this.Detach(state.ProcessId);
+                return;
+            }
+
+            if (state.LifecycleState != ClientLifecycleState.InGame ||
+                !state.HasDirectClientState ||
+                state.ModuleBaseAddress == 0 ||
+                state.ClientContextAddress == 0 ||
+                state.LoadingOrTransitionFlag != 0)
+            {
+                state.NextCraftingActivityPollAt = DateTimeOffset.MaxValue;
+                return;
+            }
+
+            using var memory = ProcessMemoryReader.Open(state.ProcessId);
+            var observedAt = DateTimeOffset.UtcNow;
+            var localPlayerLookup =
+                this.localPlayerObserver.TryGetCachedAuxDataLookup(
+                    state,
+                    out var cachedLocalPlayerLookup)
+                    ? cachedLocalPlayerLookup
+                    : (ClientAuxDataLookupSnapshot?)null;
+
+            this.recipeMappingObserver.RefreshActivity(
+                memory,
+                state,
+                state.ModuleBaseAddress,
+                localPlayerLookup,
+                observedAt);
+
+            state.NextCraftingActivityPollAt =
+                ResolveNextCraftingActivityPollAt(state, observedAt);
+        }
+        catch (ArgumentException)
+        {
+            this.Detach(state.ProcessId);
+            return;
+        }
+        catch (InvalidOperationException)
+        {
+            this.Detach(state.ProcessId);
+            return;
+        }
+        catch (Win32Exception)
+        {
+            state.NextCraftingActivityPollAt = DateTimeOffset.MaxValue;
+            return;
+        }
+        catch
+        {
+            state.NextCraftingActivityPollAt = DateTimeOffset.MaxValue;
+            return;
+        }
+
+        if (ReferenceEquals(previous, state.ManufacturingActivity))
+        {
+            return;
+        }
+
+        state.SnapshotSequence++;
+        var snapshot = this.CreateSnapshot(state);
+
+        lock (this.lockObject)
+        {
+            if (!this.observedClients.TryGetValue(
+                    state.ProcessId,
+                    out var currentState) ||
+                !ReferenceEquals(currentState, state))
+            {
+                return;
+            }
+
+            state.Snapshot = snapshot;
+        }
+
+        this.QueueSnapshotChanged(snapshot);
+    }
+
+    private void PollVendorTransactionState(
+        ObservedClientState state)
+    {
+        var observedAt = DateTimeOffset.UtcNow;
+        var nextInterval = vendorTransactionIdlePollInterval;
+
+        try
+        {
+            if (state.LifecycleState != ClientLifecycleState.InGame ||
+                !state.HasDirectClientState ||
+                state.ModuleBaseAddress == 0 ||
+                state.ClientContextAddress == 0 ||
+                state.LoadingOrTransitionFlag != 0 ||
+                !state.World.IsAvailable ||
+                state.World.Environment != ClientWorldEnvironment.Starbase)
+            {
+                state.NextVendorTransactionPollAt =
+                    observedAt + vendorTransactionIdlePollInterval;
+                return;
+            }
+
+            using var memory = ProcessMemoryReader.Open(state.ProcessId);
+            if (!IsVendorTradeActiveFast(memory, state))
+            {
+                state.NextVendorTransactionPollAt =
+                    observedAt + vendorTransactionIdlePollInterval;
+                return;
+            }
+
+            nextInterval = vendorTransactionPollInterval;
+            if (!this.localPlayerObserver.RefreshVendorTransactionState(
+                    memory,
+                    state))
+            {
+                state.NextVendorTransactionPollAt = observedAt + nextInterval;
+                return;
+            }
+        }
+        catch (Win32Exception)
+        {
+            state.NextVendorTransactionPollAt =
+                observedAt + vendorTransactionIdlePollInterval;
+            return;
+        }
+        catch (InvalidOperationException)
+        {
+            state.NextVendorTransactionPollAt =
+                observedAt + vendorTransactionIdlePollInterval;
+            return;
+        }
+        catch
+        {
+            state.NextVendorTransactionPollAt =
+                observedAt + vendorTransactionIdlePollInterval;
+            return;
+        }
+
+        state.NextVendorTransactionPollAt = observedAt + nextInterval;
+        state.SnapshotSequence++;
+        var snapshot = this.CreateSnapshot(state);
+
+        lock (this.lockObject)
+        {
+            if (!this.observedClients.TryGetValue(
+                    state.ProcessId,
+                    out var currentState) ||
+                !ReferenceEquals(currentState, state))
+            {
+                return;
+            }
+
+            state.Snapshot = snapshot;
+        }
+
+        this.QueueSnapshotChanged(snapshot);
+    }
+
+    private static bool IsVendorTradeActiveFast(
+        ProcessMemoryReader memory,
+        ObservedClientState state)
+    {
+        var talkTreeDefinition = ClientStarbaseInteractionCatalog.Panels
+            .FirstOrDefault(panel =>
+                panel.Kind == ClientStarbasePanelKind.TalkTree);
+        var talkTreeAddress = state.StarbaseContext.Diagnostics.Panels
+            .FirstOrDefault(panel =>
+                panel.Kind == ClientStarbasePanelKind.TalkTree &&
+                panel.Address != 0)
+            ?.Address ?? 0;
+
+        try
+        {
+            // Do not wait for the ordinary 500 ms StarbaseContext refresh to
+            // notice a newly opened vendor. The StarbaseView interface pointer
+            // is already a stable direct reference, so resolve TalkTree from
+            // that one field when diagnostics have not populated it yet.
+            if (talkTreeAddress == 0 &&
+                talkTreeDefinition != null &&
+                state.StarbaseContext.StarbaseViewAddress != 0)
+            {
+                var talkTreePointerAddress = checked(
+                    state.StarbaseContext.StarbaseViewAddress +
+                    talkTreeDefinition.ViewFieldOffset);
+
+                if (!memory.TryReadUInt32(
+                        talkTreePointerAddress,
+                        out talkTreeAddress))
+                {
+                    return false;
+                }
+            }
+
+            if (talkTreeAddress == 0)
+            {
+                return state.StarbaseContext.Interaction.Kind ==
+                    ClientStarbaseInteractionKind.VendorTrade;
+            }
+
+            var activeAddress = checked(
+                talkTreeAddress +
+                ClientStarbaseInteractionCatalog.PanelActiveFlagOffset);
+            var controllerAddress = checked(
+                talkTreeAddress +
+                ClientStarbaseInteractionCatalog
+                    .TalkTreeVendorTradeControllerOffset);
+
+            if (!TryReadByte(memory, activeAddress, out var activeFlag) ||
+                !memory.TryReadUInt32(
+                    controllerAddress,
+                    out var vendorTradeController))
+            {
+                return false;
+            }
+
+            // A non-zero child is the authoritative VendorTrade discriminator.
+            // The outer TalkTree active byte can transition a frame earlier or
+            // later, so do not require it when the child is already present.
+            return vendorTradeController != 0 ||
+                   (activeFlag != 0 &&
+                    state.StarbaseContext.Interaction.Kind ==
+                        ClientStarbaseInteractionKind.VendorTrade);
+        }
+        catch (OverflowException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryReadByte(
+        ProcessMemoryReader memory,
+        uint address,
+        out byte value)
+    {
+        value = 0;
+
+        if (!memory.TryReadBytes(address, 1, out var bytes) ||
+            bytes.Length != 1)
+        {
+            return false;
+        }
+
+        value = bytes[0];
+        return true;
+    }
+
+    private static DateTimeOffset ResolveNextCraftingActivityPollAt(
+        ObservedClientState state,
+        DateTimeOffset observedAt)
+    {
+        if (state.ManufacturingActivity.IsAnalyzePanelActive ||
+            state.ManufacturingActivity.IsManufacturingPanelActive)
+        {
+            return observedAt + craftingActivityPollInterval;
+        }
+
+        // The panel addresses are discovered by the ordinary starbase observer
+        // and remain stable while the starbase UI is resident. Polling their
+        // active bytes is deliberately much smaller than refreshing starbase
+        // topology or any inventory tree.
+        var hasKnownCraftingPanel = state.StarbaseContext.Diagnostics.Panels.Any(
+            panel =>
+                panel.Address > 0 &&
+                panel.Kind is
+                    ClientStarbasePanelKind.Analyze or
+                    ClientStarbasePanelKind.Manufacturing);
+        return hasKnownCraftingPanel
+            ? observedAt + craftingActivityIdlePollInterval
+            : DateTimeOffset.MaxValue;
     }
 
     private void PollLootTractor(
@@ -2428,9 +3083,7 @@ public sealed class ClientObservationCoordinator : IDisposable
             state.Snapshot = snapshot;
         }
 
-        this.SnapshotChanged?.Invoke(
-            this,
-            new ClientObservationSnapshotChangedEventArgs(snapshot));
+        this.QueueSnapshotChanged(snapshot);
     }
 
     private static bool HasMeaningfulLootTractorChange(
@@ -2596,10 +3249,43 @@ public sealed class ClientObservationCoordinator : IDisposable
                             panelObservedAt);
                 }
 
+                var gameplayObservedAt = DateTimeOffset.UtcNow;
+
                 this.RefreshFeatureLanes(
                     memory,
                     state,
-                    DateTimeOffset.UtcNow);
+                    gameplayObservedAt);
+
+                // Crafting consumes the starbase panel state refreshed
+                // by the feature lane above. Activity remains a fast read on
+                // every normal in-game poll; catalogue capture is armed only while
+                // Pilot Archive → Crafting Recipes needs it.
+                var localPlayerLookup =
+                    this.localPlayerObserver.TryGetCachedAuxDataLookup(
+                        state,
+                        out var cachedLocalPlayerLookup)
+                        ? cachedLocalPlayerLookup
+                        : (ClientAuxDataLookupSnapshot?)null;
+
+                this.recipeMappingObserver.RefreshActivity(
+                    memory,
+                    state,
+                    state.ModuleBaseAddress,
+                    localPlayerLookup,
+                    gameplayObservedAt);
+
+                state.NextCraftingActivityPollAt =
+                    ResolveNextCraftingActivityPollAt(
+                        state,
+                        gameplayObservedAt);
+
+                if (state.RecipeMappingCatalogObservationEnabled)
+                {
+                    this.recipeMappingObserver.RefreshCatalog(
+                        memory,
+                        state,
+                        gameplayObservedAt);
+                }
             }
             else
             {
@@ -2678,57 +3364,63 @@ public sealed class ClientObservationCoordinator : IDisposable
             state.Snapshot = snapshot;
         }
 
-        this.SnapshotChanged?.Invoke(
-            this,
-            new ClientObservationSnapshotChangedEventArgs(snapshot));
-
-        if (missionPresentationChangedEvent != null)
+        // Preserve the original publication order while keeping subscriber
+        // work off the observation scheduler. SnapshotChanged historically ran
+        // before the presentation/lifecycle/chat events from this poll.
+        this.QueueEventDispatch(() =>
         {
-            this.MissionPresentationChanged?.Invoke(
+            this.SnapshotChanged?.Invoke(
                 this,
-                missionPresentationChangedEvent);
-        }
+                new ClientObservationSnapshotChangedEventArgs(snapshot));
 
-        if (factionPresentationChangedEvent != null)
-        {
-            this.FactionPresentationChanged?.Invoke(
-                this,
-                factionPresentationChangedEvent);
-        }
+            if (missionPresentationChangedEvent != null)
+            {
+                this.MissionPresentationChanged?.Invoke(
+                    this,
+                    missionPresentationChangedEvent);
+            }
 
-        if (skillPresentationChangedEvent != null)
-        {
-            this.SkillPresentationChanged?.Invoke(
-                this,
-                skillPresentationChangedEvent);
-        }
+            if (factionPresentationChangedEvent != null)
+            {
+                this.FactionPresentationChanged?.Invoke(
+                    this,
+                    factionPresentationChangedEvent);
+            }
 
-        if (inventoryPresentationChangedEvent != null)
-        {
-            this.InventoryPresentationChanged?.Invoke(
-                this,
-                inventoryPresentationChangedEvent);
-        }
+            if (skillPresentationChangedEvent != null)
+            {
+                this.SkillPresentationChanged?.Invoke(
+                    this,
+                    skillPresentationChangedEvent);
+            }
 
-        if (currentObservedLifecycle != previousLifecycle)
-        {
-            this.LifecycleStateChanged?.Invoke(
-                this,
-                new ClientLifecycleStateChangedEventArgs
-                {
-                    ProcessId = state.ProcessId,
-                    Previous = previousLifecycle,
-                    Current = currentObservedLifecycle,
-                    Snapshot = snapshot,
-                });
-        }
+            if (inventoryPresentationChangedEvent != null)
+            {
+                this.InventoryPresentationChanged?.Invoke(
+                    this,
+                    inventoryPresentationChangedEvent);
+            }
 
-        foreach (var message in messages)
-        {
-            this.ChatMessageObserved?.Invoke(
-                this,
-                new ClientChatMessageObservedEventArgs(message));
-        }
+            if (currentObservedLifecycle != previousLifecycle)
+            {
+                this.LifecycleStateChanged?.Invoke(
+                    this,
+                    new ClientLifecycleStateChangedEventArgs
+                    {
+                        ProcessId = state.ProcessId,
+                        Previous = previousLifecycle,
+                        Current = currentObservedLifecycle,
+                        Snapshot = snapshot,
+                    });
+            }
+
+            foreach (var message in messages)
+            {
+                this.ChatMessageObserved?.Invoke(
+                    this,
+                    new ClientChatMessageObservedEventArgs(message));
+            }
+        });
     }
 
     private void RefreshFeatureLanes(
@@ -2988,6 +3680,8 @@ public sealed class ClientObservationCoordinator : IDisposable
             TooltipDelay = state.TooltipDelay,
             TooltipHover = state.TooltipHover,
             ProductionRecipe = state.ProductionRecipe,
+            ManufacturingActivity = state.ManufacturingActivity,
+            ManufacturingCatalog = state.ManufacturingCatalog,
             Combat = this.combatObserver.GetObservation(
                 state.ProcessId),
         };
@@ -3014,6 +3708,7 @@ public sealed class ClientObservationCoordinator : IDisposable
         this.reputationObserver.Forget(processId);
         this.panelPresentationObserver.Forget(processId);
         this.tooltipDelayObserver.Forget(processId);
+        this.recipeMappingObserver.Forget(processId);
         this.chatChannelOptionsReader.Forget(processId);
         this.chatColorOptionsReader.Forget(processId);
     }
@@ -3082,11 +3777,20 @@ public sealed class ClientObservationCoordinator : IDisposable
         state.TooltipHover =
             ClientTooltipHoverObservation.Unavailable(status);
 
+        state.ManufacturingActivity =
+            ClientManufacturingActivityObservation.Unavailable(status);
+        state.RealtimeManufacturingActivity =
+            ClientManufacturingActivityObservation.Unavailable(status);
+
+        state.ManufacturingCatalog =
+            ClientManufacturingCatalogObservation.Unavailable(status);
+
         state.LastFeatureObservedAt = null;
         state.LastSlowFeatureObservedAt = null;
         state.NextPanelPresentationPollAt = DateTimeOffset.UtcNow;
         state.NextFeaturePollAt = DateTimeOffset.UtcNow;
         state.NextLootTractorPollAt = DateTimeOffset.UtcNow;
+        state.NextCraftingActivityPollAt = DateTimeOffset.MaxValue;
         state.NextTooltipHoverPollAt = DateTimeOffset.UtcNow;
         state.NextTooltipItemPollAt = DateTimeOffset.MaxValue;
         state.PendingTooltipItemRefreshScope =

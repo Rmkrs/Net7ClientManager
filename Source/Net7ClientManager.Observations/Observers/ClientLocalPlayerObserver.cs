@@ -222,6 +222,55 @@ internal sealed class ClientLocalPlayerObserver
             };
     }
 
+    public bool RefreshVendorTransactionState(
+        ProcessMemoryReader memory,
+        ObservedClientState state)
+    {
+        ArgumentNullException.ThrowIfNull(memory);
+        ArgumentNullException.ThrowIfNull(state);
+
+        if (!state.HasDirectClientState ||
+            state.ClientContextAddress == 0 ||
+            !state.LocalPlayer.IsAvailable ||
+            !this.TryGetCachedLookup(state, out var cachedLookup))
+        {
+            return false;
+        }
+
+        if (!this.characterDetailsObserver.TryRefreshCreditsFast(
+                memory,
+                state.LocalPlayer.CharacterDetails,
+                out var characterDetails) ||
+            !this.inventoryObserver.TryRefreshCargoTransactionState(
+                memory,
+                cachedLookup.Lookup,
+                state.LocalPlayer.Inventory,
+                out var inventory))
+        {
+            return false;
+        }
+
+        var creditsChanged =
+            characterDetails.MoneyValidState !=
+                state.LocalPlayer.CharacterDetails.MoneyValidState ||
+            characterDetails.Credits !=
+                state.LocalPlayer.CharacterDetails.Credits;
+        var cargoChanged =
+            !ReferenceEquals(inventory, state.LocalPlayer.Inventory);
+
+        if (!creditsChanged && !cargoChanged)
+        {
+            return false;
+        }
+
+        state.LocalPlayer = state.LocalPlayer with
+        {
+            CharacterDetails = characterDetails,
+            Inventory = inventory,
+        };
+        return true;
+    }
+
     public void RefreshVendorShoppingState(
         ProcessMemoryReader memory,
         ObservedClientState state)
@@ -258,6 +307,22 @@ internal sealed class ClientLocalPlayerObserver
             Inventory = inventory,
             VendorInventory = vendorInventory,
         };
+    }
+
+    public bool TryGetCachedAuxDataLookup(
+        ObservedClientState state,
+        out ClientAuxDataLookupSnapshot lookup)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+
+        if (this.TryGetCachedLookup(state, out var cachedLookup))
+        {
+            lookup = cachedLookup.Lookup;
+            return true;
+        }
+
+        lookup = default;
+        return false;
     }
 
     public void Forget(int processId)

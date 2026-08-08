@@ -36,23 +36,11 @@ internal sealed class SkillBuildEquipmentCatalog
             return false;
         }
 
-        // Native item attributes use three-bit exclusion masks:
-        //   race bit 0 = Terran, bit 1 = Jenquai, bit 2 = Progen
-        //   profession bit 0 = Warrior, bit 1 = Trader, bit 2 = Explorer
-        // A mask containing the other two bits therefore represents an
-        // "Only" restriction. Attribute 0x11 adds the lore restriction used
-        // by the native tooltip path: 1 excludes Progen, 2 excludes Jenquai.
-        var professionMask = choice.ProfessionRestriction & 0x07;
-        var raceMask = choice.RaceRestriction & 0x07;
-        raceMask |= choice.LoreRestriction switch
-        {
-            1 => 1 << 2,
-            2 => 1 << 1,
-            _ => 0,
-        };
-
-        if ((professionMask & (1 << profession.ProfessionIndex)) != 0 ||
-            (raceMask & (1 << profession.RaceIndex)) != 0)
+        if (!ItemTemplateRestrictionEvaluator.IsCompatible(
+                choice.ProfessionRestriction,
+                choice.RaceRestriction,
+                choice.LoreRestriction,
+                profession))
         {
             return false;
         }

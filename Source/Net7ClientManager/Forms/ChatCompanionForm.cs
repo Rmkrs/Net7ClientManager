@@ -1690,6 +1690,10 @@ internal sealed class ChatCompanionForm : ThemedForm
             }
         }
 
+        var openViewKey = this.IsSelectedViewOpen()
+            ? this.selectedViewKey
+            : null;
+
         foreach (var state in this.viewStates.Values)
         {
             state.LastMessageAt = this.presentedEntries
@@ -1697,6 +1701,14 @@ internal sealed class ChatCompanionForm : ThemedForm
                 .Select(entry => entry.Entry.ObservedAt)
                 .DefaultIfEmpty(DateTimeOffset.MinValue)
                 .Max();
+
+            if (string.Equals(
+                    state.Key,
+                    openViewKey,
+                    StringComparison.Ordinal))
+            {
+                continue;
+            }
 
             foreach (var entry in newEntries)
             {
@@ -2303,10 +2315,13 @@ internal sealed class ChatCompanionForm : ThemedForm
         }
     }
 
+    private bool IsSelectedViewOpen() =>
+        this.Visible &&
+        this.WindowState != FormWindowState.Minimized;
+
     private bool IsSelectedViewBeingRead()
     {
-        return this.Visible &&
-               this.WindowState != FormWindowState.Minimized &&
+        return this.IsSelectedViewOpen() &&
                this.ContainsFocus;
     }
 

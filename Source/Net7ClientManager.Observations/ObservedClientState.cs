@@ -164,6 +164,27 @@ internal sealed class ObservedClientState(
         ClientProductionRecipeObservation.Unavailable(
             "Not observed yet");
 
+    public ClientManufacturingActivityObservation ManufacturingActivity
+    { get; set; } =
+        ClientManufacturingActivityObservation.Unavailable(
+            "Not observed yet");
+
+    // Latest sample from the dedicated native Analyze pacing loop. It is
+    // intentionally separate from ManufacturingActivity so the visible
+    // 0.1-second countdown never depends on, or fans out through, the general
+    // snapshot scheduler.
+    public ClientManufacturingActivityObservation RealtimeManufacturingActivity
+    { get; set; } =
+        ClientManufacturingActivityObservation.Unavailable(
+            "Not observed yet");
+
+    public ClientManufacturingCatalogObservation ManufacturingCatalog
+    { get; set; } =
+        ClientManufacturingCatalogObservation.Unavailable(
+            "Not observed yet");
+
+    public bool RecipeMappingCatalogObservationEnabled { get; set; }
+
     public ClientLifecycleState LifecycleState { get; set; }
 
     public DateTimeOffset NextFallbackScanAt { get; set; }
@@ -175,6 +196,9 @@ internal sealed class ObservedClientState(
     public DateTimeOffset NextFeaturePollAt { get; set; }
 
     public DateTimeOffset NextLootTractorPollAt { get; set; }
+
+    public DateTimeOffset NextCraftingActivityPollAt { get; set; } =
+        DateTimeOffset.MaxValue;
 
     public DateTimeOffset NextTooltipHoverPollAt { get; set; }
 
@@ -193,6 +217,8 @@ internal sealed class ObservedClientState(
     public DateTimeOffset NextSlowFeaturePollAt { get; set; }
 
     public DateTimeOffset NextVendorShoppingPollAt { get; set; }
+
+    public DateTimeOffset NextVendorTransactionPollAt { get; set; }
 
     public DateTimeOffset? LastFeatureObservedAt { get; set; }
 

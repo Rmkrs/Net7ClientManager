@@ -273,6 +273,221 @@ internal sealed class ClientInventoryObserver
         };
     }
 
+    public bool TryRefreshCargoTransactionState(
+        ProcessMemoryReader memory,
+        ClientAuxDataLookupSnapshot lookup,
+        ClientInventoryObservation current,
+        out ClientInventoryObservation updated)
+    {
+        ArgumentNullException.ThrowIfNull(memory);
+        ArgumentNullException.ThrowIfNull(current);
+
+        updated = current;
+        if (!current.IsAvailable ||
+            current.CargoCapacity is not { } cargoCapacity ||
+            cargoCapacity < 0 ||
+            cargoCapacity > MaximumCargoSlotCount)
+        {
+            return false;
+        }
+
+        var currentBySlot = current.CargoSlots.ToDictionary(
+            slot => slot.Slot);
+        List<ClientInventoryItemObservation> refreshed =
+            new(current.CargoSlots.Count);
+        var changed = false;
+
+        for (var slot = 0; slot < cargoCapacity; slot++)
+        {
+            if (!currentBySlot.TryGetValue(slot, out var previous))
+            {
+                return false;
+            }
+
+            var prefix = string.Create(
+                CultureInfo.InvariantCulture,
+                $"Inventory.Cargo.{slot}");
+            var itemName = $"{prefix}.ItemTemplateID";
+            var stackName = $"{prefix}.StackCount";
+
+            if (!TryResolveFastPropertyAddress(
+                    previous,
+                    lookup,
+                    itemName,
+                    out var itemAddress) ||
+                !TryReadFastInt32AuxDataProperty(
+                    memory,
+                    itemAddress,
+                    out var itemValid,
+                    out var itemTemplateId) ||
+                !itemValid)
+            {
+                return false;
+            }
+
+            var hasStackAddress = TryResolveFastPropertyAddress(
+                previous,
+                lookup,
+                stackName,
+                out var stackAddress);
+            int? stackCount = null;
+            if (itemTemplateId > 0)
+            {
+                if (hasStackAddress)
+                {
+                    if (!TryReadFastInt32AuxDataProperty(
+                            memory,
+                            stackAddress,
+                            out var stackValid,
+                            out var observedStackCount))
+                    {
+                        return false;
+                    }
+
+                    stackCount = stackValid
+                        ? Math.Max(1, observedStackCount)
+                        : 1;
+                }
+                else
+                {
+                    // Empty cargo slots do not always have StackCount in the
+                    // cached AuxData lookup until the first item arrives. A
+                    // newly occupied slot is one inventory unit; an already
+                    // occupied slot keeps its last proven count until the
+                    // ordinary inventory lane hydrates the new property.
+                    stackCount = previous.ItemTemplateId == itemTemplateId
+                        ? Math.Max(1, previous.StackCount ?? 1)
+                        : 1;
+                }
+            }
+
+            var sameItem = previous.ItemTemplateId == itemTemplateId;
+            var sameState = previous.IsPresent &&
+                            previous.IsValid &&
+                            sameItem &&
+                            previous.StackCount == stackCount;
+
+            var addresses = new Dictionary<string, uint>(
+                previous.PropertyAddresses,
+                StringComparer.Ordinal)
+            {
+                [itemName] = itemAddress,
+            };
+
+            if (hasStackAddress)
+            {
+                addresses[stackName] = stackAddress;
+            }
+
+            var next = sameState
+                ? previous
+                : previous with
+                {
+                    PropertyPrefix = prefix,
+                    IsPresent = true,
+                    IsValid = true,
+                    Status = "Fast vendor transaction observation",
+                    ItemTemplateId = itemTemplateId,
+                    StackCount = stackCount,
+                    // Detailed item fields are not part of this hot lane. Keep
+                    // them only while the same item remains resident; a normal
+                    // inventory refresh will hydrate a newly occupied slot.
+                    Quality = sameItem ? previous.Quality : null,
+                    Structure = sameItem ? previous.Structure : null,
+                    AverageCost = sameItem ? previous.AverageCost : null,
+                    BuilderName = sameItem ? previous.BuilderName : null,
+                    InstanceInfo = sameItem ? previous.InstanceInfo : null,
+                    InstanceActivatedEffectInfo = sameItem
+                        ? previous.InstanceActivatedEffectInfo
+                        : null,
+                    InstanceEquipEffectInfo = sameItem
+                        ? previous.InstanceEquipEffectInfo
+                        : null,
+                    Template = sameItem ? previous.Template : null,
+                    PropertyAddresses = addresses,
+                };
+
+            refreshed.Add(next);
+            changed |= !ReferenceEquals(next, previous);
+        }
+
+        foreach (var slot in current.CargoSlots
+                     .Where(slot => slot.Slot >= cargoCapacity)
+                     .OrderBy(slot => slot.Slot))
+        {
+            refreshed.Add(slot);
+        }
+
+        if (!changed)
+        {
+            return true;
+        }
+
+        updated = current with
+        {
+            CargoSlots = refreshed,
+        };
+        return true;
+    }
+
+    private static bool TryResolveFastPropertyAddress(
+        ClientInventoryItemObservation previous,
+        ClientAuxDataLookupSnapshot lookup,
+        string propertyName,
+        out uint address)
+    {
+        if (previous.PropertyAddresses.TryGetValue(
+                propertyName,
+                out address) &&
+            address != 0)
+        {
+            return true;
+        }
+
+        return lookup.Properties.TryGetValue(propertyName, out address) &&
+               address != 0;
+    }
+
+    private static bool TryReadFastInt32AuxDataProperty(
+        ProcessMemoryReader memory,
+        uint propertyAddress,
+        out bool isValid,
+        out int value)
+    {
+        isValid = false;
+        value = 0;
+
+        try
+        {
+            if (!memory.TryReadUInt32(
+                    checked(propertyAddress + 0x70),
+                    out var validState))
+            {
+                return false;
+            }
+
+            isValid = validState != 0;
+            if (!isValid)
+            {
+                return true;
+            }
+
+            if (!memory.TryReadUInt32(
+                    checked(propertyAddress + 0x84),
+                    out var rawValue))
+            {
+                return false;
+            }
+
+            value = unchecked((int)rawValue);
+            return true;
+        }
+        catch (OverflowException)
+        {
+            return false;
+        }
+    }
+
     private IReadOnlyList<ClientInventoryItemObservation> ReadCollection(
         ProcessMemoryReader memory,
         uint moduleBaseAddress,

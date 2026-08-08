@@ -6,6 +6,7 @@ using Net7ClientManager.Addons.Contracts;
 using Net7ClientManager.Addons.Projection;
 using Net7ClientManager.Observations;
 using Net7ClientManager.Observations.Models;
+using Net7ClientManager.RecipeMapping;
 
 internal static class GameItemToolTipPresentationBuilder
 {
@@ -14,7 +15,8 @@ internal static class GameItemToolTipPresentationBuilder
     public static GameItemToolTipPreparation? Prepare(
         ClientObservationSnapshot snapshot,
         ClientTooltipHoverObservation hover,
-        Func<int?, Size, Image?> resolveIcon)
+        Func<int?, Size, Image?> resolveIcon,
+        Func<int, RecipeMappingItemPresentation?>? resolveRecipeMapping = null)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(hover);
@@ -42,10 +44,13 @@ internal static class GameItemToolTipPresentationBuilder
         var icon = resolveIcon(
             item.Slot.TemplateId,
             new Size(32, 32));
+        var recipeMapping = resolveRecipeMapping?.Invoke(
+            item.Slot.TemplateId.Value);
         var content = PilotArchiveItemToolTipBuilder.Build(
             item.Slot,
             template,
-            icon);
+            icon,
+            recipeMapping);
         var key = string.Create(
             CultureInfo.InvariantCulture,
             $"{hover.ViewKind}:{hover.ActiveGadgetAddress:X8}:{hover.ControlName}:{item.Slot.TemplateId.Value}");

@@ -28,6 +28,8 @@ public sealed class PilotArchiveSettings
 
     public bool ShowActivityCombat { get; set; } = true;
 
+    public bool ShowActivityCrafting { get; set; } = true;
+
     public Dictionary<string, PilotArchiveGridSortSettings> GridSorts
     { get; set; } = new(StringComparer.Ordinal);
 

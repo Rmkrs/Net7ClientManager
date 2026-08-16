@@ -81,6 +81,12 @@ internal sealed class GalaxyKnowledgeCoordinator : IDisposable
     public event EventHandler<GalaxyKnowledgeSnapshotChangedEventArgs>?
         SnapshotChanged;
 
+    public void RefreshItemCatalogNow()
+    {
+        this.TryRebuildFromCurrentInputs(
+            refreshCatalog: true);
+    }
+
     public void UpdateNavigationData(
         GalaxyDataSet nextDataSet)
     {

@@ -8,6 +8,11 @@ using Net7ClientManager.Observations.Observers;
 /// </summary>
 public static class ClientItemTemplateNameResolver
 {
+    public static void ConfigurePreferredCatalogPath(string? path)
+    {
+        ClientItemTemplateCatalog.ConfigurePreferredCatalogPath(path);
+    }
+
     public static string? GetKnownName(int? itemTemplateId)
     {
         return itemTemplateId is > 0

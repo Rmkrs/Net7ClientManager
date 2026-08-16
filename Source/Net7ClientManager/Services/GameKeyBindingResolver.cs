@@ -41,6 +41,22 @@ internal sealed class GameKeyBindingResolver(
                 @"Could not find ..\Data\client\output\keymap.ini relative to the running client.exe.");
         }
 
+        // A pristine client does not materialize keymap.ini until the player
+        // changes/saves Control Options. In that specific case the client is
+        // still using its original keyboard defaults, so use the matching
+        // built-in bindings. Once keymap.ini exists it remains authoritative:
+        // absent entries there are intentional user unbinds and must not fall
+        // back to defaults.
+        if (!File.Exists(keyMapPath) &&
+            TryResolveDefaultClientBinding(
+                command,
+                canonicalDefinitionName,
+                keyMapPath,
+                out var defaultResolution))
+        {
+            return defaultResolution;
+        }
+
         GameKeyMapDocument? document = null;
         var parseError = "";
 
@@ -151,6 +167,71 @@ internal sealed class GameKeyBindingResolver(
     public void ForgetProcess(int processId)
     {
         keyMapLocator.ForgetProcess(processId);
+    }
+
+    private static bool TryResolveDefaultClientBinding(
+        GameCommand command,
+        string definitionName,
+        string keyMapPath,
+        out GameCommandBindingResolution resolution)
+    {
+        resolution = default!;
+
+        // Original Earth & Beyond keyboard defaults. These are only consulted
+        // when keymap.ini itself does not exist, which represents an untouched
+        // Control Options setup. Do not add uncertain mappings here.
+        var sourceText = command switch
+        {
+            GameCommand.FireAll => "F",
+            GameCommand.TargetNearestNavigation => "W",
+            GameCommand.TargetNearestObject => "X",
+            GameCommand.NextContextTarget => "D",
+            GameCommand.PreviousContextTarget => "C",
+            GameCommand.NextTarget => "N",
+            GameCommand.PreviousTarget => "P",
+            GameCommand.Warp => "Q",
+            GameCommand.Formation => "T",
+            GameCommand.FireActivateSlot1 => "1",
+            GameCommand.FireActivateSlot2 => "2",
+            GameCommand.FireActivateSlot3 => "3",
+            GameCommand.FireActivateSlot4 => "4",
+            GameCommand.FireActivateSlot5 => "5",
+            GameCommand.FireActivateSlot6 => "6",
+            _ => null,
+        };
+
+        if (sourceText == null)
+        {
+            return false;
+        }
+
+        if (!GameKeyChordParser.TryParse(
+                sourceText,
+                out var chord,
+                out var error) ||
+            chord == null)
+        {
+            resolution = GameCommandBindingResolution.Failure(
+                command,
+                definitionName,
+                string.Concat(
+                    "Could not resolve the built-in client default binding: ",
+                    error),
+                keyMapPath,
+                "Built-in defaults");
+            return true;
+        }
+
+        resolution = new GameCommandBindingResolution
+        {
+            Command = command,
+            DefinitionName = definitionName,
+            Succeeded = true,
+            KeyMapPath = keyMapPath,
+            UserProfile = "Built-in defaults",
+            Primary = chord,
+        };
+        return true;
     }
 
     private static bool TryResolveHardcodedBinding(

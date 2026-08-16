@@ -23,6 +23,18 @@ internal static class ClientItemTemplateCatalog
     private static readonly object refreshLock = new();
 
     private static ClientItemTemplateCatalogState? currentState;
+    private static string? preferredCatalogPath;
+
+    internal static void ConfigurePreferredCatalogPath(string? path)
+    {
+        var normalizedPath = string.IsNullOrWhiteSpace(path)
+            ? null
+            : path.Trim().Trim('"');
+
+        Volatile.Write(
+            ref preferredCatalogPath,
+            normalizedPath);
+    }
 
     internal static ClientItemTemplateCatalogSnapshot GetSnapshot()
     {
@@ -1161,10 +1173,46 @@ internal static class ClientItemTemplateCatalog
             }
         }
 
+        var configuredLauncherCatalogPath =
+            Volatile.Read(ref preferredCatalogPath);
+
+        if (!string.IsNullOrWhiteSpace(
+                configuredLauncherCatalogPath))
+        {
+            candidates.Add(
+                configuredLauncherCatalogPath);
+        }
+
         candidates.Add(
             Path.Combine(
                 AppContext.BaseDirectory,
                 "cdata.dat"));
+
+        var programFilesX86 = Environment.GetFolderPath(
+            Environment.SpecialFolder.ProgramFilesX86);
+
+        if (!string.IsNullOrWhiteSpace(programFilesX86))
+        {
+            candidates.Add(
+                Path.Combine(
+                    programFilesX86,
+                    "Net-7",
+                    "bin",
+                    "cdata.dat"));
+        }
+
+        var programFiles = Environment.GetFolderPath(
+            Environment.SpecialFolder.ProgramFiles);
+
+        if (!string.IsNullOrWhiteSpace(programFiles))
+        {
+            candidates.Add(
+                Path.Combine(
+                    programFiles,
+                    "Net-7",
+                    "bin",
+                    "cdata.dat"));
+        }
 
         candidates.Add(
             @"C:\Games\Net-7\bin\cdata.dat");

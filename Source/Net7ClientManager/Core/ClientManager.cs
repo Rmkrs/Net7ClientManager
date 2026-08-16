@@ -266,6 +266,10 @@ public sealed class ClientManager : IDisposable
 
     public ClientManager()
     {
+        this.settings = this.settingsStore.Load();
+        ConfigureItemCatalogFromLauncherPath(
+            this.settings.PathToNet7Launcher);
+
         this.gameRenderResolutionOverrideCoordinator = new();
         this.gameKeyMapLocator = new GameKeyMapLocator();
         this.skillIniCatalogService =
@@ -382,7 +386,6 @@ public sealed class ClientManager : IDisposable
             new AddonRuntimeCoordinator(
                 this.ExecuteAddonActionAsync);
 
-        this.settings = this.settingsStore.Load();
         this.pilotArchiveStore = new PilotArchiveStore();
         this.pilotArchiveStore.Initialize();
         this.pilotArchiveCoordinator = new PilotArchiveCoordinator(
@@ -15162,7 +15165,32 @@ public sealed class ClientManager : IDisposable
         this.settings.PathToNet7Launcher = dialog.FileName;
         this.SaveSettings();
 
+        ConfigureItemCatalogFromLauncherPath(dialog.FileName);
+        this.galaxyKnowledgeCoordinator.RefreshItemCatalogNow();
+
         return dialog.FileName;
+    }
+
+    private static void ConfigureItemCatalogFromLauncherPath(
+        string? launcherPath)
+    {
+        string? catalogPath = null;
+
+        if (IsValidLauncherPath(launcherPath))
+        {
+            var launcherDirectory =
+                Path.GetDirectoryName(launcherPath);
+
+            if (!string.IsNullOrWhiteSpace(launcherDirectory))
+            {
+                catalogPath = Path.Combine(
+                    launcherDirectory,
+                    "cdata.dat");
+            }
+        }
+
+        ClientItemTemplateNameResolver
+            .ConfigurePreferredCatalogPath(catalogPath);
     }
 
     private static bool IsValidLauncherPath(string? path)

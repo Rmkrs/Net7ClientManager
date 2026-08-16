@@ -108,13 +108,13 @@ internal sealed partial class GalaxyAtlasCanvas
 
     private void BuildPilotMarkerNodes(
         IReadOnlyCollection<GalaxyAtlasDisplayedPilot> pilots,
-        Func<float, float, PointF> project)
+        Func<float, float, float, GalaxyAtlasProjectedPoint> project)
     {
         var clusters = new List<PilotClusterBuilder>();
 
         foreach (var pilot in pilots)
         {
-            var point = project(pilot.X, pilot.Y);
+            var point = project(pilot.X, pilot.Y, pilot.Z).Point;
             var anchorKey = GetPilotAnchorKey(pilot);
             PilotClusterBuilder? cluster = null;
 

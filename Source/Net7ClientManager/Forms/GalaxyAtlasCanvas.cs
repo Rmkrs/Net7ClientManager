@@ -488,6 +488,11 @@ internal sealed partial class GalaxyAtlasCanvas : Control
     {
         base.OnMouseMove(e);
 
+        if (this.UpdateOrbit(e))
+        {
+            return;
+        }
+
         if (this.panButton != MouseButtons.None &&
             (Control.MouseButtons & this.panButton) != MouseButtons.None)
         {
@@ -647,10 +652,20 @@ internal sealed partial class GalaxyAtlasCanvas : Control
             return;
         }
 
-        if (node == null &&
-            this.FindOverlayNodeAt(e.Location) == null &&
-            this.FindPilotMarkerAt(e.Location) == null &&
-            this.CanPan)
+        if (node != null ||
+            this.FindOverlayNodeAt(e.Location) != null ||
+            this.FindPilotMarkerAt(e.Location) != null)
+        {
+            return;
+        }
+
+        if (this.UseThreeDimensionalView)
+        {
+            this.BeginOrbit(e.Location);
+            return;
+        }
+
+        if (this.CanPan)
         {
             this.BeginPan(e.Button, e.Location);
         }
@@ -659,6 +674,17 @@ internal sealed partial class GalaxyAtlasCanvas : Control
     protected override void OnMouseUp(MouseEventArgs e)
     {
         base.OnMouseUp(e);
+
+        if (e.Button == this.orbitButton)
+        {
+            var wasOrbiting = this.EndOrbit();
+
+            if (wasOrbiting)
+            {
+                this.UpdateHover(e.Location);
+                return;
+            }
+        }
 
         if (e.Button == this.panButton)
         {
@@ -707,6 +733,8 @@ internal sealed partial class GalaxyAtlasCanvas : Control
 
         this.panButton = MouseButtons.None;
         this.isPanning = false;
+        this.orbitButton = MouseButtons.None;
+        this.isOrbiting = false;
         this.pressedNode = null;
     }
 
@@ -895,13 +923,22 @@ internal sealed partial class GalaxyAtlasCanvas : Control
         this.pilotMarkerNodes.Clear();
 
         var staticCoordinates = targets
-            .Select(target => new PointF(target.X, target.Y))
+            .Select(target => new GalaxyAtlasWorldPoint(
+                target.X,
+                target.Y,
+                target.Z))
             .Concat(overlays.Select(overlay =>
-                new PointF(overlay.CenterX, overlay.CenterY)))
+                new GalaxyAtlasWorldPoint(
+                    overlay.CenterX,
+                    overlay.CenterY,
+                    overlay.CenterZ)))
             .ToArray();
         var coordinates = staticCoordinates.Length == 0
             ? pilotLocations
-                .Select(location => new PointF(location.X, location.Y))
+                .Select(location => new GalaxyAtlasWorldPoint(
+                    location.X,
+                    location.Y,
+                    location.Z))
                 .ToArray()
             : staticCoordinates;
 
@@ -910,50 +947,19 @@ internal sealed partial class GalaxyAtlasCanvas : Control
             return;
         }
 
-        var minimumX = coordinates.Min(point => point.X);
-        var maximumX = coordinates.Max(point => point.X);
-        var minimumY = coordinates.Min(point => point.Y);
-        var maximumY = coordinates.Max(point => point.Y);
-
-        var spanX = Math.Max(maximumX - minimumX, 1000.0f);
-        var spanY = Math.Max(maximumY - minimumY, 1000.0f);
-
-        minimumX -= spanX * 0.08f;
-        maximumX += spanX * 0.08f;
-        minimumY -= spanY * 0.08f;
-        maximumY += spanY * 0.08f;
-
-        spanX = maximumX - minimumX;
-        spanY = maximumY - minimumY;
-
-        var mapBounds = GetMapBounds(this.ClientRectangle);
-        var mapCenter = GetRectangleCenter(mapBounds);
-
-        var scale = Math.Min(
-            mapBounds.Width / spanX,
-            mapBounds.Height / spanY);
-
-        var contentWidth = spanX * scale;
-        var contentHeight = spanY * scale;
-        var offsetX = mapBounds.Left +
-                      ((mapBounds.Width - contentWidth) * 0.5f);
-        var offsetY = mapBounds.Top +
-                      ((mapBounds.Height - contentHeight) * 0.5f);
-
-        PointF Project(float x, float y)
-        {
-            var basePoint = new PointF(
-                offsetX + ((x - minimumX) * scale),
-                offsetY + ((maximumY - y) * scale));
-
-            return this.ApplyViewTransform(basePoint, mapCenter);
-        }
+        var projection = this.CreateAtlasProjection(
+            coordinates,
+            GetMapBounds(this.ClientRectangle));
 
         foreach (var overlay in overlays)
         {
-            var point = Project(overlay.CenterX, overlay.CenterY);
+            var projected = projection.Project(
+                overlay.CenterX,
+                overlay.CenterY,
+                overlay.CenterZ);
+            var point = projected.Point;
             var fieldRadius = Math.Clamp(
-                overlay.Radius * scale * this.zoomFactor,
+                overlay.Radius * projection.Scale * this.zoomFactor,
                 10.0f,
                 70.0f);
             const float markerRadius = 7.0f;
@@ -974,7 +980,10 @@ internal sealed partial class GalaxyAtlasCanvas : Control
 
         foreach (var target in targets)
         {
-            var point = Project(target.X, target.Y);
+            var point = projection.Project(
+                target.X,
+                target.Y,
+                target.Z).Point;
             var departure = this.FindDeparture(target);
             var destination = this.ResolveDestination(departure);
             var access = destination == null || departure == null
@@ -1013,7 +1022,7 @@ internal sealed partial class GalaxyAtlasCanvas : Control
 
         this.BuildPilotMarkerNodes(
             pilotLocations,
-            Project);
+            projection.Project);
 
         if (this.hoveredOverlayKey != null)
         {
@@ -1531,9 +1540,11 @@ internal sealed partial class GalaxyAtlasCanvas : Control
 
     private void DrawZoomIndicator(Graphics graphics)
     {
-        var instruction = this.CanPan
-            ? "Wheel to zoom · drag to pan"
-            : "Wheel to zoom";
+        var instruction = this.UseThreeDimensionalView
+            ? "3D · drag to orbit · middle-drag to pan · wheel to zoom"
+            : this.CanPan
+                ? "2D · wheel to zoom · drag to pan"
+                : "2D · wheel to zoom";
         var text = string.Create(
             CultureInfo.InvariantCulture,
             $"{instruction} · {this.zoomFactor:0.0}×");
@@ -1563,7 +1574,9 @@ internal sealed partial class GalaxyAtlasCanvas : Control
             TextFormatFlags.SingleLine);
     }
 
-    private bool CanPan => this.zoomFactor > 1.001f;
+    private bool CanPan =>
+        this.UseThreeDimensionalView ||
+        this.zoomFactor > 1.001f;
 
     private void BeginPan(
         MouseButtons button,
@@ -1741,6 +1754,7 @@ internal sealed partial class GalaxyAtlasCanvas : Control
         this.panButton = MouseButtons.None;
         this.isPanning = false;
         this.pressedNode = null;
+        this.ResetThreeDimensionalViewCore();
         this.ClearHover();
     }
 

@@ -67,8 +67,10 @@ The Galaxy Atlas is an interactive view of known sectors and their contents.
 
 ### Browse the galaxy
 
-- Drag to pan.
-- Use the mouse wheel to zoom.
+- Use **2D** for the familiar flat Atlas or **3D** to include the captured Z depth. The Atlas remembers the last mode you selected.
+- In 2D, drag to pan.
+- In 3D, drag empty space to orbit and middle-drag to pan.
+- Use the mouse wheel to zoom in either mode.
 - Search sectors, stations, navigation points, or pilots.
 - Use **Back** to revisit the previous view.
 - Reset the view or return to the selected pilot’s current location.

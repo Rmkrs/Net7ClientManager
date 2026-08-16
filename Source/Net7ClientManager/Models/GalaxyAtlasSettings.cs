@@ -15,4 +15,6 @@ public sealed class GalaxyAtlasSettings
     public bool ShowGroupMembers { get; set; } = true;
 
     public bool ShowSocialPilots { get; set; } = true;
+
+    public bool UseThreeDimensionalView { get; set; }
 }

@@ -97,6 +97,8 @@ public sealed partial class GalaxyAtlasForm : Form
     private readonly Button backButton = new();
     private readonly Button currentLocationButton = new();
     private readonly Button resetViewButton = new();
+    private readonly Button twoDimensionalViewButton = new();
+    private readonly Button threeDimensionalViewButton = new();
     private readonly CheckBox showLabelsCheckBox = new();
     private readonly CheckBox showMobEncountersCheckBox = new();
     private readonly CheckBox showHarvestableFieldsCheckBox = new();
@@ -145,6 +147,8 @@ public sealed partial class GalaxyAtlasForm : Form
                 clientManager.GalaxyAtlasSettings.ShowGroupMembers,
             ShowSocialPilots =
                 clientManager.GalaxyAtlasSettings.ShowSocialPilots,
+            UseThreeDimensionalView =
+                clientManager.GalaxyAtlasSettings.UseThreeDimensionalView,
             HoverFocusGuardControl = this.atlasSearchTextBox,
         };
 
@@ -190,6 +194,7 @@ public sealed partial class GalaxyAtlasForm : Form
         this.titleBar.AccessibleName = "Net7 Galaxy Atlas title bar";
 
         this.BuildUi();
+        this.UpdateViewModeButtons();
         this.windowPlacement =
             clientManager.BindClientWindowPlacement(
                 this,
@@ -222,6 +227,10 @@ public sealed partial class GalaxyAtlasForm : Form
             this.CurrentLocationButton_OnClick;
         this.resetViewButton.Click +=
             this.ResetViewButton_OnClick;
+        this.twoDimensionalViewButton.Click +=
+            this.TwoDimensionalViewButton_OnClick;
+        this.threeDimensionalViewButton.Click +=
+            this.ThreeDimensionalViewButton_OnClick;
         this.showLabelsCheckBox.CheckedChanged +=
             this.ShowLabelsCheckBox_OnCheckedChanged;
         this.showMobEncountersCheckBox.CheckedChanged +=
@@ -290,7 +299,11 @@ public sealed partial class GalaxyAtlasForm : Form
                 new GuidedTourStep(
                     () => this.atlasCanvas,
                     "Explore the map",
-                    "Drag to pan and use the mouse wheel to zoom. Hover over objects for details. Gates and other destinations are clickable, so you can inspect them and set a route."),
+                    "In 2D, drag to pan and use the mouse wheel to zoom. In 3D, drag empty space to orbit, middle-drag to pan, and use the wheel to zoom. Hover over objects for details."),
+                new GuidedTourStep(
+                    () => this.threeDimensionalViewButton,
+                    "Switch between 2D and 3D",
+                    "2D is the familiar flat Atlas. 3D uses the same live and Forge coordinates with their Z depth, and the Atlas remembers which mode you prefer."),
                 new GuidedTourStep(
                     () => this.currentLocationButton,
                     "Return to your pilot",
@@ -371,6 +384,10 @@ public sealed partial class GalaxyAtlasForm : Form
             this.CurrentLocationButton_OnClick;
         this.resetViewButton.Click -=
             this.ResetViewButton_OnClick;
+        this.twoDimensionalViewButton.Click -=
+            this.TwoDimensionalViewButton_OnClick;
+        this.threeDimensionalViewButton.Click -=
+            this.ThreeDimensionalViewButton_OnClick;
         this.showLabelsCheckBox.CheckedChanged -=
             this.ShowLabelsCheckBox_OnCheckedChanged;
         this.showMobEncountersCheckBox.CheckedChanged -=
@@ -546,6 +563,10 @@ public sealed partial class GalaxyAtlasForm : Form
             this.currentLocationButton,
             "Current location");
         ConfigureButton(this.resetViewButton, "Reset view");
+        ConfigureButton(this.twoDimensionalViewButton, "2D");
+        ConfigureButton(this.threeDimensionalViewButton, "3D");
+        this.twoDimensionalViewButton.AccessibleName = "Use 2D Atlas view";
+        this.threeDimensionalViewButton.AccessibleName = "Use 3D Atlas view";
 
         var actions = new TableLayoutPanel
         {
@@ -587,19 +608,53 @@ public sealed partial class GalaxyAtlasForm : Form
         var searchHost = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 2,
+            ColumnCount = 4,
             RowCount = 1,
             BackColor = headerColor,
             Margin = Padding.Empty,
             Padding = Padding.Empty,
             ColumnStyles =
             {
+                // Keep the established Atlas header geometry intact.
                 new ColumnStyle(SizeType.Absolute, 680),
+                new ColumnStyle(SizeType.Absolute, 56),
+                new ColumnStyle(SizeType.Absolute, 56),
                 new ColumnStyle(SizeType.Percent, 100),
+            },
+            RowStyles =
+            {
+                new RowStyle(SizeType.Percent, 100),
             },
         };
 
+        // These are deliberately direct children of the search row. A
+        // nested auto-sized layout can clip the button text at some DPI
+        // scales and was also what allowed the search box to grow across
+        // the entire header. Match the search box vertically instead of
+        // filling the whole header row.
+        // TextBox keeps its preferred single-line height, while a
+        // dock-filled Button would otherwise grow several pixels taller.
+        var searchControlHeight = this.atlasSearchTextBox
+            .GetPreferredSize(Size.Empty)
+            .Height;
+
+        this.twoDimensionalViewButton.Dock = DockStyle.None;
+        this.twoDimensionalViewButton.Anchor =
+            AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+        this.twoDimensionalViewButton.Height = searchControlHeight;
+        this.twoDimensionalViewButton.Margin =
+            new Padding(4, 5, 0, 4);
+
+        this.threeDimensionalViewButton.Dock = DockStyle.None;
+        this.threeDimensionalViewButton.Anchor =
+            AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+        this.threeDimensionalViewButton.Height = searchControlHeight;
+        this.threeDimensionalViewButton.Margin =
+            new Padding(4, 5, 4, 4);
+
         searchHost.Controls.Add(this.atlasSearchTextBox, 0, 0);
+        searchHost.Controls.Add(this.twoDimensionalViewButton, 1, 0);
+        searchHost.Controls.Add(this.threeDimensionalViewButton, 2, 0);
         header.Controls.Add(searchHost, 1, 2);
         header.SetColumnSpan(searchHost, 3);
 
@@ -1594,6 +1649,64 @@ public sealed partial class GalaxyAtlasForm : Form
         EventArgs e)
     {
         this.atlasCanvas.ResetView();
+    }
+
+    private void TwoDimensionalViewButton_OnClick(
+        object? sender,
+        EventArgs e)
+    {
+        this.SetAtlasViewMode(useThreeDimensionalView: false);
+    }
+
+    private void ThreeDimensionalViewButton_OnClick(
+        object? sender,
+        EventArgs e)
+    {
+        this.SetAtlasViewMode(useThreeDimensionalView: true);
+    }
+
+    private void SetAtlasViewMode(bool useThreeDimensionalView)
+    {
+        if (this.atlasCanvas.UseThreeDimensionalView ==
+                useThreeDimensionalView &&
+            this.clientManager.GalaxyAtlasSettings.UseThreeDimensionalView ==
+                useThreeDimensionalView)
+        {
+            return;
+        }
+
+        this.atlasCanvas.UseThreeDimensionalView =
+            useThreeDimensionalView;
+        this.clientManager.GalaxyAtlasSettings.UseThreeDimensionalView =
+            useThreeDimensionalView;
+        this.clientManager.SaveSettings();
+        this.UpdateViewModeButtons();
+    }
+
+    private void UpdateViewModeButtons()
+    {
+        ConfigureViewModeButton(
+            this.twoDimensionalViewButton,
+            selected: !this.atlasCanvas.UseThreeDimensionalView);
+        ConfigureViewModeButton(
+            this.threeDimensionalViewButton,
+            selected: this.atlasCanvas.UseThreeDimensionalView);
+    }
+
+    private static void ConfigureViewModeButton(
+        Button button,
+        bool selected)
+    {
+        button.BackColor = selected
+            ? Color.FromArgb(32, 65, 82)
+            : buttonColor;
+        button.ForeColor = selected
+            ? accentColor
+            : textColor;
+        button.FlatAppearance.BorderColor = selected
+            ? accentColor
+            : borderColor;
+        button.Cursor = Cursors.Hand;
     }
 
     private void ShowLabelsCheckBox_OnCheckedChanged(

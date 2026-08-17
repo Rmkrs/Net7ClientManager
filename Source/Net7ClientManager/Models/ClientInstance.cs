@@ -8,6 +8,8 @@ using Net7ClientManager.Observations.Models;
 
 public sealed class ClientInstance(int processId, Process process)
 {
+    private int loginInputInProgress;
+
     public int ProcessId { get; } = processId;
 
     public Process Process { get; } = process;
@@ -45,6 +47,23 @@ public sealed class ClientInstance(int processId, Process process)
     public string? AutomationStatus { get; set; }
 
     public DateTimeOffset? LastIntroSkipClickAt { get; set; }
+
+    public DateTimeOffset? LoginScreenObservedAt { get; set; }
+
+    public bool TryBeginLoginInput()
+    {
+        return System.Threading.Interlocked.CompareExchange(
+            ref this.loginInputInProgress,
+            value: 1,
+            comparand: 0) == 0;
+    }
+
+    public void EndLoginInput()
+    {
+        _ = System.Threading.Interlocked.Exchange(
+            ref this.loginInputInProgress,
+            value: 0);
+    }
 
     public DateTimeOffset? LoginSubmittedAt { get; set; }
 

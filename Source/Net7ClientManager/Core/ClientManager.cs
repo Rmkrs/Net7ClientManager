@@ -84,10 +84,17 @@ public sealed class ClientManager : IDisposable
     private static readonly TimeSpan navigationDataStartupCheckDelay =
         TimeSpan.FromSeconds(30);
 
-    // CharacterSelection means the screen exists, but the UI still needs a
-    // brief settle before selecting a slot. After selection, the character
-    // performs a presentation animation before Enter Game becomes reliable.
+    // LoginScreen and CharacterSelection mean the screen objects exist, but
+    // their UI can still be finishing presentation before input is reliable.
     // These are bounded input-pacing delays, not lifecycle detection.
+    private static readonly TimeSpan loginScreenSettleDelay =
+        TimeSpan.FromMilliseconds(2000);
+
+    private static readonly TimeSpan loginInputFocusSettleDelay =
+        TimeSpan.FromMilliseconds(200);
+
+    // After selecting a character slot, the character performs a presentation
+    // animation before Enter Game becomes reliable.
     private static readonly TimeSpan characterSelectionScreenSettleDelay =
         TimeSpan.FromMilliseconds(2000);
 
@@ -10124,6 +10131,7 @@ public sealed class ClientManager : IDisposable
                     TimeSpan.FromSeconds(10))
                 {
                     client.State = ClientState.WaitingForLogin;
+                    client.LoginScreenObservedAt = DateTimeOffset.UtcNow;
                     client.AutomationStatus =
                         "Login did not advance; retrying";
                     return;
@@ -10316,66 +10324,124 @@ public sealed class ClientManager : IDisposable
             return;
         }
 
-        var account = this.FindConfiguredAccount(launch.AccountId);
+        client.LoginScreenObservedAt ??= DateTimeOffset.UtcNow;
 
-        if (account == null)
-        {
-            client.AutomationStatus = "Missing account";
-            return;
-        }
+        var loginScreenReadyAt =
+            client.LoginScreenObservedAt.Value +
+            loginScreenSettleDelay;
 
-        if (string.IsNullOrWhiteSpace(account.LoginName))
-        {
-            client.AutomationStatus = "Missing login name";
-            return;
-        }
-
-        var password = PasswordProtector.Unprotect(
-            account.ProtectedPassword);
-
-        if (string.IsNullOrEmpty(password))
-        {
-            client.AutomationStatus = "Missing password";
-            return;
-        }
-
-        if (!this.TryClickNamedInputAction(
-                client,
-                LoginScreenUsernameClickActionName))
+        if (DateTimeOffset.UtcNow < loginScreenReadyAt)
         {
             client.AutomationStatus =
-                "Missing login screen username target";
+                "Waiting for login screen to settle";
 
             return;
         }
 
-        SendKeys.SendWait("^a");
-        SendKeys.SendWait(
-            EscapeSendKeysText(account.LoginName));
-
-        SendKeys.SendWait("{TAB}");
-        SendKeys.SendWait("^a");
-        SendKeys.SendWait(
-            EscapeSendKeysText(password));
-
-        SendKeys.SendWait("{ENTER}");
-
-        var submittedAt = DateTimeOffset.UtcNow;
-
-        client.LoginSubmittedAt = submittedAt;
-        client.AutoLoginProvenance = new AutoLoginProvenance
+        // Credential entry must be single-flight. SendKeys.SendWait can pump
+        // Windows messages while waiting for the game, which can re-enter the
+        // WinForms automation timer before this method has advanced ClientState.
+        // Claim the complete attempt before doing any more login work so a
+        // nested tick cannot start another attempt or touch foreground input.
+        if (!client.TryBeginLoginInput())
         {
-            AccountId = account.Id,
-            LoginName = account.LoginName.Trim(),
-            SubmittedAt = submittedAt,
-        };
+            return;
+        }
 
-        client.HostForm?.RefreshRuntimeTitle();
-        client.AutomationStatus = "Login submitted";
+        try
+        {
+            var account = this.FindConfiguredAccount(launch.AccountId);
 
-        client.State = launch.AutoEnterGame
-            ? ClientState.WaitingForCharacterSelect
-            : ClientState.LoginSubmitted;
+            if (account == null)
+            {
+                client.AutomationStatus = "Missing account";
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(account.LoginName))
+            {
+                client.AutomationStatus = "Missing login name";
+                return;
+            }
+
+            var password = PasswordProtector.Unprotect(
+                account.ProtectedPassword);
+
+            if (string.IsNullOrEmpty(password))
+            {
+                client.AutomationStatus = "Missing password";
+                return;
+            }
+
+            if (!this.foregroundInputCoordinator.TryAcquire(
+                    out var foregroundLease))
+            {
+                client.AutomationStatus =
+                    "Waiting for foreground input";
+                return;
+            }
+
+            using (foregroundLease)
+            {
+                // The observed screen/state can change while other foreground
+                // automation owns the input lease. Recheck immediately before
+                // the first click so credentials can only go to LoginScreen.
+                if (client.State != ClientState.WaitingForLogin ||
+                    client.LifecycleState !=
+                        ClientLifecycleState.LoginScreen)
+                {
+                    return;
+                }
+
+                if (!this.TryClickNamedInputAction(
+                        client,
+                        LoginScreenUsernameClickActionName))
+                {
+                    client.AutomationStatus =
+                        "Missing login screen username target";
+
+                    return;
+                }
+
+                // The click being emitted does not mean the game has already
+                // moved keyboard focus into the username field. Give that
+                // focus transition a small bounded window before credentials.
+                System.Threading.Thread.Sleep(
+                    loginInputFocusSettleDelay);
+
+                SendKeys.SendWait("^a");
+                SendKeys.SendWait(
+                    EscapeSendKeysText(account.LoginName));
+
+                SendKeys.SendWait("{TAB}");
+                SendKeys.SendWait("^a");
+                SendKeys.SendWait(
+                    EscapeSendKeysText(password));
+
+                SendKeys.SendWait("{ENTER}");
+
+                var submittedAt = DateTimeOffset.UtcNow;
+
+                client.LoginSubmittedAt = submittedAt;
+                client.AutoLoginProvenance = new AutoLoginProvenance
+                {
+                    AccountId = account.Id,
+                    LoginName = account.LoginName.Trim(),
+                    SubmittedAt = submittedAt,
+                };
+
+                client.HostForm?.RefreshRuntimeTitle();
+                client.AutomationStatus = "Login submitted";
+
+                client.State = launch.AutoEnterGame
+                    ? ClientState.WaitingForCharacterSelect
+                    : ClientState.LoginSubmitted;
+            }
+        }
+        finally
+        {
+            client.EndLoginInput();
+        }
     }
 
     private void TryEnterGame(
@@ -10981,6 +11047,17 @@ public sealed class ClientManager : IDisposable
 
             client.LoadingOrTransitionFlag =
                 e.Snapshot.LoadingOrTransitionFlag;
+
+            if (e.Snapshot.LifecycleState ==
+                ClientLifecycleState.LoginScreen)
+            {
+                client.LoginScreenObservedAt ??=
+                    e.Snapshot.ObservedAt;
+            }
+            else
+            {
+                client.LoginScreenObservedAt = null;
+            }
 
             if (e.Snapshot.LifecycleState ==
                 ClientLifecycleState.CharacterSelection)

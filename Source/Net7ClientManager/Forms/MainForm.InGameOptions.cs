@@ -3,6 +3,7 @@ namespace Net7ClientManager.Forms;
 
 using Net7ClientManager.Models;
 using Net7ClientManager.Observations;
+using Net7ClientManager.Services;
 
 public sealed partial class MainForm
 {
@@ -83,7 +84,8 @@ public sealed partial class MainForm
                         verticalOffset),
                 values => this.TryApplyInGameOptions(
                     processId,
-                    values));
+                    values),
+                this.CreateSupportDiagnosticsReport);
 
             if (showTour)
             {
@@ -161,7 +163,6 @@ public sealed partial class MainForm
             1.0);
 
         this.ApplyCommandPaletteRuntimeSettings();
-
         if (values.ShowMode == CommandPaletteShowMode.Keybinding &&
             this.commandPaletteKeyboardHook == null)
         {
@@ -240,6 +241,16 @@ public sealed partial class MainForm
         }
 
         this.clientManager.ApplyHistoryRecordingOptions();
+        this.RecordCommandPaletteDiagnostic(
+            "Settings applied",
+            client,
+            string.Concat(
+                "showMode=",
+                values.ShowMode,
+                "; shortcut=",
+                CommandPaletteHotKeyValidator.FormatHotKey(values.HotKey),
+                "; placement=",
+                values.PlacementMode));
         return null;
     }
 

@@ -3,6 +3,7 @@ namespace Net7ClientManager.Forms;
 
 using Net7ClientManager.Core;
 using Net7ClientManager.Models;
+using Net7ClientManager.Services;
 
 public sealed partial class MainForm : ThemedForm
 {
@@ -10,6 +11,7 @@ public sealed partial class MainForm : ThemedForm
     private readonly System.Windows.Forms.Timer refreshTimer;
     private readonly Dictionary<int, long> runningClientFirstSeenOrders = [];
     private readonly ActionToolTip dashboardToolTip = new();
+    private readonly CommandPaletteDiagnostics commandPaletteDiagnostics = new();
     private long nextRunningClientFirstSeenOrder;
 
     private ComboBox profileComboBox = null!;

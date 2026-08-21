@@ -83,19 +83,56 @@ public sealed partial class MainForm
     private bool TryHandleCommandPaletteHotKey()
     {
         var settings = this.clientManager.FleetCommandSettings;
+        var shortcut = CommandPaletteHotKeyValidator.FormatHotKey(
+            settings.CommandMenuHotKey);
 
         if (settings.EffectiveCommandMenuShowMode !=
-                CommandPaletteShowMode.Keybinding ||
-            this.inGameOptionsOpen)
+                CommandPaletteShowMode.Keybinding)
         {
+            this.RecordCommandPaletteDiagnostic(
+                "Hotkey ignored",
+                details: string.Concat(
+                    "shortcut=",
+                    shortcut,
+                    "; reason=show mode is ",
+                    settings.EffectiveCommandMenuShowMode));
+            return false;
+        }
+
+        if (this.inGameOptionsOpen)
+        {
+            this.RecordCommandPaletteDiagnostic(
+                "Hotkey ignored",
+                details: string.Concat(
+                    "shortcut=",
+                    shortcut,
+                    "; reason=In-Game Options is open"));
             return false;
         }
 
         var activeClient = this.clientManager.FindForegroundHostedClient();
 
-        if (activeClient == null ||
-            activeClient.LifecycleState != ClientLifecycleState.InGame)
+        if (activeClient == null)
         {
+            this.RecordCommandPaletteDiagnostic(
+                "Hotkey ignored",
+                details: string.Concat(
+                    "shortcut=",
+                    shortcut,
+                    "; reason=no managed game client has foreground focus"));
+            return false;
+        }
+
+        if (activeClient.LifecycleState != ClientLifecycleState.InGame)
+        {
+            this.RecordCommandPaletteDiagnostic(
+                "Hotkey ignored",
+                activeClient,
+                string.Concat(
+                    "shortcut=",
+                    shortcut,
+                    "; reason=client lifecycle is ",
+                    activeClient.LifecycleState));
             return false;
         }
 
@@ -111,6 +148,16 @@ public sealed partial class MainForm
                     $"Command Palette shortcut passed through because chat input state is unknown: {chatInputStatus}");
             }
 
+            this.RecordCommandPaletteDiagnostic(
+                "Hotkey ignored",
+                activeClient,
+                string.Concat(
+                    "shortcut=",
+                    shortcut,
+                    "; reason=chat input is ",
+                    chatInputState,
+                    "; status=",
+                    chatInputStatus));
             return false;
         }
 
@@ -128,9 +175,24 @@ public sealed partial class MainForm
         }
         catch (InvalidOperationException)
         {
+            this.RecordCommandPaletteDiagnostic(
+                "Hotkey ignored",
+                activeClient,
+                string.Concat(
+                    "shortcut=",
+                    shortcut,
+                    "; reason=main window is unavailable"));
             return false;
         }
 
+        this.RecordCommandPaletteDiagnostic(
+            "Hotkey accepted",
+            activeClient,
+            string.Concat(
+                "shortcut=",
+                shortcut,
+                "; placement=",
+                settings.CommandMenuPlacement));
         return true;
     }
 
@@ -264,7 +326,12 @@ public sealed partial class MainForm
                         form.Size,
                         location);
                 }
-            });
+            },
+            diagnosticReporter: (eventName, details) =>
+                this.RecordCommandPaletteDiagnostic(
+                    eventName,
+                    activeClient,
+                    details));
 
         this.commandOverlayForm = form;
         form.FormClosed += this.CommandOverlayForm_OnFormClosed;
@@ -319,7 +386,12 @@ public sealed partial class MainForm
             gameBounds,
             restoreCursorPosition: fixedPlacement
                 ? cursorPosition
-                : null);
+                : null,
+            diagnosticReporter: (eventName, details) =>
+                this.RecordCommandPaletteDiagnostic(
+                    eventName,
+                    activeClient,
+                    details));
 
         this.commandOverlayForm = form;
         form.FormClosed += this.CommandOverlayForm_OnFormClosed;
@@ -345,6 +417,12 @@ public sealed partial class MainForm
 
         form.Show();
         form.Activate();
+        this.RecordCommandPaletteDiagnostic(
+            "Transient overlay opened",
+            activeClient,
+            string.Concat(
+                "placement=",
+                settings.CommandMenuPlacement));
 
         var anchorScreenPoint = form.PointToScreen(
             form.GetCursorAnchorPoint());

@@ -33,6 +33,7 @@ internal sealed class CommandOverlayForm : Form
     private readonly Action<Point>? persistentLocationChanged;
     private readonly System.Windows.Forms.Timer presentationTimer = new();
     private readonly Point? restoreCursorPosition;
+    private readonly Action<string, string?>? diagnosticReporter;
 
     private readonly List<CommandTileLabel> tiles = [];
     private readonly List<Control> dragSurfaces = [];
@@ -54,7 +55,8 @@ internal sealed class CommandOverlayForm : Form
         CommandPaletteBehavior behavior = CommandPaletteBehavior.Transient,
         Rectangle? movementBounds = null,
         Action<Point>? persistentLocationChanged = null,
-        Point? restoreCursorPosition = null)
+        Point? restoreCursorPosition = null,
+        Action<string, string?>? diagnosticReporter = null)
     {
         this.clientManager = clientManager;
         this.invocationContext = invocationContext;
@@ -62,6 +64,7 @@ internal sealed class CommandOverlayForm : Form
         this.movementBounds = movementBounds ?? Screen.PrimaryScreen?.WorkingArea ?? Rectangle.Empty;
         this.persistentLocationChanged = persistentLocationChanged;
         this.restoreCursorPosition = restoreCursorPosition;
+        this.diagnosticReporter = diagnosticReporter;
 
         this.Text = "Fleet Commands";
         this.FormBorderStyle = FormBorderStyle.None;
@@ -681,7 +684,16 @@ internal sealed class CommandOverlayForm : Form
             return Task.CompletedTask;
         }
 
-        if (!this.Bounds.Contains(Cursor.Position))
+        var cursorInside = this.Bounds.Contains(Cursor.Position);
+        this.RecordDiagnostic(
+            "Hotkey released",
+            string.Concat(
+                "cursorInside=",
+                cursorInside,
+                "; hovered=",
+                this.ResolveCommandLabel(this.hoveredCommandId) ?? "(none)"));
+
+        if (!cursorInside)
         {
             return this.CompleteAsync(
                 commandId: null,
@@ -864,6 +876,10 @@ internal sealed class CommandOverlayForm : Form
                 command,
                 this.invocationContext).ConfigureAwait(true);
 
+            this.RecordDiagnostic(
+                "Persistent command executed",
+                command.Label);
+
             if (restoresGameFocus)
             {
                 this.RestoreOriginalFocusAndMouse(cursorPosition);
@@ -912,6 +928,10 @@ internal sealed class CommandOverlayForm : Form
                     command,
                     this.invocationContext).ConfigureAwait(true);
 
+                this.RecordDiagnostic(
+                    "Transient command executed",
+                    command.Label);
+
                 if (restoresGameFocus)
                 {
                     this.RestoreOriginalFocusAndMouse(completionCursorPosition);
@@ -934,6 +954,28 @@ internal sealed class CommandOverlayForm : Form
         {
             this.Close();
         }
+    }
+
+    private string? ResolveCommandLabel(string? commandId)
+    {
+        if (string.IsNullOrWhiteSpace(commandId))
+        {
+            return null;
+        }
+
+        return this.clientManager
+                   .GetFleetCommandDefinitions(this.invocationContext)
+                   .FirstOrDefault(candidate => string.Equals(
+                       candidate.Id,
+                       commandId,
+                       StringComparison.OrdinalIgnoreCase))?
+                   .Label ??
+               commandId;
+    }
+
+    private void RecordDiagnostic(string eventName, string? details = null)
+    {
+        this.diagnosticReporter?.Invoke(eventName, details);
     }
 
     private void RestoreOriginalFocusAndMouse(Point screenPoint)

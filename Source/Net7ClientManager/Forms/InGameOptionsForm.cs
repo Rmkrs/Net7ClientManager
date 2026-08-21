@@ -2,6 +2,7 @@
 namespace Net7ClientManager.Forms;
 
 using System.Globalization;
+using System.Runtime.InteropServices;
 using Net7ClientManager.Core;
 using Net7ClientManager.Models;
 using Net7ClientManager.Services;
@@ -36,6 +37,7 @@ internal sealed class InGameOptionsForm : ThemedForm
     private readonly Action<bool, int, int>
         previewGameItemToolTipSettings;
     private readonly Func<InGameOptionsValues, string?> applySettings;
+    private readonly Func<string> createDiagnostics;
     private readonly CancellationTokenSource lifetimeCancellation = new();
 
     private readonly ComboBox showModeComboBox = new();
@@ -58,6 +60,7 @@ internal sealed class InGameOptionsForm : ThemedForm
     private readonly Button verticalDecreaseButton = new();
     private readonly Button verticalIncreaseButton = new();
     private readonly Button resetItemToolTipOffsetsButton = new();
+    private readonly Button copyDiagnosticsButton = new();
     private readonly Label statusLabel = new();
     private readonly Button applyButton = new();
     private readonly Button cancelButton = new();
@@ -78,7 +81,8 @@ internal sealed class InGameOptionsForm : ThemedForm
             pickFixedPosition,
         Action<bool, int, int>
             previewGameItemToolTipSettings,
-        Func<InGameOptionsValues, string?> applySettings)
+        Func<InGameOptionsValues, string?> applySettings,
+        Func<string> createDiagnostics)
     {
         this.initialValues = initialValues;
         this.selectedHotKey = initialValues.HotKey;
@@ -92,6 +96,7 @@ internal sealed class InGameOptionsForm : ThemedForm
         this.previewGameItemToolTipSettings =
             previewGameItemToolTipSettings;
         this.applySettings = applySettings;
+        this.createDiagnostics = createDiagnostics;
 
         this.Text = "In-Game Options";
         this.Icon = ResourceLoader.Net7ClientManagerIcon;
@@ -171,6 +176,8 @@ internal sealed class InGameOptionsForm : ThemedForm
             this.VerticalIncreaseButton_OnClick;
         this.resetItemToolTipOffsetsButton.Click -=
             this.ResetItemToolTipOffsetsButton_OnClick;
+        this.copyDiagnosticsButton.Click -=
+            this.CopyDiagnosticsButton_OnClick;
         this.changeButton.Click -= this.ChangeButton_OnClick;
         this.setPositionButton.Click -= this.SetPositionButton_OnClick;
         this.applyButton.Click -= this.ApplyButton_OnClick;
@@ -791,13 +798,40 @@ internal sealed class InGameOptionsForm : ThemedForm
 
     private Control CreateFooter()
     {
-        var footer = new FlowLayoutPanel
+        var footer = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+            Padding = new Padding(0, 10, 0, 8),
+            Margin = Padding.Empty,
+        };
+        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
+        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
+        footer.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+
+        var diagnosticsArea = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty,
+        };
+
+        this.copyDiagnosticsButton.Text = "Copy diagnostics";
+        this.copyDiagnosticsButton.Size = new Size(width: 132, height: 34);
+        this.copyDiagnosticsButton.Margin = Padding.Empty;
+        MainWindowTheme.StyleButton(this.copyDiagnosticsButton);
+        diagnosticsArea.Controls.Add(this.copyDiagnosticsButton);
+
+        var actionArea = new FlowLayoutPanel
         {
             Dock = DockStyle.Fill,
             FlowDirection = FlowDirection.RightToLeft,
             WrapContents = false,
-            Padding = new Padding(0, 10, 0, 8),
             Margin = Padding.Empty,
+            Padding = Padding.Empty,
         };
 
         this.applyButton.Text = "Apply";
@@ -810,8 +844,10 @@ internal sealed class InGameOptionsForm : ThemedForm
         this.cancelButton.Margin = Padding.Empty;
         MainWindowTheme.StyleButton(this.cancelButton);
 
-        footer.Controls.Add(this.applyButton);
-        footer.Controls.Add(this.cancelButton);
+        actionArea.Controls.Add(this.applyButton);
+        actionArea.Controls.Add(this.cancelButton);
+        footer.Controls.Add(diagnosticsArea, 0, 0);
+        footer.Controls.Add(actionArea, 1, 0);
         return footer;
     }
 
@@ -855,6 +891,8 @@ internal sealed class InGameOptionsForm : ThemedForm
             this.VerticalIncreaseButton_OnClick;
         this.resetItemToolTipOffsetsButton.Click +=
             this.ResetItemToolTipOffsetsButton_OnClick;
+        this.copyDiagnosticsButton.Click +=
+            this.CopyDiagnosticsButton_OnClick;
         this.changeButton.Click += this.ChangeButton_OnClick;
         this.setPositionButton.Click += this.SetPositionButton_OnClick;
         this.applyButton.Click += this.ApplyButton_OnClick;
@@ -1017,6 +1055,23 @@ internal sealed class InGameOptionsForm : ThemedForm
                 this.Activate();
                 this.RefreshState();
             }
+        }
+    }
+
+    private void CopyDiagnosticsButton_OnClick(object? sender, EventArgs e)
+    {
+        try
+        {
+            Clipboard.SetText(this.createDiagnostics());
+            this.statusLabel.ForeColor = MainWindowTheme.Accent;
+            this.statusLabel.Text =
+                "Diagnostics copied to the clipboard. Paste them into your support post.";
+        }
+        catch (ExternalException exception)
+        {
+            this.ShowError(string.Concat(
+                "Diagnostics could not be copied to the clipboard: ",
+                exception.Message));
         }
     }
 

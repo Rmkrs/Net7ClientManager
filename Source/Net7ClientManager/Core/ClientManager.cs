@@ -519,6 +519,8 @@ public sealed class ClientManager : IDisposable
 
     public LayoutProfile? ActiveProfile => this.settings.GetCurrentProfile();
 
+    internal AppSettings SupportDiagnosticsSettings => this.settings;
+
     public LayoutProfile CurrentProfile => this.ActiveProfile ?? this.noProfile;
 
     public bool HasActiveProfile => this.ActiveProfile != null;

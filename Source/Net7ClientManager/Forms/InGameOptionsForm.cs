@@ -20,6 +20,7 @@ internal sealed record InGameOptionsValues(
     bool RecordMissionHistory,
     bool RecordActivityHistory,
     bool RecordCombatHistory,
+    bool UseWormholes,
     bool KeepGalaxyFinderSearchOpen,
     bool ShowVendorCompanion,
     bool ShowBuffDurations,
@@ -49,6 +50,7 @@ internal sealed class InGameOptionsForm : ThemedForm
     private readonly ThemedCheckBox missionHistoryCheckBox = new();
     private readonly ThemedCheckBox activityHistoryCheckBox = new();
     private readonly ThemedCheckBox combatHistoryCheckBox = new();
+    private readonly ThemedCheckBox useWormholesCheckBox = new();
     private readonly ThemedCheckBox keepGalaxyFinderSearchOpenCheckBox = new();
     private readonly ThemedCheckBox showVendorCompanionCheckBox = new();
     private readonly ThemedCheckBox showBuffDurationsCheckBox = new();
@@ -150,6 +152,8 @@ internal sealed class InGameOptionsForm : ThemedForm
             this.OptionsControl_OnChanged;
         this.combatHistoryCheckBox.CheckedChanged -=
             this.OptionsControl_OnChanged;
+        this.useWormholesCheckBox.CheckedChanged -=
+            this.OptionsControl_OnChanged;
         this.keepGalaxyFinderSearchOpenCheckBox.CheckedChanged -=
             this.OptionsControl_OnChanged;
         this.showVendorCompanionCheckBox.CheckedChanged -=
@@ -241,7 +245,7 @@ internal sealed class InGameOptionsForm : ThemedForm
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 38f));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 240f));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 88f));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 108f));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 138f));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 94f));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 54f));
@@ -440,11 +444,12 @@ internal sealed class InGameOptionsForm : ThemedForm
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 3,
+            RowCount = 4,
             Margin = Padding.Empty,
             Padding = Padding.Empty,
         };
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 28f));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30f));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30f));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30f));
 
@@ -452,7 +457,7 @@ internal sealed class InGameOptionsForm : ThemedForm
             new Label
             {
                 Dock = DockStyle.Fill,
-                Text = "GALAXY FINDER",
+                Text = "NAVIGATION & GALAXY FINDER",
                 Font = MainWindowTheme.CreateHeadingFont(9.0f),
                 ForeColor = MainWindowTheme.Accent,
                 TextAlign = ContentAlignment.MiddleLeft,
@@ -460,6 +465,16 @@ internal sealed class InGameOptionsForm : ThemedForm
             },
             0,
             0);
+
+        this.useWormholesCheckBox.Text =
+            "Use wormholes when planning routes";
+        this.useWormholesCheckBox.Checked =
+            this.initialValues.UseWormholes;
+        this.useWormholesCheckBox.Dock = DockStyle.Fill;
+        layout.Controls.Add(
+            this.useWormholesCheckBox,
+            0,
+            1);
 
         this.keepGalaxyFinderSearchOpenCheckBox.Text =
             "Keep Search open in its own tab";
@@ -469,7 +484,7 @@ internal sealed class InGameOptionsForm : ThemedForm
         layout.Controls.Add(
             this.keepGalaxyFinderSearchOpenCheckBox,
             0,
-            1);
+            2);
 
         this.showVendorCompanionCheckBox.Text =
             "Show shopping-list purchases above open vendors";
@@ -479,7 +494,7 @@ internal sealed class InGameOptionsForm : ThemedForm
         layout.Controls.Add(
             this.showVendorCompanionCheckBox,
             0,
-            2);
+            3);
 
         panel.Controls.Add(layout);
         return panel;
@@ -865,6 +880,8 @@ internal sealed class InGameOptionsForm : ThemedForm
             this.OptionsControl_OnChanged;
         this.combatHistoryCheckBox.CheckedChanged +=
             this.OptionsControl_OnChanged;
+        this.useWormholesCheckBox.CheckedChanged +=
+            this.OptionsControl_OnChanged;
         this.keepGalaxyFinderSearchOpenCheckBox.CheckedChanged +=
             this.OptionsControl_OnChanged;
         this.showVendorCompanionCheckBox.CheckedChanged +=
@@ -1132,6 +1149,7 @@ internal sealed class InGameOptionsForm : ThemedForm
                 this.missionHistoryCheckBox.Checked,
                 this.activityHistoryCheckBox.Checked,
                 this.combatHistoryCheckBox.Checked,
+                this.useWormholesCheckBox.Checked,
                 this.keepGalaxyFinderSearchOpenCheckBox.Checked,
                 this.showVendorCompanionCheckBox.Checked,
                 this.showBuffDurationsCheckBox.Checked,
@@ -1245,6 +1263,7 @@ internal sealed class InGameOptionsForm : ThemedForm
         this.missionHistoryCheckBox.Enabled = !this.applying;
         this.activityHistoryCheckBox.Enabled = !this.applying;
         this.combatHistoryCheckBox.Enabled = !this.applying;
+        this.useWormholesCheckBox.Enabled = !this.applying;
         this.keepGalaxyFinderSearchOpenCheckBox.Enabled = !this.applying;
         this.showVendorCompanionCheckBox.Enabled = !this.applying;
         this.showBuffDurationsCheckBox.Enabled = !this.applying;

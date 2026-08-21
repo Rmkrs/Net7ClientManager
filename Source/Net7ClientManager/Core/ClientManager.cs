@@ -8636,6 +8636,11 @@ public sealed class ClientManager : IDisposable
         BuildNavigationWormholeAvailability(
             ClientObservationSnapshot sourceSnapshot)
     {
+        if (!this.settings.NavigationPlanner.UseWormholes)
+        {
+            return NavigationWormholeAvailability.None;
+        }
+
         List<NavigationWormholeCasterAvailability> casters = [];
 
         foreach (var client in this.GetControlledGroupClients(sourceSnapshot))

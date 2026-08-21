@@ -164,7 +164,6 @@ public sealed class NavigationPlannerForm : Form
             this.clientManager
                 .NavigationPlannerSettings
                 .CloseAfterSettingDestination;
-
         this.clientComboBox.SelectedIndexChanged +=
             this.ClientComboBox_OnSelectedIndexChanged;
 

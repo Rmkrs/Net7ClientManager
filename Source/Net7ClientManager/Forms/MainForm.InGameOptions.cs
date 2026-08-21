@@ -57,6 +57,7 @@ public sealed partial class MainForm
             historySettings.RecordMissionHistory,
             historySettings.RecordActivityHistory,
             historySettings.RecordCombatHistory,
+            this.clientManager.NavigationPlannerSettings.UseWormholes,
             worldFindSettings.KeepSearchOpenInTab,
             worldFindSettings.ShowVendorCompanion,
             buffOverlaySettings.ShowDurations,
@@ -132,6 +133,10 @@ public sealed partial class MainForm
             historySettings.RecordActivityHistory;
         var previousRecordCombatHistory =
             historySettings.RecordCombatHistory;
+        var navigationPlannerSettings =
+            this.clientManager.NavigationPlannerSettings;
+        var previousUseWormholes =
+            navigationPlannerSettings.UseWormholes;
         var worldFindSettings = this.clientManager.WorldFindSettings;
         var previousKeepGalaxyFinderSearchOpen =
             worldFindSettings.KeepSearchOpenInTab;
@@ -185,6 +190,8 @@ public sealed partial class MainForm
             values.RecordMissionHistory,
             values.RecordActivityHistory,
             values.RecordCombatHistory);
+        navigationPlannerSettings.UseWormholes =
+            values.UseWormholes;
         worldFindSettings.KeepSearchOpenInTab =
             values.KeepGalaxyFinderSearchOpen;
         worldFindSettings.ShowVendorCompanion =
@@ -221,6 +228,8 @@ public sealed partial class MainForm
                 previousRecordMissionHistory,
                 previousRecordActivityHistory,
                 previousRecordCombatHistory);
+            navigationPlannerSettings.UseWormholes =
+                previousUseWormholes;
             worldFindSettings.KeepSearchOpenInTab =
                 previousKeepGalaxyFinderSearchOpen;
             worldFindSettings.ShowVendorCompanion =

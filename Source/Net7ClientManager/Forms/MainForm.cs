@@ -125,6 +125,30 @@ public sealed partial class MainForm : ThemedForm
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
+        if (e.CloseReason == System.Windows.Forms.CloseReason.UserClosing)
+        {
+            var runningClientCount = this.clientManager.Clients.Count(client =>
+                client.State is not ClientState.Closing and
+                    not ClientState.Stopped);
+
+            if (runningClientCount > 0)
+            {
+                var clientText = runningClientCount == 1
+                    ? "game client"
+                    : "game clients";
+
+                if (!ThemedMessageDialog.Confirm(
+                        this,
+                        "Exit Net7 Client Manager",
+                        $"Exit Net7 Client Manager?\n\nThis will also close {runningClientCount} running {clientText}.",
+                        "Exit and close"))
+                {
+                    e.Cancel = true;
+                    return;
+                }
+            }
+        }
+
         this.SaveWindowPlacement();
         base.OnFormClosing(e);
     }

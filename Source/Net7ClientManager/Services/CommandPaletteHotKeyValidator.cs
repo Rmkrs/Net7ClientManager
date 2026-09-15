@@ -13,7 +13,8 @@ internal sealed class CommandPaletteHotKeyValidator(
     public async Task<string?> ValidateAsync(
         IReadOnlyCollection<ClientInstance> clients,
         Keys hotKey,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyCollection<string>? allowedConflictingDefinitions = null)
     {
         var keyCode = hotKey & Keys.KeyCode;
 
@@ -110,6 +111,13 @@ internal sealed class CommandPaletteHotKeyValidator(
 
                 if (chord == null ||
                     Normalize(chord.KeyData) != Normalize(hotKey))
+                {
+                    continue;
+                }
+
+                if (allowedConflictingDefinitions?.Contains(
+                        binding.DefinitionName,
+                        StringComparer.OrdinalIgnoreCase) == true)
                 {
                     continue;
                 }

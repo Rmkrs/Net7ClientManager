@@ -57,6 +57,9 @@ public sealed partial class MainForm : ThemedForm
     private CommandOverlayForm? commandOverlayForm;
     private Net7ClientManager.Services.CommandPaletteKeyboardHook?
         commandPaletteKeyboardHook;
+    private Net7ClientManager.Services.CommandPaletteKeyboardHook?
+        fleetFireAllKeyboardHook;
+    private int fleetFireAllHotKeyBusy;
 
     private NavigationPlannerForm? navigationPlannerForm;
     private GalaxyAtlasForm? galaxyAtlasForm;
@@ -121,6 +124,7 @@ public sealed partial class MainForm : ThemedForm
             this.ClientManager_OnHelpRequested;
 
         this.ApplyCommandPaletteRuntimeSettings();
+        this.ApplyFleetFireAllHotKeyRuntimeSettings();
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
@@ -206,6 +210,8 @@ public sealed partial class MainForm : ThemedForm
         this.CloseCommandOverlay();
         this.commandPaletteKeyboardHook?.Dispose();
         this.commandPaletteKeyboardHook = null;
+        this.fleetFireAllKeyboardHook?.Dispose();
+        this.fleetFireAllKeyboardHook = null;
 
         if (this.inGameOptionsForm is { IsDisposed: false })
         {

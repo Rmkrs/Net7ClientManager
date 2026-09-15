@@ -15,6 +15,7 @@ internal sealed record InGameOptionsValues(
     CommandPaletteShowMode ShowMode,
     CommandPalettePlacementMode PlacementMode,
     Keys HotKey,
+    Keys FleetFireAllHotKey,
     CommandPaletteFixedPosition FixedPosition,
     bool MissionWikiEnabled,
     bool RecordMissionHistory,
@@ -33,6 +34,8 @@ internal sealed class InGameOptionsForm : ThemedForm
     private readonly InGameOptionsValues initialValues;
     private readonly Func<Keys, CancellationToken, Task<string?>>
         validateHotKeyAsync;
+    private readonly Func<Keys, CancellationToken, Task<string?>>
+        validateFleetFireAllHotKeyAsync;
     private readonly Func<IWin32Window, CommandPaletteFixedPosition?>
         pickFixedPosition;
     private readonly Action<bool, int, int>
@@ -45,6 +48,9 @@ internal sealed class InGameOptionsForm : ThemedForm
     private readonly ComboBox placementComboBox = new();
     private readonly TextBox shortcutTextBox = new();
     private readonly Button changeButton = new();
+    private readonly TextBox fleetFireAllShortcutTextBox = new();
+    private readonly Button fleetFireAllChangeButton = new();
+    private readonly Button fleetFireAllClearButton = new();
     private readonly Button setPositionButton = new();
     private readonly ThemedCheckBox missionWikiCheckBox = new();
     private readonly ThemedCheckBox missionHistoryCheckBox = new();
@@ -68,10 +74,12 @@ internal sealed class InGameOptionsForm : ThemedForm
     private readonly Button cancelButton = new();
 
     private Keys selectedHotKey;
+    private Keys selectedFleetFireAllHotKey;
     private CommandPaletteFixedPosition selectedFixedPosition;
     private int selectedHorizontalOffset;
     private int selectedVerticalOffset;
     private bool capturing;
+    private bool capturingFleetFireAllHotKey;
     private bool applying;
     private bool suppressItemToolTipPreview;
     private bool settingsApplied;
@@ -79,6 +87,8 @@ internal sealed class InGameOptionsForm : ThemedForm
     internal InGameOptionsForm(
         InGameOptionsValues initialValues,
         Func<Keys, CancellationToken, Task<string?>> validateHotKeyAsync,
+        Func<Keys, CancellationToken, Task<string?>>
+            validateFleetFireAllHotKeyAsync,
         Func<IWin32Window, CommandPaletteFixedPosition?>
             pickFixedPosition,
         Action<bool, int, int>
@@ -88,12 +98,16 @@ internal sealed class InGameOptionsForm : ThemedForm
     {
         this.initialValues = initialValues;
         this.selectedHotKey = initialValues.HotKey;
+        this.selectedFleetFireAllHotKey =
+            initialValues.FleetFireAllHotKey;
         this.selectedFixedPosition = initialValues.FixedPosition;
         this.selectedHorizontalOffset =
             initialValues.ItemToolTipHorizontalOffset;
         this.selectedVerticalOffset =
             initialValues.ItemToolTipVerticalOffset;
         this.validateHotKeyAsync = validateHotKeyAsync;
+        this.validateFleetFireAllHotKeyAsync =
+            validateFleetFireAllHotKeyAsync;
         this.pickFixedPosition = pickFixedPosition;
         this.previewGameItemToolTipSettings =
             previewGameItemToolTipSettings;
@@ -103,7 +117,7 @@ internal sealed class InGameOptionsForm : ThemedForm
         this.Text = "In-Game Options";
         this.Icon = ResourceLoader.Net7ClientManagerIcon;
         this.StartPosition = FormStartPosition.CenterParent;
-        this.ClientSize = new Size(width: 650, height: 884);
+        this.ClientSize = new Size(width: 650, height: 924);
         this.MinimumSize = this.Size;
         this.MaximumSize = this.Size;
         this.BackColor = MainWindowTheme.Background;
@@ -183,6 +197,10 @@ internal sealed class InGameOptionsForm : ThemedForm
         this.copyDiagnosticsButton.Click -=
             this.CopyDiagnosticsButton_OnClick;
         this.changeButton.Click -= this.ChangeButton_OnClick;
+        this.fleetFireAllChangeButton.Click -=
+            this.FleetFireAllChangeButton_OnClick;
+        this.fleetFireAllClearButton.Click -=
+            this.FleetFireAllClearButton_OnClick;
         this.setPositionButton.Click -= this.SetPositionButton_OnClick;
         this.applyButton.Click -= this.ApplyButton_OnClick;
         this.cancelButton.Click -= this.CancelButton_OnClick;
@@ -206,6 +224,10 @@ internal sealed class InGameOptionsForm : ThemedForm
                     () => this.shortcutTextBox,
                     "Set the Command Palette shortcut",
                     "The Command Palette gives fast keyboard access to Client Manager actions while the game has focus."),
+                new GuidedTourStep(
+                    () => this.fleetFireAllShortcutTextBox,
+                    "Fire the whole fleet with one shortcut",
+                    "Fleet Fire All fires the foreground pilot first, then makes eligible followers acquire that pilot's target and fire."),
                 new GuidedTourStep(
                     () => this.missionWikiCheckBox,
                     "Turn in-game helpers on or off",
@@ -243,7 +265,7 @@ internal sealed class InGameOptionsForm : ThemedForm
 
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 38f));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 240f));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 280f));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 88f));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 138f));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 94f));
@@ -286,7 +308,7 @@ internal sealed class InGameOptionsForm : ThemedForm
         {
             Dock = DockStyle.Fill,
             ColumnCount = 4,
-            RowCount = 6,
+            RowCount = 7,
             Margin = Padding.Empty,
             Padding = Padding.Empty,
         };
@@ -295,17 +317,18 @@ internal sealed class InGameOptionsForm : ThemedForm
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 190f));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 118f));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30f));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40f));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40f));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40f));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42f));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 28f));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
 
         var heading = new Label
         {
             Dock = DockStyle.Fill,
-            Text = "COMMAND PALETTE",
+            Text = "COMMANDS & SHORTCUTS",
             Font = MainWindowTheme.CreateHeadingFont(9.0f),
             ForeColor = MainWindowTheme.Accent,
             TextAlign = ContentAlignment.MiddleLeft,
@@ -365,6 +388,47 @@ internal sealed class InGameOptionsForm : ThemedForm
         layout.Controls.Add(this.shortcutTextBox, 1, 3);
         layout.Controls.Add(this.changeButton, 2, 3);
 
+        this.fleetFireAllShortcutTextBox.Dock = DockStyle.Fill;
+        this.fleetFireAllShortcutTextBox.ReadOnly = true;
+        this.fleetFireAllShortcutTextBox.TabStop = false;
+        this.fleetFireAllShortcutTextBox.TextAlign =
+            HorizontalAlignment.Center;
+        this.fleetFireAllShortcutTextBox.Margin =
+            new Padding(0, 6, 0, 5);
+        MainWindowTheme.StyleTextBox(
+            this.fleetFireAllShortcutTextBox);
+
+        this.fleetFireAllChangeButton.Text = "Change";
+        this.fleetFireAllChangeButton.Dock = DockStyle.Fill;
+        this.fleetFireAllChangeButton.Margin =
+            new Padding(8, 4, 0, 4);
+        MainWindowTheme.StyleButton(this.fleetFireAllChangeButton);
+
+        this.fleetFireAllClearButton.Text = "Clear";
+        this.fleetFireAllClearButton.Size =
+            new Size(width: 72, height: 26);
+        this.fleetFireAllClearButton.Anchor = AnchorStyles.Left;
+        this.fleetFireAllClearButton.Margin =
+            new Padding(8, 4, 0, 4);
+        MainWindowTheme.StyleButton(this.fleetFireAllClearButton);
+
+        layout.Controls.Add(
+            this.CreateFieldLabel("Fleet fire all"),
+            0,
+            4);
+        layout.Controls.Add(
+            this.fleetFireAllShortcutTextBox,
+            1,
+            4);
+        layout.Controls.Add(
+            this.fleetFireAllChangeButton,
+            2,
+            4);
+        layout.Controls.Add(
+            this.fleetFireAllClearButton,
+            3,
+            4);
+
         var behaviorLabel = new Label
         {
             Dock = DockStyle.Fill,
@@ -375,7 +439,7 @@ internal sealed class InGameOptionsForm : ThemedForm
             Margin = Padding.Empty,
         };
         layout.SetColumnSpan(behaviorLabel, 4);
-        layout.Controls.Add(behaviorLabel, 0, 4);
+        layout.Controls.Add(behaviorLabel, 0, 5);
 
         this.statusLabel.Dock = DockStyle.Fill;
         this.statusLabel.ForeColor = MainWindowTheme.MutedText;
@@ -383,7 +447,7 @@ internal sealed class InGameOptionsForm : ThemedForm
         this.statusLabel.AutoEllipsis = true;
         this.statusLabel.Margin = new Padding(0, 3, 0, 0);
         layout.SetColumnSpan(this.statusLabel, 4);
-        layout.Controls.Add(this.statusLabel, 0, 5);
+        layout.Controls.Add(this.statusLabel, 0, 6);
 
         panel.Controls.Add(layout);
         return panel;
@@ -911,6 +975,10 @@ internal sealed class InGameOptionsForm : ThemedForm
         this.copyDiagnosticsButton.Click +=
             this.CopyDiagnosticsButton_OnClick;
         this.changeButton.Click += this.ChangeButton_OnClick;
+        this.fleetFireAllChangeButton.Click +=
+            this.FleetFireAllChangeButton_OnClick;
+        this.fleetFireAllClearButton.Click +=
+            this.FleetFireAllClearButton_OnClick;
         this.setPositionButton.Click += this.SetPositionButton_OnClick;
         this.applyButton.Click += this.ApplyButton_OnClick;
         this.cancelButton.Click += this.CancelButton_OnClick;
@@ -1038,6 +1106,7 @@ internal sealed class InGameOptionsForm : ThemedForm
         }
 
         this.capturing = true;
+        this.capturingFleetFireAllHotKey = false;
         this.shortcutTextBox.Text = "Press a shortcut...";
         this.statusLabel.ForeColor = MainWindowTheme.Accent;
         this.statusLabel.Text =
@@ -1046,9 +1115,43 @@ internal sealed class InGameOptionsForm : ThemedForm
         this.Focus();
     }
 
+    private void FleetFireAllChangeButton_OnClick(
+        object? sender,
+        EventArgs e)
+    {
+        if (this.applying)
+        {
+            return;
+        }
+
+        this.capturing = false;
+        this.capturingFleetFireAllHotKey = true;
+        this.fleetFireAllShortcutTextBox.Text =
+            "Press a shortcut...";
+        this.statusLabel.ForeColor = MainWindowTheme.Accent;
+        this.statusLabel.Text =
+            "Press a key combination. Escape cancels capture.";
+        this.fleetFireAllChangeButton.Text = "Listening...";
+        this.Focus();
+    }
+
+    private void FleetFireAllClearButton_OnClick(
+        object? sender,
+        EventArgs e)
+    {
+        if (this.applying)
+        {
+            return;
+        }
+
+        this.StopCapturing();
+        this.selectedFleetFireAllHotKey = Keys.None;
+        this.RefreshState();
+    }
+
     private void SetPositionButton_OnClick(object? sender, EventArgs e)
     {
-        if (this.applying || this.capturing)
+        if (this.applying || this.IsCapturingHotKey)
         {
             return;
         }
@@ -1094,7 +1197,7 @@ internal sealed class InGameOptionsForm : ThemedForm
 
     private async void ApplyButton_OnClick(object? sender, EventArgs e)
     {
-        if (this.applying || this.capturing)
+        if (this.applying || this.IsCapturingHotKey)
         {
             return;
         }
@@ -1131,6 +1234,43 @@ internal sealed class InGameOptionsForm : ThemedForm
                 }
             }
 
+            if (this.selectedFleetFireAllHotKey != Keys.None &&
+                this.GetShowMode() == CommandPaletteShowMode.Keybinding &&
+                NormalizeHotKey(this.selectedFleetFireAllHotKey) ==
+                NormalizeHotKey(this.selectedHotKey))
+            {
+                this.ShowError(
+                    "Fleet Fire All cannot use the same shortcut as the Command Palette.");
+                return;
+            }
+
+            if (this.selectedFleetFireAllHotKey != Keys.None &&
+                this.selectedFleetFireAllHotKey !=
+                this.initialValues.FleetFireAllHotKey)
+            {
+                this.statusLabel.ForeColor = MainWindowTheme.MutedText;
+                this.statusLabel.Text =
+                    "Checking Fleet Fire All shortcut...";
+
+                var validationError =
+                    await this.validateFleetFireAllHotKeyAsync(
+                        this.selectedFleetFireAllHotKey,
+                        this.lifetimeCancellation.Token);
+
+                if (this.lifetimeCancellation.IsCancellationRequested ||
+                    this.IsDisposed ||
+                    this.Disposing)
+                {
+                    return;
+                }
+
+                if (validationError != null)
+                {
+                    this.ShowError(validationError);
+                    return;
+                }
+            }
+
             if (!this.TryGetItemToolTipOffsets(
                     out var horizontalOffset,
                     out var verticalOffset))
@@ -1144,6 +1284,7 @@ internal sealed class InGameOptionsForm : ThemedForm
                 showMode,
                 this.GetPlacementMode(),
                 this.selectedHotKey,
+                this.selectedFleetFireAllHotKey,
                 this.selectedFixedPosition,
                 this.missionWikiCheckBox.Checked,
                 this.missionHistoryCheckBox.Checked,
@@ -1186,7 +1327,7 @@ internal sealed class InGameOptionsForm : ThemedForm
 
     private void CancelButton_OnClick(object? sender, EventArgs e)
     {
-        if (this.capturing)
+        if (this.IsCapturingHotKey)
         {
             this.StopCapturing();
             this.RefreshState();
@@ -1201,7 +1342,7 @@ internal sealed class InGameOptionsForm : ThemedForm
         object? sender,
         KeyEventArgs e)
     {
-        if (!this.capturing)
+        if (!this.IsCapturingHotKey)
         {
             return;
         }
@@ -1221,19 +1362,34 @@ internal sealed class InGameOptionsForm : ThemedForm
             return;
         }
 
-        this.selectedHotKey = e.KeyCode |
-                              (e.Modifiers &
-                               (Keys.Control | Keys.Shift | Keys.Alt));
+        var capturedHotKey = e.KeyCode |
+                             (e.Modifiers &
+                              (Keys.Control | Keys.Shift | Keys.Alt));
 
-        this.capturing = false;
+        if (this.capturingFleetFireAllHotKey)
+        {
+            this.selectedFleetFireAllHotKey = capturedHotKey;
+        }
+        else
+        {
+            this.selectedHotKey = capturedHotKey;
+        }
+
+        this.StopCapturing();
         this.RefreshState();
     }
 
     private void StopCapturing()
     {
         this.capturing = false;
+        this.capturingFleetFireAllHotKey = false;
         this.changeButton.Text = "Change";
+        this.fleetFireAllChangeButton.Text = "Change";
     }
+
+    private bool IsCapturingHotKey =>
+        this.capturing ||
+        this.capturingFleetFireAllHotKey;
 
     private void RefreshState()
     {
@@ -1247,6 +1403,11 @@ internal sealed class InGameOptionsForm : ThemedForm
         this.placementComboBox.Enabled = keybinding && !this.applying;
         this.shortcutTextBox.Enabled = keybinding && !this.applying;
         this.changeButton.Enabled = keybinding && !this.applying;
+        this.fleetFireAllShortcutTextBox.Enabled = !this.applying;
+        this.fleetFireAllChangeButton.Enabled = !this.applying;
+        this.fleetFireAllClearButton.Enabled =
+            !this.applying &&
+            this.selectedFleetFireAllHotKey != Keys.None;
         this.setPositionButton.Enabled = fixedPosition && !this.applying;
         var validItemToolTipOffsets =
             this.TryGetItemToolTipOffsets(out _, out _);
@@ -1256,7 +1417,7 @@ internal sealed class InGameOptionsForm : ThemedForm
 
         this.applyButton.Enabled =
             !this.applying &&
-            !this.capturing &&
+            !this.IsCapturingHotKey &&
             validItemToolTipOffsets;
         this.cancelButton.Enabled = !this.applying;
         this.missionWikiCheckBox.Enabled = !this.applying;
@@ -1288,7 +1449,17 @@ internal sealed class InGameOptionsForm : ThemedForm
             this.changeButton.Text = "Change";
         }
 
-        if (this.applying || this.capturing)
+        if (!this.capturingFleetFireAllHotKey)
+        {
+            this.fleetFireAllShortcutTextBox.Text =
+                this.selectedFleetFireAllHotKey == Keys.None
+                    ? "Not set"
+                    : CommandPaletteHotKeyValidator.FormatHotKey(
+                        this.selectedFleetFireAllHotKey);
+            this.fleetFireAllChangeButton.Text = "Change";
+        }
+
+        if (this.applying || this.IsCapturingHotKey)
         {
             return;
         }
@@ -1485,6 +1656,12 @@ internal sealed class InGameOptionsForm : ThemedForm
             ForeColor = MainWindowTheme.MutedText,
             TextAlign = ContentAlignment.MiddleLeft,
         };
+    }
+
+    private static Keys NormalizeHotKey(Keys hotKey)
+    {
+        return (hotKey & Keys.KeyCode) |
+               (hotKey & (Keys.Control | Keys.Shift | Keys.Alt));
     }
 
     private static bool IsModifierKey(Keys keyCode)

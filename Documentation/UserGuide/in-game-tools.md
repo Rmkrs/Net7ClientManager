@@ -39,6 +39,12 @@ For Keybinding mode, choose whether the palette opens **On cursor** or at a **Fi
 
 The shortcut is checked against Earth & Beyond’s own controls to avoid an accidental collision.
 
+### Fleet Fire All shortcut
+
+**Fleet Fire All** is an optional direct shortcut for combat without opening the Command Palette. When the foreground pilot already has a target, the shortcut sends **Fire All** to that pilot first and then runs the existing **Assist Me** flow for the same controlled followers. Focus returns to the invoking pilot when the sequence finishes.
+
+The shortcut is unset by default. It may deliberately reuse the pilot’s normal **Fire All Weapons** key; conflicts with other Earth & Beyond controls are still rejected.
+
 ### Mission Wiki
 
 Enable **Mission Wiki: show mission details and Net-7 Wiki guidance** to add contextual mission help. Use **Pop out** beside the in-game reader for a resizable companion with mission information stacked on the left and the Wiki page on the right. The left side contains the current mission list, current objective, and the mission summary with every observed step so far. See [Mission help](navigation.md#mission-help).

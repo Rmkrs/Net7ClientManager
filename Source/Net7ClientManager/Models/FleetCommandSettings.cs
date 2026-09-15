@@ -10,6 +10,8 @@ public sealed class FleetCommandSettings
 
     public Keys CommandMenuHotKey { get; set; } = Keys.Control | Keys.Q;
 
+    public Keys FleetFireAllHotKey { get; set; } = Keys.None;
+
     public CommandPalettePlacementMode CommandMenuPlacement { get; set; } =
         CommandPalettePlacementMode.Cursor;
 

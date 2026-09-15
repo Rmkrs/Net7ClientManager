@@ -49,6 +49,7 @@ public sealed partial class MainForm
             settings.EffectiveCommandMenuShowMode,
             settings.CommandMenuPlacement,
             settings.CommandMenuHotKey,
+            settings.FleetFireAllHotKey,
             new CommandPaletteFixedPosition(
                 settings.CommandMenuFixedPositionX,
                 settings.CommandMenuFixedPositionY),
@@ -74,6 +75,7 @@ public sealed partial class MainForm
             using var form = new InGameOptionsForm(
                 initialValues,
                 this.clientManager.ValidateCommandPaletteHotKeyAsync,
+                this.clientManager.ValidateFleetFireAllHotKeyAsync,
                 previewOwner =>
                     this.PickCommandPaletteFixedPosition(
                         processId,
@@ -103,6 +105,7 @@ public sealed partial class MainForm
             this.inGameOptionsProcessId = null;
             this.inGameOptionsOpen = false;
             this.ApplyCommandPaletteRuntimeSettings();
+            this.ApplyFleetFireAllHotKeyRuntimeSettings();
         }
     }
 
@@ -121,6 +124,8 @@ public sealed partial class MainForm
         var settings = this.clientManager.FleetCommandSettings;
         var previousShowMode = settings.EffectiveCommandMenuShowMode;
         var previousHotKey = settings.CommandMenuHotKey;
+        var previousFleetFireAllHotKey =
+            settings.FleetFireAllHotKey;
         var previousPlacement = settings.CommandMenuPlacement;
         var previousPositionX = settings.CommandMenuFixedPositionX;
         var previousPositionY = settings.CommandMenuFixedPositionY;
@@ -182,6 +187,26 @@ public sealed partial class MainForm
                    "The Command Palette keyboard hook is unavailable.";
         }
 
+        settings.FleetFireAllHotKey = values.FleetFireAllHotKey;
+        this.ApplyFleetFireAllHotKeyRuntimeSettings();
+
+        if (values.FleetFireAllHotKey != Keys.None &&
+            this.fleetFireAllKeyboardHook == null)
+        {
+            this.RestoreCommandPaletteSettings(
+                previousShowMode,
+                previousHotKey,
+                previousPlacement,
+                previousPositionX,
+                previousPositionY);
+            settings.FleetFireAllHotKey =
+                previousFleetFireAllHotKey;
+            this.ApplyFleetFireAllHotKeyRuntimeSettings();
+
+            return this.fleetFireAllKeyboardHookError ??
+                   "The Fleet Fire All keyboard hook is unavailable.";
+        }
+
         this.clientManager.SetMissionWikiFeatureEnabled(
             processId,
             values.MissionWikiEnabled,
@@ -219,6 +244,9 @@ public sealed partial class MainForm
                 previousPlacement,
                 previousPositionX,
                 previousPositionY);
+            settings.FleetFireAllHotKey =
+                previousFleetFireAllHotKey;
+            this.ApplyFleetFireAllHotKeyRuntimeSettings();
 
             this.clientManager.SetMissionWikiFeatureEnabled(
                 processId,
@@ -259,7 +287,12 @@ public sealed partial class MainForm
                 "; shortcut=",
                 CommandPaletteHotKeyValidator.FormatHotKey(values.HotKey),
                 "; placement=",
-                values.PlacementMode));
+                values.PlacementMode,
+                "; fleetFireAll=",
+                values.FleetFireAllHotKey == Keys.None
+                    ? "Not set"
+                    : CommandPaletteHotKeyValidator.FormatHotKey(
+                        values.FleetFireAllHotKey)));
         return null;
     }
 

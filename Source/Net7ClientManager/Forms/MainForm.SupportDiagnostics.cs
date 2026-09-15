@@ -73,6 +73,23 @@ public sealed partial class MainForm
                 .AppendLine(this.commandPaletteKeyboardHookError);
         }
 
+        builder.Append("Fleet Fire All: Shortcut=")
+            .Append(commandSettings.FleetFireAllHotKey == Keys.None
+                ? "Not set"
+                : CommandPaletteHotKeyValidator.FormatHotKey(
+                    commandSettings.FleetFireAllHotKey))
+            .Append(" | Hook=")
+            .Append(this.fleetFireAllKeyboardHook != null
+                ? "Active"
+                : "Inactive")
+            .AppendLine();
+
+        if (!string.IsNullOrWhiteSpace(this.fleetFireAllKeyboardHookError))
+        {
+            builder.Append("Fleet Fire All hook error: ")
+                .AppendLine(this.fleetFireAllKeyboardHookError);
+        }
+
         var clients = this.clientManager.Clients
             .OrderBy(client => client.ProcessId)
             .ToArray();

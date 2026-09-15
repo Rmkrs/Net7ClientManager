@@ -986,6 +986,23 @@ public sealed class ClientManager : IDisposable
             cancellationToken);
     }
 
+    internal Task<string?> ValidateFleetFireAllHotKeyAsync(
+        Keys hotKey,
+        CancellationToken cancellationToken)
+    {
+        var runningClients = this.Clients
+            .Where(client =>
+                client.HostForm != null &&
+                client.GameWindowHandle != IntPtr.Zero)
+            .ToArray();
+
+        return this.commandPaletteHotKeyValidator.ValidateAsync(
+            runningClients,
+            hotKey,
+            cancellationToken,
+            GameCommandCatalog.GetDefinitionNames(GameCommand.FireAll));
+    }
+
     internal bool IsMissionWikiFeatureEnabled(int processId)
     {
         lock (this.lockObject)
@@ -5289,6 +5306,15 @@ public sealed class ClientManager : IDisposable
         return restored;
     }
 
+    internal bool TryGetObservationSnapshot(
+        int processId,
+        out ClientObservationSnapshot snapshot)
+    {
+        return this.clientObservationCoordinator.TryGetSnapshot(
+            processId,
+            out snapshot);
+    }
+
     public ClientInstance? FindForegroundHostedClient()
     {
         var foregroundWindowHandle = NativeMethods.GetForegroundWindowHandle();
@@ -6293,27 +6319,6 @@ public sealed class ClientManager : IDisposable
             : string.Create(
                 CultureInfo.InvariantCulture,
                 $"Shortcut invoke failed for {shortcut.Name} (bar {shortcut.Bar}, group {shortcut.Group}, slot {shortcut.VisibleKey}): {result.Error}");
-    }
-
-    public async Task ExecuteFireAllForClientAsync(
-        int processId,
-        CancellationToken cancellationToken)
-    {
-        if (!this.TryGetClient(processId, out var client))
-        {
-            return;
-        }
-
-        var result = await this.gameCommandCoordinator
-            .ExecuteAsync(
-                client,
-                GameCommand.FireAll,
-                cancellationToken)
-            .ConfigureAwait(true);
-
-        client.AutomationStatus = result.Succeeded
-            ? "Fire All sent"
-            : result.Error;
     }
 
     public async Task<GroupSkillsActionResult> ExecuteGroupSkillsFireAllAsync(

@@ -236,21 +236,21 @@ public sealed class AccountsForm : ThemedForm
         this.deleteAccountButton.Text = "Delete";
         this.deleteAccountButton.Width = 90;
         this.deleteAccountButton.Height = 32;
-        this.deleteAccountButton.Margin = new Padding(left: 0, top: 0, right: 6, bottom: 0);
+        this.deleteAccountButton.Margin = Padding.Empty;
         MainWindowTheme.StyleButton(this.deleteAccountButton, danger: true);
         this.deleteAccountButton.Click += this.DeleteAccountButton_OnClick;
 
         this.syncFromNet7SiteButton.Text = "Net-7.org sync";
         this.syncFromNet7SiteButton.Width = 120;
         this.syncFromNet7SiteButton.Height = 32;
-        this.syncFromNet7SiteButton.Margin = Padding.Empty;
-        MainWindowTheme.StyleButton(this.syncFromNet7SiteButton);
+        this.syncFromNet7SiteButton.Margin = new Padding(left: 0, top: 0, right: 6, bottom: 0);
+        MainWindowTheme.StyleButton(this.syncFromNet7SiteButton, primary: true);
         this.syncFromNet7SiteButton.Click += this.SyncFromNet7SiteButton_OnClick;
 
         buttonPanel.Controls.Add(this.addAccountButton);
+        buttonPanel.Controls.Add(this.syncFromNet7SiteButton);
         buttonPanel.Controls.Add(this.editAccountButton);
         buttonPanel.Controls.Add(this.deleteAccountButton);
-        buttonPanel.Controls.Add(this.syncFromNet7SiteButton);
 
         this.accountsPanel.Dock = DockStyle.Fill;
         this.accountsPanel.AutoScroll = true;

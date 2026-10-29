@@ -113,9 +113,10 @@ internal sealed class ClientNavigationStateObserver
             ClientContextLocalPlayerObjectId,
             out var localPlayerObjectId);
 
-        _ = TryReadUInt32(
-            memory,
-            clientContextAddress,
+        // A bool, the same field as ClientSessionObserver's
+        // LoadingOrTransitionFlag; see there.
+        _ = memory.TryReadByte(
+            clientContextAddress +
             ClientContextFrameProcessingGate,
             out var frameProcessingGateFlag);
 

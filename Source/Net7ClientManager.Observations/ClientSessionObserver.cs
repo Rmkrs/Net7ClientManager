@@ -208,7 +208,10 @@ internal sealed class ClientSessionObserver
                 ClientContextTargetObjectId);
         }
 
-        if (!memory.TryReadUInt32(
+        // A bool: client.exe only reads and writes this field with byte moves.
+        // The three bytes after it are padding the client never initializes,
+        // so a 32-bit read can see stale heap data and never reach zero.
+        if (!memory.TryReadByte(
                 clientContextAddress +
                 ClientContextLoadingOrTransitionFlag,
                 out var loadingOrTransitionFlag))

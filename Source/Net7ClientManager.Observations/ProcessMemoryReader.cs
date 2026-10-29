@@ -69,6 +69,25 @@ internal sealed class ProcessMemoryReader : IDisposable
         return true;
     }
 
+    public bool TryReadByte(
+        uint address,
+        out byte value)
+    {
+        value = 0;
+
+        if (!this.TryReadBytes(
+                address,
+                1,
+                out var bytes))
+        {
+            return false;
+        }
+
+        value = bytes[0];
+
+        return true;
+    }
+
     public bool TryReadBytes(
         uint address,
         int length,

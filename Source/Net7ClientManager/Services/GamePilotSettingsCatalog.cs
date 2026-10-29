@@ -19,8 +19,9 @@ internal static partial class GamePilotSettingsCatalog
         var archiveNames = clientManager.PilotArchive
             .GetPilots()
             .GroupBy(
-                pilot => BinaryPrimitives.ReverseEndianness(
-                    pilot.CharacterId))
+                pilot => ToOptionsFileIdentity(
+                    BinaryPrimitives.ReverseEndianness(
+                        pilot.CharacterId)))
             .ToDictionary(
                 group => group.Key,
                 group => group.First().Name);
@@ -99,7 +100,8 @@ internal static partial class GamePilotSettingsCatalog
 
             if (snapshot.Shortcuts.ShortcutIdentity is > 0 and <= uint.MaxValue)
             {
-                result.Add((uint)snapshot.Shortcuts.ShortcutIdentity.Value);
+                result.Add(ToOptionsFileIdentity(
+                    snapshot.Shortcuts.ShortcutIdentity.Value));
                 continue;
             }
 
@@ -109,7 +111,8 @@ internal static partial class GamePilotSettingsCatalog
 
             if (objectId is not 0 and not uint.MaxValue)
             {
-                result.Add(BinaryPrimitives.ReverseEndianness(objectId));
+                result.Add(ToOptionsFileIdentity(
+                    BinaryPrimitives.ReverseEndianness(objectId)));
             }
         }
 
@@ -125,6 +128,7 @@ internal static partial class GamePilotSettingsCatalog
             return result;
         }
 
+        // shortcut.ini's sections carry the full character id.
         uint? currentIdentity = null;
 
         try
@@ -135,13 +139,13 @@ internal static partial class GamePilotSettingsCatalog
                 var section = ShortcutSectionRegex().Match(line);
 
                 if (section.Success &&
-                    uint.TryParse(
+                    ulong.TryParse(
                         section.Groups["identity"].Value,
                         NumberStyles.None,
                         CultureInfo.InvariantCulture,
-                        out var identity))
+                        out var characterId))
                 {
-                    currentIdentity = identity;
+                    currentIdentity = ToOptionsFileIdentity(characterId);
                     continue;
                 }
 
@@ -176,6 +180,16 @@ internal static partial class GamePilotSettingsCatalog
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// The identity in a pilot's player&lt;identity&gt;_options.ini name. The
+    /// client names the file after its character id modulo 1,000,000,000,
+    /// while shortcut.ini and the session ticket hold the full id.
+    /// </summary>
+    private static uint ToOptionsFileIdentity(ulong characterId)
+    {
+        return (uint)(characterId % 1_000_000_000);
     }
 
     private static string ExtractPilotName(string sourceName)

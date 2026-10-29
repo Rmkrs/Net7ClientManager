@@ -41,7 +41,7 @@ public sealed record ClientNavigationStateObservation
     public uint CurrentClientTime { get; init; }
 
     /// <summary>
-    /// Raw SClient +0x1198 gate around part of frame processing. Its broader
+    /// SClient +0x1198 gate (a bool) around part of frame processing. Its broader
     /// semantic meaning is intentionally not named as a loading flag.
     /// </summary>
     public uint FrameProcessingGateFlag { get; init; }

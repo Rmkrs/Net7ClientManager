@@ -72,7 +72,7 @@ internal sealed class Net7SiteSyncForm : ThemedForm
         var introLabel = new Label
         {
             Text = string.Concat(
-                "Reads the game accounts and characters of your Net-7.org login (the Avatar Transfer page) ",
+                "Reads the game accounts and characters of your Net-7.org login from the website's account API ",
                 "and updates them here. Only the game accounts on that login are changed, and their characters ",
                 "are made to match exactly, including removing characters that no longer exist. ",
                 "Game account passwords are not available from Net-7.org and are left as they are."),

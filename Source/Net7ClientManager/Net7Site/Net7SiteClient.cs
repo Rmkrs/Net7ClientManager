@@ -1,9 +1,8 @@
 namespace Net7ClientManager.Net7Site;
 
-using System.Globalization;
 using System.Net;
 
-// Signs in to www.net-7.org the way its login form does, and reads the account pages.
+// Signs in to www.net-7.org the way its login form does, and reads its account API.
 // Only the sign-in cookies are ever kept (see Net7SiteSessionStore), never the password.
 internal sealed class Net7SiteClient : IDisposable
 {
@@ -62,15 +61,10 @@ internal sealed class Net7SiteClient : IDisposable
             .ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
 
-        var html = await this.GetPageAsync("cpanel.php", cancellationToken)
-            .ConfigureAwait(false);
-
-        if (!Net7SitePageParser.IsSignedIn(html))
-        {
-            throw new Net7SiteException(
+        _ = await this.GetAccountJsonAsync(
                 "Net-7.org did not accept that username and password.",
-                isSignedOut: true);
-        }
+                cancellationToken)
+            .ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<Net7SiteGameAccount>> GetRosterAsync(
@@ -79,52 +73,12 @@ internal sealed class Net7SiteClient : IDisposable
     {
         progress?.Report("Reading game accounts from Net-7.org...");
 
-        var html = await this.GetPageAsync("cpanel.php", cancellationToken)
+        var json = await this.GetAccountJsonAsync(
+                "Not signed in to Net-7.org.",
+                cancellationToken)
             .ConfigureAwait(false);
 
-        if (!Net7SitePageParser.IsSignedIn(html))
-        {
-            throw new Net7SiteException(
-                "Not signed in to Net-7.org.",
-                isSignedOut: true);
-        }
-
-        var accounts = Net7SitePageParser.ParseTransferRoster(html);
-        var total = accounts.Sum(account => account.Avatars.Count);
-        var done = 0;
-        var result = new List<Net7SiteGameAccount>(accounts.Count);
-
-        // One page per avatar for race and profession. A sync is rare, so read them one at a time.
-        foreach (var account in accounts)
-        {
-            var avatars = new List<Net7SiteAvatar>(account.Avatars.Count);
-
-            foreach (var avatar in account.Avatars)
-            {
-                done++;
-                progress?.Report(string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"Reading characters from Net-7.org ({done}/{total})..."));
-
-                var avatarHtml = await this.GetPageAsync(
-                        string.Create(
-                            CultureInfo.InvariantCulture,
-                            $"apanel.php?avatar_id={avatar.AvatarId}"),
-                        cancellationToken)
-                    .ConfigureAwait(false);
-                var (race, profession) = Net7SitePageParser.ParseAvatarClass(avatarHtml);
-
-                avatars.Add(avatar with
-                {
-                    Race = race,
-                    Profession = profession,
-                });
-            }
-
-            result.Add(account with { Avatars = avatars });
-        }
-
-        return result;
+        return Net7SiteApiParser.ParseAccounts(json);
     }
 
     public void RestoreCookies(IEnumerable<Net7SiteStoredCookie> storedCookies)
@@ -182,6 +136,29 @@ internal sealed class Net7SiteClient : IDisposable
                 path,
                 cancellationToken)
             .ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+
+        return await response.Content.ReadAsStringAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    // The site's account API answers 401 when the session is not signed in.
+    private async Task<string> GetAccountJsonAsync(
+        string signedOutMessage,
+        CancellationToken cancellationToken)
+    {
+        using var response = await this.httpClient.GetAsync(
+                "api/account",
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        {
+            throw new Net7SiteException(
+                signedOutMessage,
+                isSignedOut: true);
+        }
+
         response.EnsureSuccessStatusCode();
 
         return await response.Content.ReadAsStringAsync(cancellationToken)

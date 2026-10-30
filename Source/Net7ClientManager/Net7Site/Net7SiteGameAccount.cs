@@ -1,6 +1,6 @@
 namespace Net7ClientManager.Net7Site;
 
-// One game account as listed on the Net-7.org Avatar Transfer page.
+// One game account as listed by the Net-7.org account API.
 internal sealed record Net7SiteGameAccount
 {
     public required int AccountId { get; init; }

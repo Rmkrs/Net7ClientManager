@@ -36,7 +36,7 @@ Deleting a saved pilot only removes the manager’s entry. It does not delete an
 
 ### Sync from Net-7.org
 
-Instead of entering accounts and pilots one by one, **Net-7.org sync** reads them from your Net-7.org login (the same list the website's Avatar Transfer page shows). It is on the main screen under **Accounts & tools → Manage**, and next to **Add** in the Accounts window.
+Instead of entering accounts and pilots one by one, **Net-7.org sync** reads them from your Net-7.org login (the same game accounts and avatars the website lists for you). It is on the main screen under **Accounts & tools → Manage**, and next to **Add** in the Accounts window.
 
 1. Enter your Net-7.org username and password. This is your forum (enb-emulator.com) login, not a game account.
 2. Tick **Remember login** if you want later syncs without typing the password. Only Net-7.org's sign-in cookie is kept, protected for your Windows user. The password itself is never stored. **Forget login** removes the cookie.

@@ -17,6 +17,7 @@ public sealed class AccountsForm : ThemedForm
     private readonly Button addAccountButton = new();
     private readonly Button editAccountButton = new();
     private readonly Button deleteAccountButton = new();
+    private readonly Button syncFromNet7SiteButton = new();
 
     private readonly Button editCharacterButton = new();
     private readonly Button deleteCharacterButton = new();
@@ -239,7 +240,15 @@ public sealed class AccountsForm : ThemedForm
         MainWindowTheme.StyleButton(this.deleteAccountButton, danger: true);
         this.deleteAccountButton.Click += this.DeleteAccountButton_OnClick;
 
+        this.syncFromNet7SiteButton.Text = "Net-7.org sync";
+        this.syncFromNet7SiteButton.Width = 120;
+        this.syncFromNet7SiteButton.Height = 32;
+        this.syncFromNet7SiteButton.Margin = new Padding(left: 0, top: 0, right: 6, bottom: 0);
+        MainWindowTheme.StyleButton(this.syncFromNet7SiteButton, primary: true);
+        this.syncFromNet7SiteButton.Click += this.SyncFromNet7SiteButton_OnClick;
+
         buttonPanel.Controls.Add(this.addAccountButton);
+        buttonPanel.Controls.Add(this.syncFromNet7SiteButton);
         buttonPanel.Controls.Add(this.editAccountButton);
         buttonPanel.Controls.Add(this.deleteAccountButton);
 
@@ -909,6 +918,31 @@ public sealed class AccountsForm : ThemedForm
         }
 
         this.selectedAccount.Characters.Remove(character);
+
+        this.SaveAccounts();
+        this.ReloadAccounts();
+        this.ReloadCharacters();
+        this.UpdateButtonState();
+    }
+
+    private void SyncFromNet7SiteButton_OnClick(object? sender, EventArgs e)
+    {
+        using var dialog = new Net7SiteSyncForm(this.accounts);
+
+        if (dialog.ShowDialog(this) != DialogResult.OK ||
+            dialog.SyncResult is not { } result)
+        {
+            return;
+        }
+
+        var selectedAccountId = this.selectedAccount?.Id;
+
+        this.accounts.Clear();
+        this.accounts.AddRange(result.Accounts);
+        this.selectedAccount =
+            this.accounts.FirstOrDefault(account => account.Id == selectedAccountId) ??
+            this.accounts.FirstOrDefault();
+        this.selectedCharacterSlotNumber = 1;
 
         this.SaveAccounts();
         this.ReloadAccounts();

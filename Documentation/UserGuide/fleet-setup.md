@@ -34,6 +34,17 @@ The order matches the account’s five pilot positions. The up and down controls
 
 Deleting a saved pilot only removes the manager’s entry. It does not delete anything from the game account.
 
+### Sync from Net-7.org
+
+Instead of entering accounts and pilots one by one, **Net-7.org sync** reads them from your Net-7.org login (the same game accounts and avatars the website lists for you). It is on the main screen under **Accounts & tools → Manage**, and next to **Add** in the Accounts window.
+
+1. Enter your Net-7.org username and password. This is your forum (enb-emulator.com) login, not a game account.
+2. Tick **Remember login** if you want later syncs without typing the password. Only Net-7.org's sign-in cookie is kept, protected for your Windows user. The password itself is never stored. **Forget login** removes the cookie.
+3. Click **Read from Net-7.org**. The manager lists every change it would make.
+4. Click **Apply** to save them.
+
+The sync changes only the game accounts on that Net-7.org login. It adds any that are missing, and their pilots are made to match the website exactly: it adds new pilots, moves pilots to the right position or account, sets race and profession, and removes pilots that no longer exist. Accounts in the manager that are not on that login are left as they are. Stored game passwords are not changed, and the website does not provide them, so enter each account's password with **Edit** as before.
+
 ## Profiles
 
 A **profile** is a reusable fleet arrangement. Only one profile is active at a time, and changing profiles immediately applies the newly selected layout to suitable running clients.

@@ -45,6 +45,7 @@ public sealed partial class MainForm
         root.Controls.Add(this.CreateTopCardsPanel(), column: 0, row: 1);
 
         this.accountsButton.Click += this.AccountsButton_OnClick;
+        this.net7SiteSyncButton.Click += this.Net7SiteSyncButton_OnClick;
         this.showHelpButton.Click += this.ShowHelpButton_OnClick;
         this.autoLoginReadinessButton.Click +=
             this.AutoLoginReadinessButton_OnClick;
@@ -386,6 +387,8 @@ public sealed partial class MainForm
         };
 
         this.accountsButton = CreateTopCardButton("Manage", width: 132);
+        this.net7SiteSyncButton = CreateTopCardButton("Net-7.org sync", width: 132);
+        MainWindowTheme.StyleButton(this.net7SiteSyncButton, primary: true);
         this.gameSettingsButton = CreateTopCardButton("Game Settings", width: 150);
         this.pilotArchiveButton = CreateTopCardButton("Pilot Archive", width: 150);
 
@@ -394,6 +397,7 @@ public sealed partial class MainForm
         body.Controls.Add(separator, column: 1, row: 0);
         body.SetRowSpan(separator, value: 3);
         body.Controls.Add(this.accountsButton, column: 0, row: 1);
+        body.Controls.Add(this.net7SiteSyncButton, column: 0, row: 2);
         body.Controls.Add(this.gameSettingsButton, column: 2, row: 1);
         body.Controls.Add(this.pilotArchiveButton, column: 2, row: 2);
 

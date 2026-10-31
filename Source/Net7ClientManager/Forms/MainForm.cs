@@ -33,6 +33,7 @@ public sealed partial class MainForm : ThemedForm
     private ComboBox quickLaunchGameResolutionComboBox = null!;
     private Button startClientButton = null!;
     private Button accountsButton = null!;
+    private Button net7SiteSyncButton = null!;
     private Button showHelpButton = null!;
     private Button autoLoginReadinessButton = null!;
     private Button pilotArchiveButton = null!;
@@ -183,6 +184,7 @@ public sealed partial class MainForm : ThemedForm
             this.QuickLaunchGameResolutionComboBox_OnSelectedIndexChanged;
         this.startClientButton.Click -= this.StartClientButton_OnClick;
         this.accountsButton.Click -= this.AccountsButton_OnClick;
+        this.net7SiteSyncButton.Click -= this.Net7SiteSyncButton_OnClick;
         this.showHelpButton.Click -= this.ShowHelpButton_OnClick;
         this.autoLoginReadinessButton.Click -=
             this.AutoLoginReadinessButton_OnClick;
@@ -447,6 +449,20 @@ public sealed partial class MainForm : ThemedForm
                 this);
 
         form.ShowDialog(this);
+        this.RefreshAll();
+    }
+
+    private void Net7SiteSyncButton_OnClick(object? sender, EventArgs e)
+    {
+        using var dialog = new Net7SiteSyncForm(this.clientManager.ConfiguredAccounts);
+
+        if (dialog.ShowDialog(this) != DialogResult.OK ||
+            dialog.SyncResult is not { } result)
+        {
+            return;
+        }
+
+        this.clientManager.SaveConfiguredAccounts(result.Accounts);
         this.RefreshAll();
     }
 

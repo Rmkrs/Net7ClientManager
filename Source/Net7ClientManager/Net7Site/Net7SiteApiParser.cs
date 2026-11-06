@@ -39,38 +39,57 @@ internal static class Net7SiteApiParser
                 exception);
         }
 
-        if (reply?.Result?.Accounts == null)
+        if (reply?.Result?.Accounts == null || reply.Result.Avatars == null)
         {
-            throw new Net7SiteException(
-                "The account list from Net-7.org was empty. The website may have changed.");
+            throw InvalidRoster();
         }
 
-        var avatarsByAccount = (reply.Result.Avatars ?? [])
-            .Where(avatar => avatar.Id > 0 &&
-                             avatar.Slot is >= 0 and <= 4 &&
-                             !string.IsNullOrWhiteSpace(avatar.Avatar?.Name))
-            .ToLookup(avatar => avatar.AccountId);
+        // This snapshot controls removals. Missing or malformed records must not
+        // silently become an empty roster; only an explicit empty array is empty.
+        var accountIds = new HashSet<int>();
+        var logins = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var account in reply.Result.Accounts)
+        {
+            if (account == null || account.Id <= 0 ||
+                string.IsNullOrWhiteSpace(account.Username) ||
+                !accountIds.Add(account.Id) || !logins.Add(account.Username.Trim()))
+            {
+                throw InvalidRoster();
+            }
+        }
+
+        var avatarIds = new HashSet<int>();
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var slots = new HashSet<(int AccountId, int Slot)>();
+        foreach (var avatar in reply.Result.Avatars)
+        {
+            if (avatar == null || avatar.Id <= 0 ||
+                avatar.Slot is not (>= 0 and <= 4) ||
+                !accountIds.Contains(avatar.AccountId) ||
+                string.IsNullOrWhiteSpace(avatar.Avatar?.Name) ||
+                !avatarIds.Add(avatar.Id) || !names.Add(avatar.Avatar.Name.Trim()) ||
+                !slots.Add((avatar.AccountId, avatar.Slot.Value)))
+            {
+                throw InvalidRoster();
+            }
+        }
+
+        var avatarsByAccount = reply.Result.Avatars.ToLookup(avatar => avatar.AccountId);
 
         var accounts = new List<Net7SiteGameAccount>(reply.Result.Accounts.Count);
 
         foreach (var account in reply.Result.Accounts)
         {
-            if (string.IsNullOrWhiteSpace(account.Username))
-            {
-                throw new Net7SiteException(
-                    "A game account from Net-7.org has no name. The website may have changed.");
-            }
-
             accounts.Add(new Net7SiteGameAccount
             {
                 AccountId = account.Id,
-                LoginName = account.Username.Trim(),
+                LoginName = account.Username!.Trim(),
                 Avatars = [.. avatarsByAccount[account.Id]
                     .Select(avatar => new Net7SiteAvatar
                     {
                         AvatarId = avatar.Id,
                         Name = avatar.Avatar!.Name!.Trim(),
-                        Slot = avatar.Slot,
+                        Slot = avatar.Slot!.Value,
                         Race = KnownValue(races, avatar.Avatar.Race),
                         Profession = KnownValue(professions, ProfessionName(avatar.Avatar.Profession)),
                     })
@@ -80,6 +99,9 @@ internal static class Net7SiteApiParser
 
         return accounts;
     }
+
+    private static Net7SiteException InvalidRoster() => new(
+        "The account list from Net-7.org is incomplete or inconsistent. No accounts were changed. Please try again later.");
 
     // The site calls the Terran trade class "Tradesman"; the game and Client Manager say "Trader".
     private static string? ProfessionName(string? profession)
@@ -125,7 +147,7 @@ internal static class Net7SiteApiParser
         public int Id { get; set; }
 
         [JsonPropertyName("slot")]
-        public int Slot { get; set; }
+        public int? Slot { get; set; }
 
         [JsonPropertyName("account_id")]
         public int AccountId { get; set; }

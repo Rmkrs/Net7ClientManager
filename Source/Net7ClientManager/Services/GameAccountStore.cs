@@ -14,14 +14,16 @@ public sealed class GameAccountStore
     private readonly string filePath;
 
     public GameAccountStore()
-    {
-        var directory = Path.Combine(
+        : this(Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "Net7ClientManager");
+            "Net7ClientManager", "accounts.json"))
+    {
+    }
 
-        Directory.CreateDirectory(directory);
-
-        this.filePath = Path.Combine(directory, "accounts.json");
+    internal GameAccountStore(string filePath)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(filePath))!);
+        this.filePath = filePath;
     }
 
     public List<GameAccount> Load()

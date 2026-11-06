@@ -21,6 +21,75 @@ internal sealed class ForgeContributionClient : IDisposable
         Timeout = TimeSpan.FromSeconds(30),
     };
 
+    private readonly HttpClient identityHttpClient;
+
+    public ForgeContributionClient()
+        : this(new HttpClientHandler { AllowAutoRedirect = false })
+    {
+    }
+
+    internal ForgeContributionClient(HttpMessageHandler identityHandler, HttpMessageHandler? publishingHandler = null)
+    {
+        if (publishingHandler != null)
+        {
+            this.httpClient.Dispose();
+            this.httpClient = new HttpClient(publishingHandler) { BaseAddress = serviceBaseUri, Timeout = TimeSpan.FromSeconds(30) };
+        }
+
+        this.identityHttpClient = new HttpClient(identityHandler)
+        {
+            BaseAddress = serviceBaseUri,
+            Timeout = TimeSpan.FromSeconds(30),
+            MaxResponseContentBufferSize = 64 * 1024,
+        };
+    }
+
+    public async Task<bool> SupportsNet7IdentityAsync(CancellationToken cancellationToken)
+    {
+        using var response = await this.identityHttpClient.GetAsync("api/v1/contributors/net7/capabilities", cancellationToken).ConfigureAwait(false);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound) return false;
+        await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
+            if (document.RootElement.TryGetProperty("protocolVersion", out var version) && version.TryGetInt32(out var number) && number == 1) return true;
+        }
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException) { }
+        throw new ForgeIdentityException("Forge returned an unsupported identity capability response. Please try again later.");
+    }
+
+    public async Task<Net7IdentityChallenge> GetNet7IdentityChallengeAsync(CancellationToken cancellationToken)
+    {
+        using var response = await this.identityHttpClient.PostAsync("api/v1/contributors/net7/challenge", null, cancellationToken).ConfigureAwait(false);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            throw new ForgeIdentityException("This Forge server does not support Net-7 connection yet. Normal publishing and manual recovery remain available.");
+        await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await response.Content.ReadFromJsonAsync<Net7IdentityChallenge>(jsonOptions, cancellationToken).ConfigureAwait(false)
+                ?? throw new ForgeIdentityException("Forge returned an empty verification challenge.");
+        }
+        catch (JsonException)
+        {
+            throw new ForgeIdentityException("Forge returned an invalid verification challenge. Please try again later.");
+        }
+    }
+
+    public async Task<Net7IdentityResponse> VerifyNet7IdentityAsync(Net7IdentityRequest request, CancellationToken cancellationToken)
+    {
+        using var response = await this.identityHttpClient.PostAsJsonAsync("api/v1/contributors/net7/verify", request, jsonOptions, cancellationToken).ConfigureAwait(false);
+        await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await response.Content.ReadFromJsonAsync<Net7IdentityResponse>(jsonOptions, cancellationToken).ConfigureAwait(false)
+                ?? throw new ForgeIdentityException("Forge returned an empty identity response.");
+        }
+        catch (JsonException)
+        {
+            throw new ForgeIdentityException("Forge returned an invalid identity response. Please try again later.");
+        }
+    }
+
     public async Task<ForgeContributorRegistrationResponse> RegisterAsync(
         ForgeContributorRegistrationRequest request,
         CancellationToken cancellationToken)
@@ -475,6 +544,7 @@ internal sealed class ForgeContributionClient : IDisposable
     public void Dispose()
     {
         this.httpClient.Dispose();
+        this.identityHttpClient.Dispose();
     }
 
     private static async Task EnsureBuildSuccessAsync(

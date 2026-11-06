@@ -56,7 +56,7 @@ internal sealed class ForgeIdentityRequiredException : ForgeIdentityException
 {
     public ForgeIdentityRequiredException()
         : base(
-            "Log into a character once before using Forge.")
+            "Open Forge Contributions and connect through Net-7 before using Forge.")
     {
     }
 }

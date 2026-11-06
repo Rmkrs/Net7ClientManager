@@ -6,4 +6,7 @@
     <Project Path="Source/Net7ClientManager/Net7ClientManager.csproj" />
     <Project Path="Source/net7cmctl/net7cmctl.csproj" />
   </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="Tests/Net7ClientManager.Tests/Net7ClientManager.Tests.csproj" />
+  </Folder>
 </Solution>

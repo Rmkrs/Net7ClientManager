@@ -106,7 +106,9 @@ internal static class Net7SiteAccountSync
                     Name = name,
                     Race = avatar.Race ?? existing.Race,
                     Profession = avatar.Profession ?? existing.Profession,
-                    CharacterSelectClickActionName = existing.CharacterSelectClickActionName,
+                    // The imported slot is authoritative. The legacy action name
+                    // would override it when GameAccountStore reloads the file.
+                    CharacterSelectClickActionName = null,
                 };
 
                 characters.Add(character);

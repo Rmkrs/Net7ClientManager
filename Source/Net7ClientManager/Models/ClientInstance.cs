@@ -67,6 +67,9 @@ public sealed class ClientInstance(int processId, Process process)
 
     public DateTimeOffset? LoginSubmittedAt { get; set; }
 
+    // A transferred pilot cannot be selected in a session authenticated to its old account.
+    public bool RequiresLoginAfterAccountTransfer { get; set; }
+
     public AutoLoginProvenance? AutoLoginProvenance { get; set; }
 
     public DateTimeOffset? InGameSince { get; set; }

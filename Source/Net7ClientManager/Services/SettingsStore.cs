@@ -16,12 +16,16 @@ public sealed class SettingsStore
     private readonly string settingsFilePath;
 
     public SettingsStore()
-    {
-        this.settingsDirectory = Path.Combine(
+        : this(Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "Net7ClientManager");
+            "Net7ClientManager", "settings.json"))
+    {
+    }
 
-        this.settingsFilePath = Path.Combine(this.settingsDirectory, "settings.json");
+    internal SettingsStore(string filePath)
+    {
+        this.settingsDirectory = Path.GetDirectoryName(Path.GetFullPath(filePath))!;
+        this.settingsFilePath = filePath;
     }
 
     public AppSettings Load()

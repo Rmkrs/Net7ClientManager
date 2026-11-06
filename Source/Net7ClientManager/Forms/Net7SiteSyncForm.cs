@@ -20,14 +20,20 @@ internal sealed class Net7SiteSyncForm : ThemedForm
     private readonly Button applyButton = new();
 
     private readonly IReadOnlyList<GameAccount> accounts;
-    private readonly Net7SiteSessionStore sessionStore = new();
+    private readonly Net7SiteSessionStore sessionStore;
     private readonly CancellationTokenSource cancellation = new();
 
     private Net7SiteSession? storedSession;
     private bool isBusy;
 
     public Net7SiteSyncForm(IReadOnlyList<GameAccount> accounts)
+        : this(accounts, new Net7SiteSessionStore())
     {
+    }
+
+    internal Net7SiteSyncForm(IReadOnlyList<GameAccount> accounts, Net7SiteSessionStore sessionStore)
+    {
+        this.sessionStore = sessionStore;
         this.accounts = accounts;
         this.storedSession = this.sessionStore.Load();
 
@@ -236,8 +242,14 @@ internal sealed class Net7SiteSyncForm : ThemedForm
 
     private void ForgetLoginButton_OnClick(object? sender, EventArgs e)
     {
+        this.ForgetLogin();
+    }
+
+    internal void ForgetLogin()
+    {
         this.sessionStore.Delete();
         this.storedSession = null;
+        this.SyncResult = null;
         this.passwordTextBox.Text = "";
         this.ShowStoredSession();
         this.UpdateButtonState();
@@ -308,8 +320,7 @@ internal sealed class Net7SiteSyncForm : ThemedForm
             }
 
             this.passwordTextBox.Text = "";
-            this.SyncResult = Net7SiteAccountSync.Merge(this.accounts, roster);
-            this.resultTextBox.Text = DescribeResult(roster, this.SyncResult);
+            this.ShowPreview(roster);
         }
         catch (OperationCanceledException) when (this.cancellation.IsCancellationRequested)
         {
@@ -346,6 +357,13 @@ internal sealed class Net7SiteSyncForm : ThemedForm
                 this.UpdateButtonState();
             }
         }
+    }
+
+    internal void ShowPreview(IReadOnlyList<Net7SiteGameAccount> roster)
+    {
+        this.SyncResult = Net7SiteAccountSync.Merge(this.accounts, roster);
+        this.resultTextBox.Text = DescribeResult(roster, this.SyncResult);
+        this.UpdateButtonState();
     }
 
     private void ApplyButton_OnClick(object? sender, EventArgs e)

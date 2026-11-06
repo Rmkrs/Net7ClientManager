@@ -16,14 +16,16 @@ internal sealed class Net7SiteSessionStore
     private readonly string filePath;
 
     public Net7SiteSessionStore()
-    {
-        var directory = Path.Combine(
+        : this(Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "Net7ClientManager");
+            "Net7ClientManager", "net7-site-session.json"))
+    {
+    }
 
-        Directory.CreateDirectory(directory);
-
-        this.filePath = Path.Combine(directory, "net7-site-session.json");
+    internal Net7SiteSessionStore(string filePath)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(filePath))!);
+        this.filePath = filePath;
     }
 
     public Net7SiteSession? Load()

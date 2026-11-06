@@ -93,6 +93,13 @@ internal sealed class ForgeContributionIdentityService
                 identity = this.EnsureKeyMaterial();
             }
 
+            // Older Forge deployments retain automatic registration. Only a missing
+            // capability route selects that path; outages and invalid replies do not.
+            if (!this.HasIdentity && await this.client.SupportsNet7IdentityAsync(cancellationToken).ConfigureAwait(false))
+            {
+                throw new ForgeIdentityRequiredException();
+            }
+
             if (this.HasIdentity && this.confirmedPilots.Contains(livePilotName))
             {
                 return identity with
@@ -165,6 +172,45 @@ internal sealed class ForgeContributionIdentityService
         {
             this.ResetKeyMaterial();
             throw;
+        }
+        finally
+        {
+            this.identityLock.Release();
+        }
+    }
+
+    public async Task<Net7IdentityResponse> VerifyNet7IdentityAsync(
+        string action, int accountId, string sessionCookie, string? recoveryCode, CancellationToken cancellationToken)
+    {
+        await this.identityLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var previousContributor = Normalize(this.settings.ContributorId);
+            var identity = this.EnsureKeyMaterial();
+            var challenge = await this.client.GetNet7IdentityChallengeAsync(cancellationToken).ConfigureAwait(false);
+            var request = new Net7IdentityRequest
+            {
+                Action = action, AccountId = accountId, SessionCookie = sessionCookie,
+                RecoveryCode = recoveryCode?.Trim().ToUpperInvariant(),
+                PublicKey = identity.PublicKey, Challenge = challenge.Challenge,
+            };
+            request.Signature = identity.Sign(request);
+            var response = await this.client.VerifyNet7IdentityAsync(request, cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(response.ContributorId) || response.AccountId != accountId ||
+                string.IsNullOrWhiteSpace(response.RecoveryCode) ||
+                (previousContributor != null && !string.Equals(previousContributor, response.ContributorId, StringComparison.Ordinal)))
+            {
+                throw new ForgeIdentityException("Forge returned a different or incomplete identity. This installation was not switched.");
+            }
+
+            this.settings.ContributorId = response.ContributorId;
+            this.settings.RegisteredAtUtc = response.RegisteredAtUtc;
+            this.settings.Net7RecoveryAccountId = response.AccountId;
+            this.ClearRecovery();
+            this.confirmedPilots.Clear();
+            this.saveSettings();
+            // The recovery secret is shown once, not retained beside the installation key.
+            return response;
         }
         finally
         {
@@ -270,6 +316,7 @@ internal sealed class ForgeContributionIdentityService
             this.settings.PublicKey = Convert.ToBase64String(publicKeyBytes);
             this.settings.ContributorId = null;
             this.settings.RegisteredAtUtc = null;
+        this.settings.Net7RecoveryAccountId = null;
             this.ClearRecovery();
             this.saveSettings();
         }
@@ -375,6 +422,7 @@ internal sealed class ForgeContributionIdentityService
         this.settings.PublicKey = null;
         this.settings.ProtectedPrivateKey = null;
         this.settings.RegisteredAtUtc = null;
+        this.settings.Net7RecoveryAccountId = null;
         this.ClearRecovery();
         this.confirmedPilots.Clear();
         this.saveSettings();
@@ -402,6 +450,9 @@ internal sealed record ForgeContributionIdentity(
     string PrivateKey,
     string PublicKey)
 {
+    public string Sign(Net7IdentityRequest request) =>
+        this.SignPayload(Net7IdentityCanonicalizer.Canonicalize(request));
+
     public string Sign(ForgeContributorRegistrationRequest request) =>
         this.SignPayload(ForgeContributionCanonicalizer.Canonicalize(request));
 

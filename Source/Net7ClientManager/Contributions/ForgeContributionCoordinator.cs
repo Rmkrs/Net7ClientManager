@@ -61,6 +61,9 @@ internal sealed partial class ForgeContributionCoordinator : IDisposable
 
     internal bool HasIdentity => this.identityService.HasIdentity;
 
+    internal Task<Net7IdentityResponse> VerifyNet7IdentityAsync(string action, int accountId, string sessionCookie, string? recoveryCode, CancellationToken cancellationToken) =>
+        this.identityService.VerifyNet7IdentityAsync(action, accountId, sessionCookie, recoveryCode, cancellationToken);
+
     internal ForgeIdentityStatusSnapshot GetIdentityStatus() =>
         this.identityService.GetStatus();
 

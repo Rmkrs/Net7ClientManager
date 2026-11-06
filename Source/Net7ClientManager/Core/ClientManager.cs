@@ -560,6 +560,9 @@ public sealed class ClientManager : IDisposable
     public ForgeContributionSettings ForgeContributionSettings =>
         this.settings.ForgeContributions;
 
+    internal Task<Net7IdentityResponse> VerifyForgeNet7IdentityAsync(string action, int accountId, string sessionCookie, string? recoveryCode, CancellationToken cancellationToken) =>
+        this.forgeContributionCoordinator.VerifyNet7IdentityAsync(action, accountId, sessionCookie, recoveryCode, cancellationToken);
+
     internal ForgeIdentityStatusSnapshot GetForgeIdentityStatus() =>
         this.forgeContributionCoordinator.GetIdentityStatus();
 
@@ -4597,11 +4600,25 @@ public sealed class ClientManager : IDisposable
     public void SaveConfiguredAccounts(
         IReadOnlyCollection<GameAccount> gameAccounts)
     {
-        this.accounts = [.. gameAccounts
+        var updatedAccounts = gameAccounts
             .OrderBy(account => account.DisplayName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(account => account.LoginName, StringComparer.OrdinalIgnoreCase)];
+            .ThenBy(account => account.LoginName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var transfers = new ConfiguredAccountTransfers(this.accounts, updatedAccounts);
+        this.gameAccountStore.Save(updatedAccounts);
 
-        this.gameAccountStore.Save(this.accounts);
+        // Capture the old effective assignments before rebinding profile slots.
+        foreach (var client in this.clients.Values)
+        {
+            transfers.ApplyToClient(client, this.ResolveClientLaunchRequest(client));
+        }
+
+        transfers.ApplyToLaunch(this.pendingManagedClientLaunch);
+        this.accounts = updatedAccounts;
+        if (transfers.ApplyToProfiles(this.settings.Profiles))
+        {
+            this.SaveSettings();
+        }
     }
 
     public void Dispose()
@@ -10435,6 +10452,9 @@ public sealed class ClientManager : IDisposable
                 var submittedAt = DateTimeOffset.UtcNow;
 
                 client.LoginSubmittedAt = submittedAt;
+                // SendKeys can pump UI messages, including an account sync.
+                client.RequiresLoginAfterAccountTransfer =
+                    this.ResolveClientLaunchRequest(client)?.AccountId != account.Id;
                 client.AutoLoginProvenance = new AutoLoginProvenance
                 {
                     AccountId = account.Id,
@@ -10464,6 +10484,13 @@ public sealed class ClientManager : IDisposable
                 ClientLifecycleState.CharacterSelection ||
             !launch.AutoEnterGame)
         {
+            return;
+        }
+
+        if (client.RequiresLoginAfterAccountTransfer)
+        {
+            client.PendingEnterGameAction = null;
+            client.AutomationStatus = "Pilot account changed; log in again before automatic character selection";
             return;
         }
 

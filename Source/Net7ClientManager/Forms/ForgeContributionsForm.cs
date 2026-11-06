@@ -50,6 +50,7 @@ public sealed class ForgeContributionsForm : Form
     private TableLayoutPanel recoveryRow = null!;
     private readonly ComboBox recoveryPilotComboBox = new();
     private readonly Button beginRecoveryButton = new();
+    private readonly Button net7IdentityButton = new();
     private readonly Button checkRecoveryButton = new();
     private readonly Button copyRecoveryButton = new();
     private readonly Label revisionValueLabel = CreateValueLabel();
@@ -161,6 +162,7 @@ public sealed class ForgeContributionsForm : Form
 
             this.dataUpdateButton.Click -= this.DataUpdateButton_OnClick;
             this.beginRecoveryButton.Click -= this.BeginRecoveryButton_OnClick;
+            this.net7IdentityButton.Click -= this.Net7IdentityButton_OnClick;
             this.checkRecoveryButton.Click -= this.CheckRecoveryButton_OnClick;
             this.copyRecoveryButton.Click -= this.CopyRecoveryButton_OnClick;
             this.titleBar.DragRequested -= this.TitleBar_OnDragRequested;
@@ -281,7 +283,7 @@ public sealed class ForgeContributionsForm : Form
     private Control CreateForgeIdentityPanel()
     {
         this.forgeIdentityPanel = CreateSectionPanel();
-        var layout = CreateSectionLayout(rowCount: 4);
+        var layout = CreateSectionLayout(rowCount: 5);
 
         layout.Controls.Add(CreateHeading("Forge connection"), 0, 0);
         layout.Controls.Add(
@@ -316,7 +318,7 @@ public sealed class ForgeContributionsForm : Form
 
         ConfigureActionButton(
             this.beginRecoveryButton,
-            "Use my existing Forge profile");
+            "Manual recovery (legacy / lost code)");
         ConfigureActionButton(this.checkRecoveryButton, "Check again");
         ConfigureActionButton(
             this.copyRecoveryButton,
@@ -332,6 +334,8 @@ public sealed class ForgeContributionsForm : Form
         this.forgeIdentityDetailLabel.Margin = new Padding(0, 2, 0, 0);
         layout.Controls.Add(this.forgeIdentityDetailLabel, 0, 3);
 
+        ConfigureActionButton(this.net7IdentityButton, "Connect / recover through Net-7");
+        layout.Controls.Add(this.net7IdentityButton, 0, 4);
         this.forgeIdentityPanel.Controls.Add(layout);
         return this.forgeIdentityPanel;
     }
@@ -612,6 +616,7 @@ public sealed class ForgeContributionsForm : Form
         this.resetSessionButton.Click += this.ResetSessionButton_OnClick;
         this.dataUpdateButton.Click += this.DataUpdateButton_OnClick;
         this.beginRecoveryButton.Click += this.BeginRecoveryButton_OnClick;
+        this.net7IdentityButton.Click += this.Net7IdentityButton_OnClick;
         this.checkRecoveryButton.Click += this.CheckRecoveryButton_OnClick;
         this.copyRecoveryButton.Click += this.CopyRecoveryButton_OnClick;
         this.titleBar.DragRequested += this.TitleBar_OnDragRequested;
@@ -713,6 +718,15 @@ public sealed class ForgeContributionsForm : Form
     private void ResetSessionButton_OnClick(object? sender, EventArgs e)
     {
         this.clientManager.ResetForgeContributionSessionStatistics();
+        this.RefreshStatistics();
+    }
+
+    private void Net7IdentityButton_OnClick(object? sender, EventArgs e)
+    {
+        using var dialog = new ForgeNet7IdentityForm(this.clientManager.GetForgeIdentityStatus().HasIdentity,
+            this.clientManager.VerifyForgeNet7IdentityAsync);
+        dialog.ShowDialog(this);
+        this.identityOperationMessage = "";
         this.RefreshStatistics();
     }
 
@@ -923,7 +937,7 @@ public sealed class ForgeContributionsForm : Form
                     ? "Ready"
                     : identityStatus.HasPendingRecovery
                         ? "Waiting for Huron"
-                        : "Connects automatically when needed");
+                        : "Connect through Net-7");
             changed |= SetText(
                 this.revisionValueLabel,
                 string.Create(
@@ -1024,7 +1038,9 @@ public sealed class ForgeContributionsForm : Form
         else if (status.HasIdentity)
         {
             value = "Ready";
-            detail = "";
+            detail = this.clientManager.ForgeContributionSettings.Net7RecoveryAccountId.HasValue
+                ? "Net-7 recovery is linked. Keep your Forge recovery code safe."
+                : "Link a Net-7 recovery account and save a recovery code to recover this Forge identity on another installation.";
             color = AddonCenterTheme.Text;
         }
         else if (status.HasPendingRecovery)
@@ -1047,9 +1063,7 @@ public sealed class ForgeContributionsForm : Form
         {
             value = "Not connected";
             detail = string.IsNullOrWhiteSpace(this.identityOperationMessage)
-                ? livePilots.Count == 0
-                    ? "Log into a character before reconnecting to a previous Forge profile."
-                    : "Already used Forge on another installation? Choose your character below. New users do not need to do anything."
+                ? "Connect through Net-7 to create an identity or recover with your saved code. Existing identities without a code can use manual recovery."
                 : this.identityOperationMessage;
             color = AddonCenterTheme.Text;
         }
@@ -1077,7 +1091,9 @@ public sealed class ForgeContributionsForm : Form
             !string.IsNullOrWhiteSpace(status.RecoveryCode);
 
         var showRecoveryRow = showBeginRecovery || showPendingActions;
-        var showPanel = !status.HasIdentity;
+        var showPanel = true;
+        this.net7IdentityButton.Enabled = !this.identityOperationBusy;
+        this.net7IdentityButton.Text = status.HasIdentity ? "Manage Net-7 recovery" : "Connect / recover through Net-7";
         var showDetail = showPanel && !string.IsNullOrWhiteSpace(detail);
 
         var changed = itemsChanged;

@@ -41,6 +41,22 @@ The application is a .NET 10 Windows desktop application. Build the solution wit
 dotnet build Net7ClientManager.slnx
 ```
 
+The account-sync regression suite runs offline using synthetic accounts and temporary storage:
+
+```powershell
+dotnet test Tests/Net7ClientManager.Tests -c Release
+```
+
+It covers malformed API responses, account/profile transfers, protected sessions and the sync dialog's preview state. It does not sign in to Net-7 or modify your saved accounts.
+
 ## License
 
 MIT
+
+### Forge identity and recovery
+
+Open **Forge Contributions → Connect / recover through Net-7** to create your first Forge identity. Sign in to Net-7, select a game account for recovery, and save the issued Forge recovery code separately (for example in a password manager).
+
+On another installation, choose **Recover using saved code** and verify the same game account through Net-7. Both are required. Successful recovery issues a replacement code; save that one instead. Existing installations can use **Manage Net-7 recovery** to link an account or replace the recovery code. Publishing continues to use the existing local Forge credential and does not require repeated Net-7 sign-ins.
+
+Your password goes only to Net-7. Forge temporarily receives the session to verify your selected account and does not store it. The recovery code is shown once and is not kept in Client Manager settings. Legacy identities and lost-code cases can still use manual recovery. The new connection/recovery option becomes available when Forge supports it. Client and server can be updated in either order: older servers retain automatic registration and manual recovery, while updated servers continue supporting released clients without an upgrade deadline.

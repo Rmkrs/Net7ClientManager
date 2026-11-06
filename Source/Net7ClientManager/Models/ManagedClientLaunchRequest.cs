@@ -10,7 +10,7 @@ public sealed class ManagedClientLaunchRequest
 
     public Guid? TargetSlotId { get; init; }
 
-    public Guid? AccountId { get; init; }
+    public Guid? AccountId { get; set; }
 
     public Guid? CharacterId { get; init; }
 

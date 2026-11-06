@@ -22,6 +22,8 @@ public sealed class ForgeContributionSettings
 
     public DateTimeOffset? RegisteredAtUtc { get; set; }
 
+    public int? Net7RecoveryAccountId { get; set; }
+
     public string? RecoveryRequestId { get; set; }
 
     public string? RecoveryCode { get; set; }
